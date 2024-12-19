@@ -409,40 +409,64 @@ iree_status_t ProgramInvocation::FinalizeCallingConvention(
   if (invocation_model == ProgramInvocationModel::COARSE_FENCES) {
     // If we have a device_selection, set up to signal the leader account.
     iree_hal_fence_t *maybe_wait_fence = nullptr;
-    if (device_selection_) {
-      ScopedDevice scoped_device(*fiber(), device_selection_);
-      auto &sched_account =
-          fiber()->scheduler().GetDefaultAccount(scoped_device);
-      maybe_wait_fence = this->wait_fence();
-      iree_hal_semaphore_t *timeline_sem = sched_account.timeline_sem();
-      uint64_t timeline_now = sched_account.timeline_idle_timepoint();
-      SHORTFIN_SCHED_LOG("Invocation {}: Wait on account timeline {}@{}",
-                         static_cast<void *>(this),
-                         static_cast<void *>(timeline_sem), timeline_now);
-      IREE_RETURN_IF_ERROR(
-          iree_hal_fence_insert(maybe_wait_fence, timeline_sem, timeline_now));
-      signal_sem_ = sched_account.timeline_sem();
-      signal_timepoint_ = sched_account.timeline_acquire_timepoint();
-    }
+    if (!device_selections_.empty()) {
+      for (auto &device : device_selections_) {
+        logging::info("Affinity selected for fence: {}", device.to_s());
+        ScopedDevice scoped_device(*fiber(), device);
+        auto &sched_account =
+            fiber()->scheduler().GetDefaultAccount(scoped_device);
+        maybe_wait_fence = this->wait_fence();
+        iree_hal_semaphore_t *timeline_sem = sched_account.timeline_sem();
+        uint64_t timeline_now = sched_account.timeline_idle_timepoint();
+        logging::info("Invocation {}: Wait on account timeline {}@{}",
+                      static_cast<void *>(this),
+                      static_cast<void *>(timeline_sem), timeline_now);
+        IREE_RETURN_IF_ERROR(iree_hal_fence_insert(maybe_wait_fence,
+                                                   timeline_sem, timeline_now));
+        signal_sem_ = sched_account.timeline_sem();
+        signal_timepoint_ = sched_account.timeline_acquire_timepoint();
 
-    // Push wait fence (or null if no wait needed).
-    ::iree::vm::ref<iree_hal_fence_t> wait_ref;
-    if (maybe_wait_fence) {
-      wait_ref = ::iree::vm::retain_ref(maybe_wait_fence);
-    }
-    IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, wait_ref));
+        // Push wait fence (or null if no wait needed).
+        ::iree::vm::ref<iree_hal_fence_t> wait_ref;
+        if (maybe_wait_fence) {
+          wait_ref = ::iree::vm::retain_ref(maybe_wait_fence);
+        }
+        IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, wait_ref));
 
-    // Create and push signal fence (or null if no signal needed).
-    ::iree::vm::ref<iree_hal_fence_t> signal_ref;
-    if (signal_sem_) {
-      SHORTFIN_SCHED_LOG("Invocation {}: Set signal {}@{}",
-                         static_cast<void *>(this),
-                         static_cast<void *>(signal_sem_), signal_timepoint_);
-      IREE_RETURN_IF_ERROR(
-          iree_hal_fence_create_at(signal_sem_, signal_timepoint_,
-                                   fiber()->host_allocator(), &signal_ref));
+        // Create and push signal fence (or null if no signal needed).
+        ::iree::vm::ref<iree_hal_fence_t> signal_ref;
+        if (signal_sem_) {
+          logging::info("Invocation {}: Set signal {}@{}",
+                        static_cast<void *>(this),
+                        static_cast<void *>(signal_sem_), signal_timepoint_);
+          IREE_RETURN_IF_ERROR(
+              iree_hal_fence_create_at(signal_sem_, signal_timepoint_,
+                                       fiber()->host_allocator(), &signal_ref));
+        }
+        IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, signal_ref));
+        logging::info("Pushed ref move success...");
+      }
+    } else {
+      // Push wait fence (or null if no wait needed).
+        ::iree::vm::ref<iree_hal_fence_t> wait_ref;
+        if (maybe_wait_fence) {
+          wait_ref = ::iree::vm::retain_ref(maybe_wait_fence);
+        }
+        IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, wait_ref));
+
+        // Create and push signal fence (or null if no signal needed).
+        ::iree::vm::ref<iree_hal_fence_t> signal_ref;
+        if (signal_sem_) {
+          logging::info("Invocation {}: Set signal {}@{}",
+                        static_cast<void *>(this),
+                        static_cast<void *>(signal_sem_), signal_timepoint_);
+          IREE_RETURN_IF_ERROR(
+              iree_hal_fence_create_at(signal_sem_, signal_timepoint_,
+                                       fiber()->host_allocator(), &signal_ref));
+        }
+        IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, signal_ref));
+        logging::info("Pushed ref move success...");
     }
-    IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, signal_ref));
   } else {
     logging::warn(
         "Invoking function '{}' with unknown or synchronous invocation model "
@@ -512,6 +536,7 @@ ProgramInvocation::Future ProgramInvocation::Invoke(
           invocation->arg_list(), function, invocation_model);
     }
     if (iree_status_is_ok(status)) {
+      logging::info("Invoking iree_vm_async_invoke");
       status = iree_vm_async_invoke(worker->loop(),
                                     &invocation->state.async_invoke_state,
                                     invocation->vm_context_.get(), function,
@@ -527,9 +552,11 @@ ProgramInvocation::Future ProgramInvocation::Invoke(
     // invocation, so we release it here and return. We have to treat
     // the invocation as possibly deallocated at this point, since the
     // async invocation may have finished already.
+    logging::info("Checking status...");
     if (iree_status_is_ok(status)) {
       invocation.release();
     } else if (failure_future) {
+      logging::info("Failure future...");
       // Requested to set any failure on the future.
       invocation->ReleaseContext();
       failure_future->set_failure(status);
@@ -557,6 +584,7 @@ ProgramInvocation::Future ProgramInvocation::Invoke(
     worker.CallThreadsafe(bound_schedule);
   }
 
+  logging::info("Returning fork...");
   return fork_future;
 }
 
@@ -595,7 +623,16 @@ void ProgramInvocation::DeviceSelect(DeviceAffinity device_affinity) {
   CheckNotScheduled();
   SHORTFIN_SCHED_LOG("Invocation {}: DeviceSelect {}",
                      static_cast<void *>(this), device_affinity.to_s());
-  device_selection_ |= device_affinity;
+  logging::info("Invocation {}: DeviceSelect {}", static_cast<void *>(this),
+                device_affinity.to_s());
+  auto it = std::find(device_selections_.begin(), device_selections_.end(),
+                      device_affinity);
+  if (it == device_selections_.end()) {
+    device_selections_.push_back(device_affinity);
+  } else {
+    *it |= device_affinity;
+  }
+  // asm("int3");
 }
 
 std::string ProgramInvocation::to_s() {
@@ -663,7 +700,7 @@ void StaticProgramParameters::Load(std::filesystem::path file_path,
 
   // Parse.
   SHORTFIN_THROW_IF_ERROR(iree_io_parse_file_index(
-      to_iree_string_view(options.format), file_handle.get(), index_.get()));
+      to_iree_string_view(options.format), file_handle.get(), index_.get(), host_allocator_));
 }
 
 // -------------------------------------------------------------------------- //

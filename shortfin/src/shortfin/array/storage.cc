@@ -92,7 +92,9 @@ storage storage::subspan(iree_device_size_t byte_offset,
                          iree_device_size_t byte_length) {
   storage new_storage(device_, {}, timeline_resource_);
   SHORTFIN_THROW_IF_ERROR(iree_hal_buffer_subspan(
-      buffer_, byte_offset, byte_length, new_storage.buffer_.for_output()));
+      buffer_, byte_offset, byte_length,
+      iree_hal_device_host_allocator(device_.raw_device()->hal_device()),
+      new_storage.buffer_.for_output()));
   return new_storage;
 }
 
@@ -232,19 +234,44 @@ storage storage::CreateFromInvocationResultRef(local::ProgramInvocation *inv,
   return ImportInvocationResultStorage(inv, std::move(buffer));
 }
 
+/**
+ * TODO(SNB): This is incorrect. I'm not sure what the correct implementation is.
+ */
 storage storage::ImportInvocationResultStorage(local::ProgramInvocation *inv,
                                                iree::hal_buffer_ptr buffer) {
   SHORTFIN_TRACE_SCOPE_NAMED("storage::ImportInvocationResultStorage");
+  if (inv->device_selections().size() > 1) {
+    for (auto &device_affinity : inv->device_selections()) {
+      local::ScopedDevice device =
+          local::ScopedDevice(*inv->fiber(), device_affinity);
+      auto imported_storage = storage::import_buffer(device, std::move(buffer));
+
+      auto coarse_signal = inv->coarse_signal();
+      if (coarse_signal.first) {
+        SHORTFIN_SCHED_LOG("Storage buffer {}: Ready barrier {}@{}",
+                           static_cast<void *>(imported_storage.buffer_.get()),
+                           static_cast<void *>(coarse_signal.first),
+                           coarse_signal.second);
+        imported_storage.timeline_resource_->set_mutation_barrier(
+            coarse_signal.first, coarse_signal.second);
+        imported_storage.timeline_resource_->use_barrier_insert(
+            coarse_signal.first, coarse_signal.second);
+      }
+
+      return imported_storage;
+    }
+  }
+
   local::ScopedDevice device =
-      local::ScopedDevice(*inv->fiber(), inv->device_selection());
+      local::ScopedDevice(*inv->fiber(), inv->device_selections().at(0));
   auto imported_storage = storage::import_buffer(device, std::move(buffer));
 
   auto coarse_signal = inv->coarse_signal();
   if (coarse_signal.first) {
     SHORTFIN_SCHED_LOG("Storage buffer {}: Ready barrier {}@{}",
-                       static_cast<void *>(imported_storage.buffer_.get()),
-                       static_cast<void *>(coarse_signal.first),
-                       coarse_signal.second);
+                        static_cast<void *>(imported_storage.buffer_.get()),
+                        static_cast<void *>(coarse_signal.first),
+                        coarse_signal.second);
     imported_storage.timeline_resource_->set_mutation_barrier(
         coarse_signal.first, coarse_signal.second);
     imported_storage.timeline_resource_->use_barrier_insert(

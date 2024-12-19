@@ -9,6 +9,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <set>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -140,8 +141,8 @@ class SHORTFIN_API ProgramInvocation {
   // This method will raise an exception if the implied semantics are violated.
   void DeviceSelect(DeviceAffinity device_affinity);
 
-  // Selected device affinity used for scheduling.
-  const DeviceAffinity &device_selection() { return device_selection_; }
+  // Selected device affinities used for scheduling.
+  const std::vector<DeviceAffinity> &device_selections() { return device_selections_; }
 
   // If this invocation provides coarse signaling of result availability,
   // the semaphore and timepoint are returned here. If the semaphore is null,
@@ -202,7 +203,7 @@ class SHORTFIN_API ProgramInvocation {
   iree::hal_fence_ptr wait_fence_;
   iree_hal_semaphore_t *signal_sem_ = nullptr;
   uint64_t signal_timepoint_ = 0;
-  DeviceAffinity device_selection_;
+  std::vector<DeviceAffinity> device_selections_;
   bool scheduled_ = false;
 };
 

@@ -27,6 +27,7 @@ Fiber::Fiber(std::shared_ptr<System> system, Worker &worker,
       worker_(worker) {
   logging::construct("Fiber", this);
   for (auto &it : devices) {
+    logging::info("Adding device from Fiber constr.");
     AddDevice(it.first, it.second);
   }
   Initialize();
@@ -42,6 +43,7 @@ Fiber::Fiber(std::shared_ptr<System> system, Worker &worker,
   for (auto *device : devices) {
     AddDevice(device->address().logical_device_class, device);
   }
+  logging::info("Fiber {}", this->to_s());
   Initialize();
 }
 

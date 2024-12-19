@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI):
         for service_name, service in services.items():
             logging.info("Initializing service '%s': %r", service_name, service)
             service.start()
+            logger.info("service initialized")
     except:
         sysman.shutdown()
         raise
