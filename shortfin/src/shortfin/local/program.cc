@@ -409,9 +409,6 @@ iree_status_t ProgramInvocation::FinalizeCallingConvention(
     ProgramInvocationModel invocation_model) {
   // Handle post-processing invocation model setup.
   if (invocation_model == ProgramInvocationModel::COARSE_FENCES) {
-    iree_host_size_t required_capacity = iree_vm_list_size(arg_list) + 4;
-    IREE_RETURN_IF_ERROR(iree_vm_list_resize(arg_list, required_capacity));
-
     // If we have a device_selection, set up to signal the leader account.
     iree_hal_fence_t *maybe_wait_fence = nullptr;
     if (!device_selections_.empty()) {
