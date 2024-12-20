@@ -12,6 +12,7 @@
 #include "iree/io/formats/parser_registry.h"
 #include "iree/modules/hal/module.h"
 #include "iree/modules/io/parameters/module.h"
+#include "iree/vm/api.h"
 #include "iree/vm/bytecode/module.h"
 #include "shortfin/local/fiber.h"
 #include "shortfin/local/system.h"
@@ -340,6 +341,7 @@ ProgramInvocation::Ptr ProgramInvocation::New(
     std::shared_ptr<Fiber> fiber, iree::vm_context_ptr vm_context,
     iree_vm_function_t &vm_function, ProgramInvocationModel invocation_model,
     detail::ProgramIsolate *isolate) {
+  logging::info("In New function...");
   auto sig = iree_vm_function_signature(&vm_function);
   iree_host_size_t arg_count;
   iree_host_size_t result_count;
@@ -407,11 +409,16 @@ iree_status_t ProgramInvocation::FinalizeCallingConvention(
     ProgramInvocationModel invocation_model) {
   // Handle post-processing invocation model setup.
   if (invocation_model == ProgramInvocationModel::COARSE_FENCES) {
+    iree_host_size_t required_capacity = iree_vm_list_size(arg_list) + 4;
+    IREE_RETURN_IF_ERROR(iree_vm_list_resize(arg_list, required_capacity));
+
     // If we have a device_selection, set up to signal the leader account.
     iree_hal_fence_t *maybe_wait_fence = nullptr;
     if (!device_selections_.empty()) {
-      for (auto &device : device_selections_) {
-        logging::info("Affinity selected for fence: {}", device.to_s());
+      for (iree_host_size_t i = 0; i < device_selections_.size(); ++i) {
+        auto device = device_selections_.at(i);
+        logging::info("SNB Affinity selected for fence: {}",
+                      device.to_s());
         ScopedDevice scoped_device(*fiber(), device);
         auto &sched_account =
             fiber()->scheduler().GetDefaultAccount(scoped_device);
@@ -427,6 +434,7 @@ iree_status_t ProgramInvocation::FinalizeCallingConvention(
         signal_timepoint_ = sched_account.timeline_acquire_timepoint();
 
         // Push wait fence (or null if no wait needed).
+        logging::info("Looking at wait ref...");
         ::iree::vm::ref<iree_hal_fence_t> wait_ref;
         if (maybe_wait_fence) {
           wait_ref = ::iree::vm::retain_ref(maybe_wait_fence);
@@ -434,6 +442,7 @@ iree_status_t ProgramInvocation::FinalizeCallingConvention(
         IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, wait_ref));
 
         // Create and push signal fence (or null if no signal needed).
+        logging::info("Looking at signal ref...");
         ::iree::vm::ref<iree_hal_fence_t> signal_ref;
         if (signal_sem_) {
           logging::info("Invocation {}: Set signal {}@{}",
@@ -445,27 +454,29 @@ iree_status_t ProgramInvocation::FinalizeCallingConvention(
         }
         IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, signal_ref));
         logging::info("Pushed ref move success...");
+        maybe_wait_fence = nullptr;
       }
+      // }
     } else {
       // Push wait fence (or null if no wait needed).
-        ::iree::vm::ref<iree_hal_fence_t> wait_ref;
-        if (maybe_wait_fence) {
-          wait_ref = ::iree::vm::retain_ref(maybe_wait_fence);
-        }
-        IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, wait_ref));
+      ::iree::vm::ref<iree_hal_fence_t> wait_ref;
+      if (maybe_wait_fence) {
+        wait_ref = ::iree::vm::retain_ref(maybe_wait_fence);
+      }
+      IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, wait_ref));
 
-        // Create and push signal fence (or null if no signal needed).
-        ::iree::vm::ref<iree_hal_fence_t> signal_ref;
-        if (signal_sem_) {
-          logging::info("Invocation {}: Set signal {}@{}",
-                        static_cast<void *>(this),
-                        static_cast<void *>(signal_sem_), signal_timepoint_);
-          IREE_RETURN_IF_ERROR(
-              iree_hal_fence_create_at(signal_sem_, signal_timepoint_,
-                                       fiber()->host_allocator(), &signal_ref));
-        }
-        IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, signal_ref));
-        logging::info("Pushed ref move success...");
+      // Create and push signal fence (or null if no signal needed).
+      ::iree::vm::ref<iree_hal_fence_t> signal_ref;
+      if (signal_sem_) {
+        logging::info("Invocation {}: Set signal {}@{}",
+                      static_cast<void *>(this),
+                      static_cast<void *>(signal_sem_), signal_timepoint_);
+        IREE_RETURN_IF_ERROR(
+            iree_hal_fence_create_at(signal_sem_, signal_timepoint_,
+                                     fiber()->host_allocator(), &signal_ref));
+      }
+      IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, signal_ref));
+      logging::info("Pushed ref move success...");
     }
   } else {
     logging::warn(
@@ -528,6 +539,7 @@ ProgramInvocation::Future ProgramInvocation::Invoke(
 
     // Multiple steps needed to schedule need to all exit via the same
     // path.
+    // asm("int3");
     if (iree_status_is_ok(status)) {
       status = invocation->fiber()->scheduler().FlushWithStatus();
     }
@@ -552,7 +564,6 @@ ProgramInvocation::Future ProgramInvocation::Invoke(
     // invocation, so we release it here and return. We have to treat
     // the invocation as possibly deallocated at this point, since the
     // async invocation may have finished already.
-    logging::info("Checking status...");
     if (iree_status_is_ok(status)) {
       invocation.release();
     } else if (failure_future) {
@@ -574,6 +585,7 @@ ProgramInvocation::Future ProgramInvocation::Invoke(
 
   if (&worker == Worker::GetCurrent()) {
     // On the same worker: fast-path directly to the loop.
+    logging::info("calling schedule...");
     schedule(invocation.release(), &worker, params.function,
              params.invocation_model, /*failure_future=*/{});
   } else {
@@ -700,7 +712,8 @@ void StaticProgramParameters::Load(std::filesystem::path file_path,
 
   // Parse.
   SHORTFIN_THROW_IF_ERROR(iree_io_parse_file_index(
-      to_iree_string_view(options.format), file_handle.get(), index_.get(), host_allocator_));
+      to_iree_string_view(options.format), file_handle.get(), index_.get(),
+      host_allocator_));
 }
 
 // -------------------------------------------------------------------------- //

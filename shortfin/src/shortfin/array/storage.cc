@@ -215,7 +215,9 @@ void storage::AddAsInvocationArgument(local::ProgramInvocation *inv,
   iree::vm_opaque_ref ref;
   *(&ref) = iree_hal_buffer_retain_ref(buffer_);
   inv->AddArg(std::move(ref));
-
+  iree_host_size_t arg_count = iree_vm_list_size(inv->arg_list());
+  auto device_affinity = device().affinity();
+  inv->input_device_map[arg_count - 1] = device_affinity;
   AddInvocationArgBarrier(inv, barrier);
 }
 
@@ -240,28 +242,6 @@ storage storage::CreateFromInvocationResultRef(local::ProgramInvocation *inv,
 storage storage::ImportInvocationResultStorage(local::ProgramInvocation *inv,
                                                iree::hal_buffer_ptr buffer) {
   SHORTFIN_TRACE_SCOPE_NAMED("storage::ImportInvocationResultStorage");
-  if (inv->device_selections().size() > 1) {
-    for (auto &device_affinity : inv->device_selections()) {
-      local::ScopedDevice device =
-          local::ScopedDevice(*inv->fiber(), device_affinity);
-      auto imported_storage = storage::import_buffer(device, std::move(buffer));
-
-      auto coarse_signal = inv->coarse_signal();
-      if (coarse_signal.first) {
-        SHORTFIN_SCHED_LOG("Storage buffer {}: Ready barrier {}@{}",
-                           static_cast<void *>(imported_storage.buffer_.get()),
-                           static_cast<void *>(coarse_signal.first),
-                           coarse_signal.second);
-        imported_storage.timeline_resource_->set_mutation_barrier(
-            coarse_signal.first, coarse_signal.second);
-        imported_storage.timeline_resource_->use_barrier_insert(
-            coarse_signal.first, coarse_signal.second);
-      }
-
-      return imported_storage;
-    }
-  }
-
   local::ScopedDevice device =
       local::ScopedDevice(*inv->fiber(), inv->device_selections().at(0));
   auto imported_storage = storage::import_buffer(device, std::move(buffer));

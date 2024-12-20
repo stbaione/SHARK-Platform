@@ -110,7 +110,9 @@ void device_array::AddAsInvocationArgument(
   iree::vm_opaque_ref ref;
   *(&ref) = iree_hal_buffer_view_move_ref(buffer_view);
   inv->AddArg(std::move(ref));
-
+  iree_host_size_t arg_count = iree_vm_list_size(inv->arg_list());
+  auto device_affinity = storage_.device().affinity();
+  inv->input_device_map[arg_count - 1] = device_affinity;
   storage().AddInvocationArgBarrier(inv, barrier);
 }
 

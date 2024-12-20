@@ -141,6 +141,9 @@ class SHORTFIN_API ProgramInvocation {
   // This method will raise an exception if the implied semantics are violated.
   void DeviceSelect(DeviceAffinity device_affinity);
 
+  // Map the index of an arg in an iree_vm_list_t to the proper DeviceAffinity
+  std::unordered_map<iree_host_size_t, DeviceAffinity> input_device_map;
+
   // Selected device affinities used for scheduling.
   const std::vector<DeviceAffinity> &device_selections() { return device_selections_; }
 
@@ -152,6 +155,9 @@ class SHORTFIN_API ProgramInvocation {
     return std::make_pair(signal_sem_, signal_timepoint_);
   }
 
+  // Returns a pointer to the trailing arg list.
+  iree_vm_list_t *arg_list();
+
   std::string to_s();
 
  private:
@@ -162,9 +168,6 @@ class SHORTFIN_API ProgramInvocation {
   // actually being recycled). Object destruction also does this, but possibly
   // extending the context lifetime.
   void ReleaseContext();
-
-  // Returns a pointer to the trailing arg list.
-  iree_vm_list_t *arg_list();
 
   // Accesses the invocation owned wait fence, creating it if needed.
   iree_hal_fence_t *wait_fence();

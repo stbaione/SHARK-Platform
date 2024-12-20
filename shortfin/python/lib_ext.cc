@@ -309,7 +309,9 @@ local::ProgramInvocation::Future PyFunctionCall(
     local::ProgramFunction &self, py::args args, local::Fiber &fiber,
     std::optional<local::ProgramIsolation> isolation) {
   auto inv = self.CreateInvocation(fiber.shared_from_this(), isolation);
+  logging::info("Invocaton created...");
   py::capsule inv_capsule(inv.get());
+  logging::info("Adding invocation arguments...");
   for (py::handle arg : args) {
     PyAddProgramInvocationArg(inv_capsule, arg);
   }
