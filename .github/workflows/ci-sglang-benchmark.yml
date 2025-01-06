@@ -23,8 +23,6 @@ on:
   schedule:
     # Weekdays at 11:00 AM UTC = 03:00 AM PST / 04:00 AM PDT
     - cron: "0 11 * * 1-5"
-  # TODO: Remove after verifying in CI
-  pull_request:
 
 concurrency:
   # A PR number if a pull request and otherwise the commit hash. This cancels
