@@ -410,55 +410,64 @@ iree_status_t ProgramInvocation::FinalizeCallingConvention(
   // Handle post-processing invocation model setup.
   if (invocation_model == ProgramInvocationModel::COARSE_FENCES) {
     // If we have a device_selection, set up to signal the leader account.
-    iree_hal_fence_t *maybe_wait_fence = nullptr;
+    iree_hal_fence_t *shared_wait_fence = nullptr;
+    iree_hal_fence_t *shared_signal_fence = nullptr;
+
     if (!device_selections_.empty()) {
-      for (iree_host_size_t i = 0; i < device_selections_.size(); ++i) {
-        auto device = device_selections_.at(i);
-        logging::info("SNB Affinity selected for fence: {}",
-                      device.to_s());
+      for (const auto &device : device_selections_) {
+        logging::info("SNB Affinity selected for fence: {}", device.to_s());
         ScopedDevice scoped_device(*fiber(), device);
         auto &sched_account =
             fiber()->scheduler().GetDefaultAccount(scoped_device);
-        maybe_wait_fence = this->wait_fence();
+
+        // Initialize shared wait fence with first device
+        if (shared_wait_fence == nullptr) {
+          shared_wait_fence = this->wait_fence();
+        }
         iree_hal_semaphore_t *timeline_sem = sched_account.timeline_sem();
         uint64_t timeline_now = sched_account.timeline_idle_timepoint();
+
         logging::info("Invocation {}: Wait on account timeline {}@{}",
                       static_cast<void *>(this),
                       static_cast<void *>(timeline_sem), timeline_now);
-        IREE_RETURN_IF_ERROR(iree_hal_fence_insert(maybe_wait_fence,
-                                                   timeline_sem, timeline_now));
-        signal_sem_ = sched_account.timeline_sem();
-        signal_timepoint_ = sched_account.timeline_acquire_timepoint();
+        IREE_RETURN_IF_ERROR(iree_hal_fence_insert(
+            shared_wait_fence, timeline_sem, timeline_now));
 
-        // Push wait fence (or null if no wait needed).
-        logging::info("Looking at wait ref...");
-        ::iree::vm::ref<iree_hal_fence_t> wait_ref;
-        if (maybe_wait_fence) {
-          wait_ref = ::iree::vm::retain_ref(maybe_wait_fence);
-        }
-        IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, wait_ref));
+        if (signal_sem_ == nullptr) {
+          logging::info("Setting up signal_sem_...");
+          signal_sem_ = sched_account.timeline_sem();
+          signal_timepoint_ = sched_account.timeline_acquire_timepoint();
 
-        // Create and push signal fence (or null if no signal needed).
-        logging::info("Looking at signal ref...");
-        ::iree::vm::ref<iree_hal_fence_t> signal_ref;
-        if (signal_sem_) {
-          logging::info("Invocation {}: Set signal {}@{}",
-                        static_cast<void *>(this),
-                        static_cast<void *>(signal_sem_), signal_timepoint_);
-          IREE_RETURN_IF_ERROR(
-              iree_hal_fence_create_at(signal_sem_, signal_timepoint_,
-                                       fiber()->host_allocator(), &signal_ref));
+          SHORTFIN_SCHED_LOG(
+              "Invocation {}: Set signal {}@{}", static_cast<void *>(this),
+              static_cast<void *>(signal_sem_), signal_timepoint_);
+          logging::info(
+              "Invocation {}: Set signal {}@{}", static_cast<void *>(this),
+              static_cast<void *>(signal_sem_), signal_timepoint_);
+
+          IREE_RETURN_IF_ERROR(iree_hal_fence_create_at(
+              signal_sem_, signal_timepoint_, fiber()->host_allocator(),
+              &shared_signal_fence));
         }
-        IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, signal_ref));
-        logging::info("Pushed ref move success...");
-        maybe_wait_fence = nullptr;
       }
-      // }
+
+      // Push wait fence (or null if no wait needed).
+      ::iree::vm::ref<iree_hal_fence_t> wait_ref;
+      if (shared_wait_fence) {
+        wait_ref = ::iree::vm::retain_ref(shared_wait_fence);
+      }
+      IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, wait_ref));
+
+      // Create and push signal fence (or null if no signal needed).
+      logging::info("Looking at signal ref...");
+      ::iree::vm::ref<iree_hal_fence_t> signal_ref;
+      IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, signal_ref));
+      logging::info("Pushed ref move success...");
     } else {
       // Push wait fence (or null if no wait needed).
       ::iree::vm::ref<iree_hal_fence_t> wait_ref;
-      if (maybe_wait_fence) {
-        wait_ref = ::iree::vm::retain_ref(maybe_wait_fence);
+      if (shared_wait_fence) {
+        wait_ref = ::iree::vm::retain_ref(shared_wait_fence);
       }
       IREE_RETURN_IF_ERROR(iree_vm_list_push_ref_move(arg_list, wait_ref));
 
