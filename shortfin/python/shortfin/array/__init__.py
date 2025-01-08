@@ -8,6 +8,8 @@ import importlib.util
 
 from _shortfin import lib as _sfl
 
+from .disable_barrier import DisableBarrier
+
 # All dtype aliases.
 opaque8 = _sfl.array.opaque8
 opaque16 = _sfl.array.opaque16
@@ -104,6 +106,7 @@ __all__ = [
     "transpose",
     "trunc",
     "RandomGenerator",
+    "DisableBarrier"
 ]
 
 # Import nputils if numpy is present.
