@@ -19,7 +19,8 @@ class SystemManager:
             self.ls = sf.host.CPUSystemBuilder().create_system()
         elif any(x in device for x in ["hip", "amdgpu"]):
             sb = sf.SystemBuilder(
-                system_type="amdgpu", amdgpu_async_allocations=async_allocs
+                system_type="amdgpu", amdgpu_async_allocations=async_allocs,
+                amdgpu_allocators="caching"
             )
             if device_ids:
                 sb.visible_devices = sb.available_devices
