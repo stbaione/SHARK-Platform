@@ -39,7 +39,6 @@ class NativeFormatter(logging.Formatter):
 native_handler = NativeHandler()
 native_handler.setFormatter(NativeFormatter())
 
-# TODO: Source from env vars.
 logger.setLevel(SHORTFIN_APPS_LOG_LEVEL)
 logger.addHandler(native_handler)
 
