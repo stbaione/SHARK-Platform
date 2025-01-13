@@ -436,7 +436,7 @@ class InferenceExecutorProcess(sf.Process):
             else:
                 args = [tokens, seq_lens, seq_block_ids]
             for page_table in self.page_tables:
-                args.append(sfnp.DisableBarrier(page_table))
+                args.append(sfnp.disable_barrier(page_table))
             logger.info(
                 "INVOKE %r: %s",
                 fn,
@@ -444,8 +444,8 @@ class InferenceExecutorProcess(sf.Process):
                     [
                         (
                             f"\n  {i}: {ary.shape}"
-                            if not isinstance(ary, sfnp.DisableBarrier)
-                            else f"\n  {i}: {ary.delegate.shape}"
+                            if not isinstance(ary, sfnp.disable_barrier)
+                            else f"\n  {i}: {ary.delegate().shape}"
                         )
                         for i, ary in enumerate(args)
                     ]
