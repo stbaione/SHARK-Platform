@@ -25,9 +25,9 @@ def tuner_ctx() -> Generator[common.TunerContext, None, None]:
     from logging import Logger
     from unittest.mock import MagicMock
 
-    with ir.Context() as ctx:
-        logger: Logger = MagicMock(spec=Logger)
-        yield common.TunerContext(ctx, logger)
+    mock_logger = MagicMock(spec=Logger)
+    with common.TunerContext(logger=mock_logger) as ctx:
+        yield ctx
 
 
 def test_generate_solutions(tuner_ctx: common.TunerContext) -> None:
@@ -124,20 +124,20 @@ def test_generate_tile_and_fuse_constraints_valid_input(
     tuner_ctx: common.TunerContext,
 ) -> None:
     matmul_size = common.ContractionSizes(
-        M=[4, 32],
-        N=[6, 64],
-        K=[8, 128],
-        B=[2, 16],
+        M=[32],
+        N=[64],
+        K=[128],
+        B=[2],
     )
     contraction_dims = common.ContractionDimensions(
-        m=[1, 5],
-        n=[2, 6],
-        k=[3, 7],
-        batch=[0, 4],
+        m=[1],
+        n=[2],
+        k=[3],
+        batch=[0],
     )
-    lhs_type = common.ShapedType([2, 4, 8, 16, 32, 128], tuner_ctx.type.f16)
-    rhs_type = common.ShapedType([2, 6, 8, 16, 64, 128], tuner_ctx.type.f16)
-    res_type = common.ShapedType([2, 4, 6, 16, 32, 64], tuner_ctx.type.f32)
+    lhs_type = common.ShapedType([2, 32, 128], tuner_ctx.type.f16)
+    rhs_type = common.ShapedType([2, 64, 128], tuner_ctx.type.f16)
+    res_type = common.ShapedType([2, 32, 64], tuner_ctx.type.f32)
     problem_size = common.ProblemSize(
         matmul_size,
         lhs_type,
@@ -148,13 +148,13 @@ def test_generate_tile_and_fuse_constraints_valid_input(
     )
     # Define input parameters as z3 Ints
     m, n, k = (
-        [z3.Int("m0"), z3.Int("m1")],
-        [z3.Int("n0"), z3.Int("n1")],
-        [z3.Int("k0"), z3.Int("k1")],
+        [z3.Int("m0")],
+        [z3.Int("n0")],
+        [z3.Int("k0")],
     )
     subgroup_m, subgroup_n = (
-        [z3.Int("subgroup_m0"), z3.Int("subgroup_m1")],
-        [z3.Int("subgroup_n0"), z3.Int("subgroup_n1")],
+        [z3.Int("subgroup_m0")],
+        [z3.Int("subgroup_n0")],
     )
     subgroup_size = z3.Int("subgroup_size")
     intrinsic_mn = z3.Int("intrinsic_mn")
@@ -166,7 +166,6 @@ def test_generate_tile_and_fuse_constraints_valid_input(
     )
     sg_m_cnt = z3.Int("sg_m_cnt")
     sg_n_cnt = z3.Int("sg_n_cnt")
-    waves_per_eu = z3.Int("waves_per_eu")
 
     constraints = dispatch_constraints.generate_tile_and_fuse_constraints(
         problem_size,
@@ -177,7 +176,6 @@ def test_generate_tile_and_fuse_constraints_valid_input(
         [wg_x, wg_y, wg_z],
         sg_m_cnt,
         sg_n_cnt,
-        waves_per_eu,
         [
             iree_gpu.MMAIntrinsic.MFMA_F32_16x16x16_F16,
             iree_gpu.MMAIntrinsic.MFMA_F32_32x32x8_F16,
@@ -198,20 +196,20 @@ def test_generate_tile_and_fuse_constraints_invalid_input(
 ) -> None:
     # Define input parameters that should lead to unsatisfiable constraints
     matmul_size = common.ContractionSizes(
-        M=[4, 32],
-        N=[6, 64],
-        K=[8, 128],
-        B=[2, 16],
+        M=[32],
+        N=[64],
+        K=[128],
+        B=[2],
     )
     contraction_dims = common.ContractionDimensions(
-        m=[1, 5],
-        n=[2, 6],
-        k=[3, 7],
-        batch=[0, 4],
+        m=[1],
+        n=[2],
+        k=[3],
+        batch=[0],
     )
-    lhs_type = common.ShapedType([2, 4, 8, 16, 32, 128], tuner_ctx.type.f16)
-    rhs_type = common.ShapedType([2, 6, 8, 16, 64, 128], tuner_ctx.type.f16)
-    res_type = common.ShapedType([2, 4, 6, 16, 32, 64], tuner_ctx.type.f32)
+    lhs_type = common.ShapedType([2, 32, 128], tuner_ctx.type.f16)
+    rhs_type = common.ShapedType([2, 64, 128], tuner_ctx.type.f16)
+    res_type = common.ShapedType([2, 32, 64], tuner_ctx.type.f32)
     problem_size = common.ProblemSize(
         matmul_size,
         lhs_type,
@@ -222,13 +220,13 @@ def test_generate_tile_and_fuse_constraints_invalid_input(
     )
     # Define input parameters as z3 Ints
     m, n, k = (
-        [z3.Int("m0"), z3.Int("m1")],
-        [z3.Int("n0"), z3.Int("n1")],
-        [z3.Int("k0"), z3.Int("k1")],
+        [z3.Int("m0")],
+        [z3.Int("n0")],
+        [z3.Int("k0")],
     )
     subgroup_m, subgroup_n = (
-        [z3.Int("subgroup_m0"), z3.Int("subgroup_m1")],
-        [z3.Int("subgroup_n0"), z3.Int("subgroup_n1")],
+        [z3.Int("subgroup_m0")],
+        [z3.Int("subgroup_n0")],
     )
     subgroup_size = z3.Int("subgroup_size")
     intrinsic_mn = z3.Int("intrinsic_mn")
@@ -240,7 +238,6 @@ def test_generate_tile_and_fuse_constraints_invalid_input(
     )
     sg_m_cnt = z3.Int("sg_m_cnt")
     sg_n_cnt = z3.Int("sg_n_cnt")
-    waves_per_eu = z3.Int("waves_per_eu")
 
     constraints = dispatch_constraints.generate_tile_and_fuse_constraints(
         problem_size,
@@ -251,7 +248,6 @@ def test_generate_tile_and_fuse_constraints_invalid_input(
         [wg_x, wg_y, wg_z],
         sg_m_cnt,
         sg_n_cnt,
-        waves_per_eu,
         [
             iree_gpu.MMAIntrinsic.MFMA_F32_16x16x16_F16,
             iree_gpu.MMAIntrinsic.MFMA_F32_32x32x8_F16,
@@ -300,7 +296,6 @@ def test_generate_vector_distribute_constraints_valid_input(
     )
     sg_m_cnt = z3.Int("sg_m_cnt")
     sg_n_cnt = z3.Int("sg_n_cnt")
-    waves_per_eu = z3.Int("waves_per_eu")
 
     constraints = dispatch_constraints.generate_vector_distribute_constraints(
         problem_size,
@@ -311,7 +306,6 @@ def test_generate_vector_distribute_constraints_valid_input(
         [wg_x, wg_y, wg_z],
         sg_m_cnt,
         sg_n_cnt,
-        waves_per_eu,
         [
             iree_gpu.MMAIntrinsic.MFMA_F32_16x16x16_F16,
             iree_gpu.MMAIntrinsic.MFMA_F32_32x32x8_F16,
@@ -359,7 +353,6 @@ def test_generate_vector_distribute_constraints_invalid_input(
     )
     sg_m_cnt = z3.Int("sg_m_cnt")
     sg_n_cnt = z3.Int("sg_n_cnt")
-    waves_per_eu = z3.Int("waves_per_eu")
 
     constraints = dispatch_constraints.generate_vector_distribute_constraints(
         problem_size,
@@ -370,7 +363,6 @@ def test_generate_vector_distribute_constraints_invalid_input(
         [wg_x, wg_y, wg_z],
         sg_m_cnt,
         sg_n_cnt,
-        waves_per_eu,
         [
             iree_gpu.MMAIntrinsic.MFMA_F32_16x16x16_F16,
             iree_gpu.MMAIntrinsic.MFMA_F32_32x32x8_F16,
