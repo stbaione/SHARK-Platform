@@ -21,7 +21,10 @@ _LOG_FUNCTIONS = {
 logger = logging.getLogger("shortfin")
 logger.propagate = False
 
-SHORTFIN_APPS_LOG_LEVEL = getattr(logging, os.environ.get("SHORTFIN_APPS_LOG_LEVEL", "WARNING"))
+SHORTFIN_APPS_LOG_LEVEL = getattr(
+    logging, os.environ.get("SHORTFIN_APPS_LOG_LEVEL", "WARNING")
+)
+
 
 class NativeHandler(logging.Handler):
     def emit(self, record):

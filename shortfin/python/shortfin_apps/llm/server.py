@@ -213,7 +213,7 @@ def main(argv, log_config=uvicorn.config.LOGGING_CONFIG):
     parser.add_argument(
         "--amdgpu_allocators",
         default=None,
-        help="Allocator to use during VMFB invocation."
+        help="Allocator to use during VMFB invocation.",
     )
     args = parser.parse_args(argv)
 
