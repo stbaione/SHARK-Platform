@@ -359,8 +359,8 @@ class PyReadBarrier {
       : delegate_(std::move(delegate)) {}
   void __sfinv_marshal__(py::capsule inv_capsule,
                          py::handle /*ignored_resource_barrier*/) {
-    delegate_.attr("__sfinv_marshal__")(inv_capsule,
-                                        1);  // ProgramResourceBarrier::READ
+    delegate_.attr("__sfinv_marshal__")(
+        inv_capsule, static_cast<int>(local::ProgramResourceBarrier::READ));
   }
 
   py::object &delegate() { return delegate_; }
@@ -376,8 +376,8 @@ class PyWriteBarrier {
       : delegate_(std::move(delegate)) {}
   void __sfinv_marshal__(py::capsule inv_capsule,
                          py::handle /*ignored_resource_barrier*/) {
-    delegate_.attr("__sfinv_marshal__")(inv_capsule,
-                                        2);  // ProgramResourceBarrier::WRITE
+    delegate_.attr("__sfinv_marshal__")(
+        inv_capsule, static_cast<int>(local::ProgramResourceBarrier::WRITE));
   }
 
   py::object &delegate() { return delegate_; }
@@ -393,8 +393,8 @@ class PyDisableBarrier {
       : delegate_(std::move(delegate)) {}
   void __sfinv_marshal__(py::capsule inv_capsule,
                          py::handle /*ignored_resource_barrier*/) {
-    delegate_.attr("__sfinv_marshal__")(inv_capsule,
-                                        3);  // ProgramResourceBarrier::NONE
+    delegate_.attr("__sfinv_marshal__")(
+        inv_capsule, static_cast<int>(local::ProgramResourceBarrier::NONE));
   }
 
   py::object &delegate() { return delegate_; }
