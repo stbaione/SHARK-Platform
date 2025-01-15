@@ -76,16 +76,17 @@ def server(model_artifacts, request):
     model_id = request.param["model"]
     model_config = TEST_MODELS[model_id]
 
+    prefix_sharing_algorithm = request.param.get("prefix_sharing", "none")
     server_config = ServerConfig(
         artifacts=model_artifacts,
         device_settings=model_config.device_settings,
-        prefix_sharing_algorithm=request.param.get("prefix_sharing", "none"),
+        prefix_sharing_algorithm=prefix_sharing_algorithm,
     )
 
     server_instance = ServerInstance(server_config)
     server_instance.start()
     process, port = server_instance.process, server_instance.port
-    yield process, port
+    yield process, port, prefix_sharing_algorithm
 
     process.terminate()
     process.wait()
