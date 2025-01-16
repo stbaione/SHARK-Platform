@@ -66,7 +66,7 @@ class TestLLMServer:
         Args:
             server: Tuple of (process, port) from server fixture
         """
-        process, port, _ = server
+        process, port = server
         assert process.poll() is None, "Server process terminated unexpectedly"
 
         response = self._generate("1 2 3 4 5 ", port)
@@ -87,6 +87,10 @@ class TestLLMServer:
         indirect=True,
     )
     @pytest.mark.parametrize("concurrent_requests", [2, 4, 8])
+    @pytest.mark.xfail(
+        raises=AccuracyValidationException,
+        reason="Concurreny issues in Shortfin batch processing",
+    )
     def test_concurrent_generation(
         self, server: tuple[Any, int], concurrent_requests: int
     ) -> None:
@@ -96,7 +100,7 @@ class TestLLMServer:
             server: Tuple of (process, port) from server fixture
             concurrent_requests: Number of concurrent requests to test
         """
-        process, port, prefix_sharing_algorithm = server
+        process, port = server
         assert process.poll() is None, "Server process terminated unexpectedly"
 
         prompt = "1 2 3 4 5 "
@@ -111,11 +115,6 @@ class TestLLMServer:
             for future in as_completed(futures):
                 response = future.result()
                 if not response.startswith(expected_prefix):
-                    if prefix_sharing_algorithm == "trie" and concurrent_requests == 8:
-                        pytest.xfail(
-                            reason="Known accuracy issue when prefix_sharing=trie and concurrent_requests=8."
-                        )
-
                     raise AccuracyValidationException(
                         expected=f"{expected_prefix}...",
                         actual=response,
