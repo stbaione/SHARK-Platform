@@ -633,38 +633,17 @@ void StaticProgramParameters::Load(std::filesystem::path file_path,
     options.format = file_path.extension().string();
   }
 
-  // Open file.
-  iree_file_read_flags_t read_flags = IREE_FILE_READ_FLAG_DEFAULT;
-  if (options.mmap) {
-    read_flags = IREE_FILE_READ_FLAG_MMAP;
-  } else {
-    read_flags = IREE_FILE_READ_FLAG_PRELOAD;
-  }
-  iree_file_contents_t *file_contents = nullptr;
-  SHORTFIN_THROW_IF_ERROR(iree_file_read_contents(
-      file_path.string().c_str(), read_flags, host_allocator_, &file_contents));
-  iree_io_file_handle_release_callback_t release_callback = {
-      +[](void *user_data, iree_io_file_handle_primitive_t handle_primitive) {
-        iree_file_contents_t *file_contents = (iree_file_contents_t *)user_data;
-        iree_file_contents_free(file_contents);
-      },
-      file_contents,
-  };
-
-  // Wrap contents.
-  iree::io_file_handle_ptr file_handle;
-  iree_status_t status = iree_io_file_handle_wrap_host_allocation(
-      IREE_IO_FILE_ACCESS_READ, file_contents->buffer, release_callback,
-      host_allocator_, file_handle.for_output());
-  if (!iree_status_is_ok(status)) {
-    iree_file_contents_free(file_contents);
-    SHORTFIN_THROW_IF_ERROR(status);
-  }
+  auto file_path_string = file_path.string();
+  const iree_string_view_t path =
+      iree_make_cstring_view(file_path_string.c_str());
+  iree_io_file_handle_t *file_handle = NULL;
+  SHORTFIN_THROW_IF_ERROR(iree_io_file_handle_open(
+      IREE_IO_FILE_MODE_READ, path, host_allocator_, &file_handle));
 
   // Parse.
-  SHORTFIN_THROW_IF_ERROR(iree_io_parse_file_index(
-      to_iree_string_view(options.format), file_handle.get(), index_.get(),
-      host_allocator_));
+  SHORTFIN_THROW_IF_ERROR(
+      iree_io_parse_file_index(to_iree_string_view(options.format), file_handle,
+                               index_.get(), host_allocator_));
 }
 
 // -------------------------------------------------------------------------- //
