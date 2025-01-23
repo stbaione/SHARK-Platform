@@ -1,7 +1,9 @@
 """Test fixtures and configurations."""
+
+import hashlib
 import pytest
 from pathlib import Path
-import hashlib
+from tokenizers import Tokenizer, Encoding
 
 from ..model_management import (
     ModelProcessor,
@@ -89,3 +91,9 @@ def server(model_artifacts, request):
 
     process.terminate()
     process.wait()
+
+
+@pytest.fixture(scope="function")
+def encoded_prompt(model_artifacts: ModelArtifacts, prompt: str) -> list[int]:
+    tokenizer = Tokenizer.from_file(model_artifacts.tokenizer_path)
+    return tokenizer.encode(prompt).ids
