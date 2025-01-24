@@ -93,7 +93,7 @@ def server(model_artifacts, request):
     process.wait()
 
 
-@pytest.fixture(scope="function")
-def encoded_prompt(model_artifacts: ModelArtifacts, prompt: str) -> list[int]:
+@pytest.fixture(scope="module")
+def encoded_prompt(model_artifacts: ModelArtifacts, request) -> list[int]:
     tokenizer = Tokenizer.from_file(model_artifacts.tokenizer_path)
-    return tokenizer.encode(prompt).ids
+    return tokenizer.encode(request.param).ids

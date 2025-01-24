@@ -109,10 +109,10 @@ class TestLLMServer:
             ),
         ],
         ids=[
-            "open_llama_3b_none",
-            "open_llama_3b_trie",
-            "llama31_8b_none",
-            "llama31_8b_trie",
+            "open_llama_3b_none_input_ids",
+            "open_llama_3b_trie_input_ids",
+            "llama31_8b_none_input_ids",
+            "llama31_8b_trie_input_ids",
         ],
         indirect=True,
     )
