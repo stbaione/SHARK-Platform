@@ -27,8 +27,8 @@ TEST_MODELS = {
     ),
     "llama3.1_8b": ModelConfig(
         source=ModelSource.LOCAL,
-        local_path=Path("/data/llama3.1/8b/llama8b_f16.irpa"),
-        model_file="llama8b_f16.irpa",
+        local_path=Path("/data/llama3.1/weights/8b/llama3.1_8b_fp16_instruct.irpa"),
+        model_file="llama3.1_8b_fp16_instruct.irpa",
         tokenizer_id="NousResearch/Meta-Llama-3.1-8B",
         batch_sizes=(1, 4),
         device_settings=device_settings.CPU,
