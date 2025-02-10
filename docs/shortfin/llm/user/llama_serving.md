@@ -311,7 +311,6 @@ ps -f | grep shortfin
 <!-- TODO(#402): Streamline the way that models are sharded/exported/compiled for server. -->
 
 > [!WARNING]
-> **Known Issue**
 >
 > There is a [known issue](https://github.com/iree-org/iree/issues/19948)
 > impacting the accuracy of outputs from *sharded llama* variants.
