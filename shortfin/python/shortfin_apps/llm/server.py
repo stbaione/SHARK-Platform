@@ -20,6 +20,7 @@ from shortfin.interop.fastapi import FastAPIResponder
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 
@@ -100,6 +101,15 @@ async def generate_request(gen_req: GenerateReqInput, request: Request):
 
 app.post("/generate")(generate_request)
 app.put("/generate")(generate_request)
+
+
+# -------- MIDDLEWARE --------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def get_eos_from_tokenizer_config(json_path):
