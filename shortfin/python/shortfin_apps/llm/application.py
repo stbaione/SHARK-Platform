@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 def add_routes(app: FastAPI):
     app.include_router(application_router)
     app.include_router(generation_router)
+    return app
 
 
 def get_app() -> FastAPI:
