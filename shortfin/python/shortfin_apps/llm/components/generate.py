@@ -8,6 +8,8 @@ import asyncio
 import io
 import json
 import logging
+import numpy as np
+import pdb
 
 import shortfin as sf
 import shortfin.array as sfnp
@@ -36,7 +38,7 @@ class GenerateItemProcess(sf.Process):
         client: "ClientGenerateBatchProcess",
         gen_req: GenerateReqInput,
         index: int,
-        input_token_ids: list[int],
+        input_token_ids: list[list[int]],
         max_completion_tokens: int,
         eos_token_id: int,
     ):
@@ -45,17 +47,40 @@ class GenerateItemProcess(sf.Process):
         self.gen_req = gen_req
         self.index = index
         self.input_token_ids = input_token_ids
-        self.result_token_ids: list[int] = []
+        self.n_beams = self.client.model_params.n_beams
+        self.result_token_ids: list[list[int]] = [[] for _ in range(self.n_beams)]
         self.max_completion_tokens = max_completion_tokens
         self.eos_token_id = eos_token_id
 
         self.streamed_tokens_index = 0
+
+    def topk(self, logits: sfnp.device_array, k: int, axis: int):
+        # TODO: Move this implementation to the sfnp.array
+        partitioned_indices = np.argpartition(logits, -k, axis=axis)
+        axis_len = logits.shape[axis]
+        idx_topk = [slice(None)] * logits.ndim
+        idx_topk[axis] = slice(axis_len - k, axis_len)
+
+        topk_indices = partitioned_indices[tuple(idx_topk)]
+        topk_values = np.take_along_axis(logits, topk_indices, axis=axis)
+        sort_order = np.argsort(-topk_values, axis=axis)
+        sorted_values = np.take_along_axis(topk_values, sort_order, axis=axis)
+        sorted_indices = np.take_along_axis(topk_indices, sort_order, axis=axis)
+
+        return sorted_values, sorted_indices
+
+    def log_softmax(self, logits: sfnp.device_array):
+        # TODO: Move this to sfnp.array
+        c = logits.max()
+        logsumexp = np.log(np.exp(logits - c).sum())
+        return logits - c - logsumexp
 
     async def run(self):
         exec = InferenceExecRequest(
             phase=InferencePhase.PREFILL,
             input_token_ids=self.input_token_ids,
             rid=self.gen_req.rid,
+            n_beams=self.n_beams,
         )
         try:
             self.client.batcher.submit(exec)
@@ -64,24 +89,76 @@ class GenerateItemProcess(sf.Process):
             # Prefill result.
             token = sfnp.argmax(exec.result_logits)
             token_int = token.items[0]
+            exec.input_token_ids.append(token_int)
+            # TODO: Start positions should be a list
+            exec.start_position = len(exec.input_token_ids) - 1
+            self.client.stream_results(self)
 
-            self.append_token(token_int)
+            for beam in self.result_token_ids:
+                beam.append(token_int)
+            exec.replicate_for_beam_search()
+
             # Decode loop.
-            exec.start_position = len(self.input_token_ids) - 1
+            n_beams = self.n_beams
             for i in range(self.max_completion_tokens):
                 exec.reset(InferencePhase.DECODE)
-                exec.input_token_ids.append(token_int)
-                exec.start_position += 1
                 self.client.batcher.submit(exec)
                 await exec.done
-                token = sfnp.argmax(exec.result_logits)
-                token_int = token.items[0]
-                self.append_token(token_int)
-                if token_int == self.eos_token_id:
-                    break
+                # Greedy selection
+                if n_beams == 1:
+                    token = sfnp.argmax(exec.result_logits)
+                    token_int = token.items[0]
+                    self.result_token_ids[0].append(token_int)
+                    if token_int == self.eos_token_id:
+                        break
+                    exec.input_token_ids[0].append(token_int)
+                    exec.start_position += 1
+                else:
+                    logits = np.array(exec.result_logits)
+                    # Apply log-softmax to raw logits
+                    logits = self.log_softmax(logits)
+                    # Find top-k scoring logits per beam
+                    values, tokens = self.topk(logits, n_beams, axis=-1)
+                    values, tokens = np.squeeze(values, 1), np.squeeze(tokens, 1)
+                    values += exec.cumulative_log_probs
+                    values_flat = values.flatten()
+                    top_indices = np.argsort(values_flat)[-n_beams:][::-1]
+
+                    new_beams = []
+                    new_log_probs = []
+                    for idx in top_indices:
+                        old_beam_idx = idx // n_beams
+                        token_idx = idx % n_beams
+
+                        chosen_log_prob = values[old_beam_idx, token_idx]
+                        token_int = tokens[old_beam_idx, token_idx]
+
+                        if token_int == self.eos_token_id:
+                            exec.completed_beams.add(old_beam_idx)
+                            if len(exec.completed_beams) == n_beams:
+                                break
+                            continue
+
+                        new_beam_tokens = exec.input_token_ids[old_beam_idx] + [
+                            token_int
+                        ]
+                        new_log_prob = (
+                            exec.cumulative_log_probs[old_beam_idx][0] + chosen_log_prob
+                        )
+
+                        new_beams.append(new_beam_tokens)
+                        new_log_probs.append([new_log_prob])
+
+                    exec.input_token_ids = new_beams
+                    exec.cumulative_log_probs = new_log_probs
+                    exec.start_position += 1
+                    self.result_token_ids = exec.input_token_ids
+                self.client.stream_results(self)
+
         finally:
             exec.free_cache_pages()
 
+    # TODO: Modify this for beam case
     def append_token(self, token: int):
         self.result_token_ids.append(token)
         self.client.stream_results(self)
@@ -102,6 +179,7 @@ class ClientGenerateBatchProcess(sf.Process):
         "batcher",
         "complete_infeed",
         "gen_req",
+        "model_params",
         "responder",
         "tokenizer",
     ]
@@ -113,6 +191,7 @@ class ClientGenerateBatchProcess(sf.Process):
         responder: FastAPIResponder,
     ):
         super().__init__(fiber=service.main_fiber)
+        self.model_params = service.model_params
         self.gen_req = gen_req
         self.responder = responder
         self.tokenizer = service.tokenizer
@@ -161,12 +240,13 @@ class ClientGenerateBatchProcess(sf.Process):
             else:
                 logging.debug("Responding to one shot batch")
                 out = io.BytesIO()
-                result_tokens = [p.result_token_ids for p in gen_processes]
+                result_tokens = [p.result_token_ids for p in gen_processes][0]
                 if self.gen_req.return_input_ids:
                     if self.gen_req.is_single:
                         result_tokens = result_tokens[0]
                     out.write(bytes(json.dumps(result_tokens), "utf-8"))
                 else:
+                    pdb.set_trace()
                     result_texts = self.tokenizer.decode(result_tokens)
                     for result_text in result_texts:
                         out.write(b"data: ")

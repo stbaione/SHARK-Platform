@@ -5,8 +5,10 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import asyncio
+import itertools
 import logging
 from pathlib import Path
+import pdb
 
 import shortfin as sf
 import shortfin.array as sfnp
@@ -291,6 +293,7 @@ class BatcherProcess(sf.Process):
             )
 
             # Can flight this request.
+            # pdb.set_trace()
             exec_process.exec_requests.append(decode_request)
 
         # We've filled our flight. Remove from the boarding area.
@@ -346,13 +349,14 @@ class InferenceExecutorProcess(sf.Process):
                     assert r.start_position == 0
 
             extra_token_slots = 1 if is_decode else 0
+            n_beams = self.service.model_params.n_beams
             bsl = max(
                 (extra_token_slots + len(r.input_token_ids)) for r in self.exec_requests
             )
             bsl = int(math.ceil(bsl / seq_stride) * seq_stride)
             block_count = bsl // seq_stride
             req_count = len(self.exec_requests)
-            logger.debug("Prefill bs=%d, bsl=%d", bs, bsl)
+            logger.debug("Prefill bs=%d, bsl=%d, n_beams=%d", bs, bsl, n_beams)
 
             # Prepare inputs.
             # TODO: Better support in shortfin for h2d. The best way to do it is
@@ -360,25 +364,46 @@ class InferenceExecutorProcess(sf.Process):
             device0 = self.fiber.device(0)
             int_dtype = sfnp.int64
             if is_decode:
-                tokens = sfnp.device_array.for_device(device0, [bs, 1], int_dtype)
-                start_positions = sfnp.device_array.for_device(device0, [bs], int_dtype)
+                tokens = sfnp.device_array.for_device(
+                    device0, [bs * n_beams, 1], int_dtype
+                )
+                start_positions = sfnp.device_array.for_device(
+                    device0, [bs * n_beams], int_dtype
+                )
+                seq_lens = sfnp.device_array.for_device(
+                    device0, [bs * n_beams], int_dtype
+                )
+                seq_block_ids = sfnp.device_array.for_device(
+                    device0, [bs * n_beams, block_count], int_dtype
+                )
             else:
                 tokens = sfnp.device_array.for_device(device0, [bs, bsl], int_dtype)
-            seq_lens = sfnp.device_array.for_device(device0, [bs], int_dtype)
-            seq_block_ids = sfnp.device_array.for_device(
-                device0, [bs, block_count], int_dtype
-            )
+                seq_lens = sfnp.device_array.for_device(device0, [bs], int_dtype)
+                seq_block_ids = sfnp.device_array.for_device(
+                    device0, [bs, block_count], int_dtype
+                )
 
             # Populate tokens.
             tokens_host = tokens.for_transfer()
             for i in range(bs):
-                with tokens_host.view(i).map(discard=True) as m:
-                    m.fill(0)
-                    if i < req_count:
-                        if self.phase == InferencePhase.PREFILL:
+                if self.phase == InferencePhase.PREFILL:
+                    with tokens_host.view(i).map(discard=True) as m:
+                        m.fill(0)
+                        if i < req_count:
                             m.items = self.exec_requests[i].input_token_ids
-                        elif self.phase == InferencePhase.DECODE:
-                            m.items = self.exec_requests[i].input_token_ids[-1:]
+                if self.phase == InferencePhase.DECODE:
+                    with tokens_host.view(
+                        slice(i * n_beams, (i * n_beams) + n_beams)
+                    ).map(discard=True) as m:
+                        m.fill(0)
+                        if i < req_count:
+                            new_tokens = [
+                                self.exec_requests[i].input_token_ids[k][-1]
+                                for k in range(
+                                    len(self.exec_requests[i].input_token_ids)
+                                )
+                            ]
+                            m.items = new_tokens
             tokens_host.copy_to(tokens)
 
             # For prefill, populate seq_lens
@@ -390,11 +415,16 @@ class InferenceExecutorProcess(sf.Process):
                 seq_lens_host.copy_to(seq_lens)
 
             # For decode, populate start_positions and seq_lens.
+            # TODO: Beams may not always be in phase when it comes to start position
             if self.phase == InferencePhase.DECODE:
                 start_positions_host = start_positions.for_transfer()
                 with start_positions_host.map(discard=True) as m:
                     m.fill(0)
-                    m.items = [req.start_position for req in self.exec_requests]
+                    m.items = [
+                        req.start_position
+                        for _ in range(n_beams)
+                        for req in self.exec_requests
+                    ]
                 start_positions_host.copy_to(start_positions)
 
                 seq_lens_host = seq_lens.for_transfer()
@@ -403,7 +433,11 @@ class InferenceExecutorProcess(sf.Process):
                     m.fill(
                         1  # Must pad with a nonzero value because a division by 0 during softmax floods clobber page (page 0) in cache with NaN values.
                     )
-                    m.items = [req.start_position + 1 for req in self.exec_requests]
+                    m.items = [
+                        req.start_position + 1
+                        for _ in range(n_beams)
+                        for req in self.exec_requests
+                    ]
                 seq_lens_host.copy_to(seq_lens)
 
             # Populate cache pages.
@@ -475,7 +509,9 @@ class InferenceExecutorProcess(sf.Process):
                 if req.return_all_logits:
                     logits_item = logits.view(i, slice(0, sl))
                 else:
-                    logits_item = logits.view(i, sl - 1)
+                    logits_item = logits.view(
+                        slice(i * n_beams, (i * n_beams) + n_beams), sl - 1
+                    )
                 if req.return_host_array:
                     req.result_logits = logits_item.for_transfer()
                     req.result_logits.copy_from(logits_item)

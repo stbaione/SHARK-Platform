@@ -79,6 +79,13 @@ class BasePagedAttentionCacheAllocation(PageAllocation):
         self._cache.page_pool.free_pages(self._pages)
         self._is_released = True
 
+    def replicate_pages(self, pages: List[PageInfo], k: int) -> None:
+        for i in range(k):
+            new_pages = self._cache.page_pool.copy_pages(pages)
+            if new_pages is None:
+                raise CacheAllocationFailure()
+            self._pages += tuple(new_pages)
+
     def extend_allocation(self, tokens, *, extra_token_slots=0) -> None:
         # assert old tokens are a prefix of incoming tokens
         # if we don't have enough pages to hold the tokens, we need to allocate more pages

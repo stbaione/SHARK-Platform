@@ -21,13 +21,24 @@ class InferencePhase(Enum):
 class InferenceExecRequest(sf.Message):
     """Performs a prefill operation."""
 
-    def __init__(self, phase: InferencePhase, input_token_ids: list[int], rid=None):
+    def __init__(
+        self,
+        phase: InferencePhase,
+        input_token_ids: list[int],
+        rid=None,
+        n_beams: int = 1,
+    ):
         super().__init__()
+
         self.phase = phase
         self.start_position: int = 0
         self.input_token_ids = input_token_ids
         self.done = sf.VoidFuture()
         self.rid = rid
+        self.n_beams = n_beams
+        if n_beams > 1:
+            self.cumulative_log_probs = [[1.0] for _ in range(n_beams)]
+            self.completed_beams = set()
 
         # Response control.
         # If True, return all sequence position logits. If False, return only
@@ -70,6 +81,10 @@ class InferenceExecRequest(sf.Message):
         if self.allocation:
             self.allocation.release_pages()
             self.allocation = None
+
+    def replicate_for_beam_search(self):
+        self.input_token_ids = [self.input_token_ids[:] for _ in range(self.n_beams)]
+        self.allocation.replicate_pages(self.allocation.pages, self.n_beams - 1)
 
     def __repr__(self) -> str:
         """

@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 import json
+import pdb
 import numpy as np
 import pandas as pd
 from typing import Dict, Any
@@ -24,7 +25,7 @@ class ServiceDebugDumper:
         """Initialize debug service with a new dump directory for this session."""
         self.dump_id = 0
         self.boot_timestamp = datetime.now().isoformat()
-        self.debug_data_dir = Path.home() / ".shortfin/debug/"
+        self.debug_data_dir = Path.cwd() / ".shortfin/debug/"
         self.dump_dir = (
             self.debug_data_dir / "llm_service_invocation_dumps" / self.boot_timestamp
         )
@@ -63,6 +64,7 @@ class ServiceDebugDumper:
             dump_path.mkdir(parents=True, exist_ok=True)
 
             # Prepare debug info dictionary
+            pdb.set_trace()
             debug_info = {
                 "metadata": {
                     "dump_id": self.dump_id,
