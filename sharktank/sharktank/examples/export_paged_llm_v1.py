@@ -83,6 +83,7 @@ def main():
         block_seq_stride=args.block_seq_stride,
         activation_dtype=args.activation_dtype,
         attention_dtype=args.attention_dtype,
+        n_beams=args.n_beams,
     )
     llama_config.fake_quant = args.fake_quant
 
@@ -112,6 +113,7 @@ def main():
             "prefill_batch_sizes": prefill_bs,
             "decode_batch_sizes": decode_bs,
             "transformer_block_count": hp.block_count,
+            "n_beams": llama_config.n_beams,
             "paged_kv_cache": {
                 "attention_head_count_kv": hp.attention_head_count_kv,
                 "block_seq_stride": llama_config.block_seq_stride,
@@ -251,14 +253,15 @@ def main():
         block_dim_min = 2
         block_dim_max = ceildiv(hp.context_length, llama_config.block_seq_stride) - 1
         block_dim = torch.export.Dim("block", min=block_dim_min, max=block_dim_max)
+        batch_dim_size = bs * llama_config.n_beams
         tokens = torch.empty(
-            bs,
+            batch_dim_size,
             1,
             dtype=torch.int64,
         )
-        seq_lens = torch.empty(bs, dtype=torch.int64)
-        start_positions = torch.ones(bs, dtype=torch.int64)
-        seq_block_ids = torch.empty(bs, block_dim_min, dtype=torch.int64)
+        seq_lens = torch.empty(batch_dim_size, dtype=torch.int64)
+        start_positions = torch.ones(batch_dim_size, dtype=torch.int64)
+        seq_block_ids = torch.empty(batch_dim_size, block_dim_min, dtype=torch.int64)
 
         (
             cache_state,
