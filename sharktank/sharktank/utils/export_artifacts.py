@@ -95,11 +95,16 @@ class ExportArtifacts:
         use_attention_mask: bool = False,
         activation_dtype: str = "float16",
         attention_dtype: str = "float16",
+        kv_cache_dtype: Optional[str] = None,
+        mlir_path: Optional[str] = None,
+        json_path: Optional[str] = None,
     ):
         self.sharktank_dir = str(
             Path(os.path.dirname(os.path.abspath(__file__))).parent.parent.parent
         )
         self.irpa_path = irpa_path
+        self.mlir_path = mlir_path
+        self.json_path = json_path
         self.batch_size = batch_size
         self.iree_hip_target = iree_hip_target
         self.iree_hal_target_device = iree_hal_target_device
@@ -109,6 +114,7 @@ class ExportArtifacts:
         self.use_attention_mask = use_attention_mask
         self.activation_dtype = activation_dtype
         self.attention_dtype = attention_dtype
+        self.kv_cache_dtype = kv_cache_dtype
 
     def timeit(func):
         def wrapper(*args, **kwargs):
@@ -189,6 +195,8 @@ class ExportArtifacts:
             f"--attention-dtype={self.attention_dtype}",
             f"--activation-dtype={self.activation_dtype}",
         ]
+        if self.kv_cache_dtype is not None:
+            export_args.append(f"--kv-cache-dtype={self.kv_cache_dtype}")
         if skip_decode:
             export_args.append("--skip-decode")
         if self.attention_kernel in ["decomposed", "torch"]:
@@ -314,6 +322,11 @@ class ExportArtifacts:
 
     def get_artifacts(self):
 
+        assert self.attention_kernel in [
+            "decomposed",
+            "torch",
+        ], "Only torch or decomposed attention_kernel types are supported"
+
         self.dir_path = self.sharktank_dir + "/" + "perplexity_ci_artifacts/"
         temp_dir = Path(self.dir_path)
         temp_dir.mkdir(parents=True, exist_ok=True)
@@ -323,27 +336,31 @@ class ExportArtifacts:
             + "_"
             + self.attention_kernel
         )
-        mlir_path = str(
-            self.create_file(suffix=".mlir", prefix=self.dir_path + model_name)
-        )
-        json_path = str(
-            self.create_file(suffix=".json", prefix=self.dir_path + model_name)
-        )
+
+        if self.mlir_path is None:
+            self.mlir_path = str(
+                self.create_file(suffix=".mlir", prefix=self.dir_path + model_name)
+            )
+            self.json_path = str(
+                self.create_file(suffix=".json", prefix=self.dir_path + model_name)
+            )
+
+            self.export_to_mlir(
+                mlir_path=self.mlir_path,
+                json_path=self.json_path,
+            )
+        else:
+            logger.info(f" Using pre-exported mlir: {self.mlir_path}")
+            logger.info(f" Using pre-exported config json: {self.json_path}")
+
         vmfb_path = str(
             self.create_file(suffix=".vmfb", prefix=self.dir_path + model_name)
         )
 
-        if self.attention_kernel == "decomposed":
-            returncode = self.export_to_mlir(
-                mlir_path=mlir_path,
-                json_path=json_path,
-            )
-
-            if returncode == 0:
-                self.compile_to_vmfb(
-                    mlir_path=mlir_path,
-                    vmfb_path=vmfb_path,
-                    cwd=self.sharktank_dir,
-                )
+        self.compile_to_vmfb(
+            mlir_path=self.mlir_path,
+            vmfb_path=vmfb_path,
+            cwd=self.sharktank_dir,
+        )
 
         return vmfb_path
