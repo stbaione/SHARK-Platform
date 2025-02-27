@@ -133,20 +133,7 @@ class GenerateItemProcess(sf.Process):
             self.client.stream_results(self)
             return
 
-        # TODO: Move this to a function in beam_manager.
-        # Also, something about this seems off.
-        # Should be completed + top uncompleted if
-        # len(completed_reqs) < n_beams
-        completed_reqs = list(beams.completed_reqs)
-        if not completed_reqs:
-            completed_reqs = beams.exec_reqs
-        max_score = completed_reqs[0].cumulative_log_prob
-        selected_req = completed_reqs[0]
-        for req in completed_reqs[1:]:
-            if req.cumulative_log_prob > max_score:
-                selected_req = req
-                max_score = req.cumulative_log_prob
-        # selected_req = beams.find_top_beam()
+        selected_req = beams.find_top_beam()
         self.result_token_ids = selected_req.input_token_ids
         self.client.stream_results(self)
         self.beam_manager.delete_beam(beams_id)

@@ -117,7 +117,6 @@ class BeamGroup:
         completed_reqs = list(self.completed_reqs)
         if not completed_reqs:
             completed_reqs = self.exec_reqs
-
         max_score = completed_reqs[0].cumulative_log_prob
         selected_req = completed_reqs[0]
         for req in completed_reqs[1:]:
