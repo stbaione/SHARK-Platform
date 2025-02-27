@@ -1,12 +1,8 @@
 from asyncio import gather
-import pdb
 from typing import Dict, List, Tuple
 from uuid import uuid4
 
 import numpy as np
-
-import shortfin as sf
-import shortfin.array as sfnp
 
 from .messages import InferenceExecRequest
 

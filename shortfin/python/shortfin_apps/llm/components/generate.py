@@ -9,8 +9,6 @@ import copy
 import io
 import json
 import logging
-import pdb
-from typing import Dict
 
 import shortfin as sf
 import shortfin.array as sfnp
@@ -20,7 +18,7 @@ from shortfin.interop.fastapi import FastAPIResponder
 
 from .beam_manager import BeamManager
 from .io_struct import GenerateReqInput
-from .messages import InferenceExecRequest, InferencePhase, PageAllocation
+from .messages import InferenceExecRequest, InferencePhase
 from .service import GenerateService
 from .tokenizer import Encoding
 
@@ -218,7 +216,6 @@ class ClientGenerateBatchProcess(sf.Process):
                 self.responder.stream_part(b"data: [DONE]\n\n")
                 self.responder.stream_part(None)
             else:
-                # pdb.set_trace()
                 logging.debug("Responding to one shot batch")
                 out = io.BytesIO()
                 result_tokens = [p.result_token_ids for p in gen_processes]
