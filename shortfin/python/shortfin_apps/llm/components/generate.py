@@ -88,8 +88,8 @@ class GenerateItemProcess(sf.Process):
         for _ in range(self.max_completion_tokens):
             exec_req.reset(InferencePhase.DECODE)
             self.client.batcher.submit(exec_req)
-            await exec.done
-            token = sfnp.argmax(exec.result_logits)
+            await exec_req.done
+            token = sfnp.argmax(exec_req.result_logits)
             token_int = token.items[0]
             self.append_token(token_int)
             if token_int == self.eos_token_id:
