@@ -107,36 +107,36 @@ class GenerateItemProcess(sf.Process):
             decode_reqs.append(decode_req)
 
         self.beam_manager.create_beam(decode_reqs)
-        beams_id = exec_req.beam_group_id
-        beams = self.beam_manager.beam_map[beams_id]
+        beam_group_id = exec_req.beam_group_id
+        beam_group = self.beam_manager.beam_map[beam_group_id]
         for _ in range(self.max_completion_tokens):
-            if len(beams.completed_reqs) == self.n_beams:
+            if len(beam_group.completed_reqs) == self.n_beams:
                 break
 
             # Submit all decode requests to the batcher from this beam
-            for exec in beams.exec_reqs:
-                if exec in beams.completed_reqs:
+            for exec in beam_group.exec_reqs:
+                if exec in beam_group.completed_reqs:
                     continue
                 exec.reset(InferencePhase.DECODE)
                 self.client.batcher.submit(exec)
 
             # Wait for all beams to finish
-            await beams.wait()
-            beams.process_beams(self.eos_token_id)
+            await beam_group.wait()
+            beam_group.process_beams(self.eos_token_id)
 
         if self.gen_req.return_top_k:
-            reqs = beams.completed_reqs
-            for req in beams.exec_reqs:
+            reqs = beam_group.completed_reqs
+            for req in beam_group.exec_reqs:
                 reqs.add(req)
             results = [req.input_token_ids for req in reqs]
             self.result_token_ids = results
             self.client.stream_results(self)
             return
 
-        selected_req = beams.find_top_beam()
+        selected_req = beam_group.find_top_beam()
         self.result_token_ids = selected_req.input_token_ids
         self.client.stream_results(self)
-        self.beam_manager.delete_beam(beams_id)
+        self.beam_manager.delete_beam(beam_group_id)
 
     def append_token(self, token: int):
         self.result_token_ids.append(token)
