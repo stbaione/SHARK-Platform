@@ -129,6 +129,7 @@ class GenerateItemProcess(sf.Process):
             results = [req.input_token_ids for req in reqs]
             self.result_token_ids = results
             self.client.stream_results(self)
+            self.beam_manager.delete_beam(beam_group_id)
             return
 
         selected_req = beam_group.find_top_beam()

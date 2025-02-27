@@ -84,12 +84,6 @@ class BasePagedAttentionCacheAllocation(PageAllocation):
         self._cache.page_pool.free_pages(self._pages)
         self._is_released = True
 
-    def replicate_pages(self, pages: List[PageInfo]) -> None:
-        new_pages = self._cache.page_pool.copy_pages(pages)
-        if new_pages is None:
-            raise CacheAllocationFailure()
-        self._pages += tuple(new_pages)
-
     def replicate_self(self) -> "BasePagedAttentionCacheAllocation":
         new_pages = self._cache.page_pool.copy_pages(self.pages)
         if new_pages is None:
