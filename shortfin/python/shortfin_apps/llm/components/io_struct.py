@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Union
 import uuid
 
+MIN_TEMPERATURE = 0.01
+DEFAULT_TEMPERATURE = 1.0
+MAX_TEMPERATURE = 2.0
+
 
 # Adapted from:
 # https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/managers/io_struct.py
@@ -50,6 +54,21 @@ class GenerateReqInput:
 
     is_single: bool = True
 
+    def _validate_temperature(self, sampling_params: dict):
+        temperature = sampling_params.get("temperature")
+        match temperature:
+            case temperature if temperature is None:
+                temperature = DEFAULT_TEMPERATURE
+            case temperature if temperature > MAX_TEMPERATURE:
+                temperature = MAX_TEMPERATURE
+            case temperature if temperature < MIN_TEMPERATURE:
+                temperature = MIN_TEMPERATURE
+            case _:
+                pass
+
+        sampling_params["temperature"] = temperature
+        return sampling_params
+
     def post_init(self):
         if (self.text is None and self.input_ids is None) or (
             self.text is not None and self.input_ids is not None
@@ -70,6 +89,7 @@ class GenerateReqInput:
         if is_single:
             if self.sampling_params is None:
                 self.sampling_params = {}
+            self.sampling_params = self._validate_temperature(self.sampling_params)
             if self.rid is None:
                 self.rid = uuid.uuid4().hex
             if self.return_logprob is None:
@@ -128,6 +148,9 @@ class GenerateReqInput:
                 self.sampling_params = [{}] * num
             elif not isinstance(self.sampling_params, list):
                 self.sampling_params = [self.sampling_params] * num
+
+            for sampling_param in self.sampling_params:
+                self._validate_temperature(sampling_param)
 
             if self.rid is None:
                 self.rid = [uuid.uuid4().hex for _ in range(num)]

@@ -23,10 +23,15 @@ class ExecRequestSelection:
 
 class BeamGroup:
     def __init__(
-        self, beam_group_id: str, n_beams: int, exec_reqs: list[InferenceExecRequest]
+        self,
+        beam_group_id: str,
+        n_beams: int,
+        temperature: int,
+        exec_reqs: list[InferenceExecRequest],
     ):
         self.beam_group_id = beam_group_id
         self.n_beams = n_beams
+        self.temperature = temperature
         self.exec_reqs = exec_reqs
         self.completed_reqs: set[InferenceExecRequest] = set()
 
@@ -35,6 +40,18 @@ class BeamGroup:
             req.done for req in self.exec_reqs if req not in self.completed_reqs
         ]
         return await gather(*done_signals)
+
+    def _apply_temperature(self, logits: np.array) -> np.array:
+        if self.temperature != 1.0:
+            return logits / self.temperature
+
+        return logits
+
+    def log_softmax(self, logits: np.array) -> np.array:
+        # TODO: Move this to sfnp.array
+        c = logits.max()
+        logsumexp = np.log(np.exp(logits - c).sum())
+        return logits - c - logsumexp
 
     def topk(
         self, logits: np.array, k: int, axis: int
@@ -45,12 +62,6 @@ class BeamGroup:
         topk_values = logits[axis][topk_indices]
 
         return topk_values, topk_indices
-
-    def log_softmax(self, logits: np.array) -> np.array:
-        # TODO: Move this to sfnp.array
-        c = logits.max()
-        logsumexp = np.log(np.exp(logits - c).sum())
-        return logits - c - logsumexp
 
     def _get_exec_req_selections(
         self,
@@ -89,6 +100,7 @@ class BeamGroup:
             # NOTE: This copy is slow, and part of why this needs to be moved to
             # `shortfin.array`
             logits = np.array(exec_req.result_logits)
+            logits = self._apply_temperature(logits)
             # Take log_softmax. This is to avoid a req's cumulative probability
             # becoming too small, which can lead precision issues.
             # This allows us to obtain cumulative probability by summing
@@ -138,6 +150,9 @@ class BeamGroup:
             if req not in new_reqs:
                 req.free_cache_pages()
 
+        for req in self.completed_reqs:
+            req.free_cache_pages()
+
         self.exec_reqs = list(new_reqs)
 
     def _final_score(self, exec_req: InferenceExecRequest):
@@ -170,6 +185,7 @@ class BeamGroup:
 @dataclass
 class BeamSearchDecodeStrategyConfig(DecodeStrategyConfig):
     n_beams: int
+    temperature: int
     return_top_k: bool = False
 
 
@@ -194,6 +210,7 @@ class BeamSearchDecodeStrategy(DecodeStrategy):
         beam_group = BeamGroup(
             beam_group_id,
             self.decode_strategy_config.n_beams,
+            self.decode_strategy_config.temperature,
             requests,
         )
         BeamSearchDecodeStrategy.beam_map[beam_group_id] = beam_group

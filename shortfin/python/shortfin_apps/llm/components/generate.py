@@ -50,6 +50,7 @@ class GenerateItemProcess(sf.Process):
         max_completion_tokens: int,
         eos_token_id: int,
         n_beams: int,
+        temperature: int,
     ):
         super().__init__(fiber=client.fiber)
         self.client = client
@@ -60,6 +61,7 @@ class GenerateItemProcess(sf.Process):
         self.max_completion_tokens = max_completion_tokens
         self.eos_token_id = eos_token_id
         self.n_beams = n_beams
+        self.temperature = temperature
         self.decode_strategy: DecodeStrategy = None
         if n_beams > 1:
             logger.info("Using `beam_search` decode strategy")
@@ -69,6 +71,7 @@ class GenerateItemProcess(sf.Process):
                 eos_token_id=eos_token_id,
                 max_completion_tokens=max_completion_tokens,
                 n_beams=n_beams,
+                temperature=temperature,
                 return_top_k=gen_req.return_top_k,
             )
             self.decode_strategy = BeamSearchDecodeStrategy(decode_strategy_config)
@@ -175,6 +178,11 @@ class ClientGenerateBatchProcess(sf.Process):
                     if self.gen_req.is_single
                     else self.gen_req.sampling_params[index]["max_completion_tokens"]
                 )
+                temperature = (
+                    self.gen_req.sampling_params["temperature"]
+                    if self.gen_req.is_single
+                    else self.gen_req.sampling_params[index]["temperature"]
+                )
                 gen_process = GenerateItemProcess(
                     self,
                     self.gen_req,
@@ -183,6 +191,7 @@ class ClientGenerateBatchProcess(sf.Process):
                     max_completion_tokens=max_completion_tokens,
                     eos_token_id=self.tokenizer.eos_token_id,
                     n_beams=self.n_beams,
+                    temperature=temperature,
                 )
                 gen_processes.append(gen_process)
                 gen_process.launch()
