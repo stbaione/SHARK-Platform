@@ -44,10 +44,6 @@ class BeamGroup:
         topk_indices = indices[axis][-k:]
         topk_values = logits[axis][topk_indices]
 
-        sorted_indices = np.argsort(topk_values)[::-1]
-        topk_values = topk_values[sorted_indices]
-        topk_indices = topk_indices[sorted_indices]
-
         return topk_values, topk_indices
 
     def log_softmax(self, logits: np.array) -> np.array:
@@ -56,34 +52,11 @@ class BeamGroup:
         logsumexp = np.log(np.exp(logits - c).sum())
         return logits - c - logsumexp
 
-    def evaluate_topk(self) -> List[ExecRequestSelection]:
-        # TODO: Use temperature when processing logits for better diversity of
-        # outputs.
-        exec_reqs = self.exec_reqs
-
-        log_prob_map: Dict[float, tuple[InferenceExecRequest, int]] = {}
-        min_log_prob = 0.0
-        # Find the topk tokens for each req in our beam group
-        for exec_req in exec_reqs:
-            if exec_req in self.completed_reqs:
-                continue
-            # NOTE: This copy is slow, and part of why this needs to be moved to
-            # `shortfin.array`
-            logits = np.array(exec_req.result_logits)
-            # Take log_softmax. This is to avoid a req's cumulative probability
-            # becoming too small, which can lead precision issues.
-            # This allows us to obtain cumulative probability by summing
-            # the log_probabilities, instead of multiplying the probabilities.
-            log_logits = self.log_softmax(logits)
-            log_logits = np.squeeze(log_logits, 1)
-            values, tokens = self.topk(log_logits, self.n_beams, -1)
-            min_val = values[-1]
-            if min_val < min_log_prob:
-                min_log_prob = min_val
-            for value, token in zip(values, tokens):
-                cumulative_log_prob = exec_req.cumulative_log_prob + value
-                log_prob_map[cumulative_log_prob] = (exec_req, token)
-
+    def _get_exec_req_selections(
+        self,
+        log_prob_map: Dict[float, tuple[InferenceExecRequest, int]],
+        min_log_prob: int,
+    ):
         # Find the topk tokens across all exec_reqs
         sorted_keys = sorted(log_prob_map.keys(), reverse=True)
         exec_req_selections: List[ExecRequestSelection] = []
@@ -100,8 +73,40 @@ class BeamGroup:
                 )
             )
 
-        # TODO: Create a quick helper class so that this tuple doesn't disgust me
         return exec_req_selections
+
+    def evaluate_topk(self) -> List[ExecRequestSelection]:
+        # TODO: Use temperature when processing logits for better diversity of
+        # outputs.
+        exec_reqs = self.exec_reqs
+
+        log_prob_map: Dict[float, tuple[InferenceExecRequest, int]] = {}
+        global_min_log_prob = 0.0
+        # Find the topk tokens for each req in our beam group
+        for exec_req in exec_reqs:
+            if exec_req in self.completed_reqs:
+                continue
+            # NOTE: This copy is slow, and part of why this needs to be moved to
+            # `shortfin.array`
+            logits = np.array(exec_req.result_logits)
+            # Take log_softmax. This is to avoid a req's cumulative probability
+            # becoming too small, which can lead precision issues.
+            # This allows us to obtain cumulative probability by summing
+            # the log_probabilities, instead of multiplying the probabilities.
+            log_logits = self.log_softmax(logits)
+            log_logits = np.squeeze(log_logits, 1)
+            values, tokens = self.topk(log_logits, self.n_beams, -1)
+            min_log_prob = 0.0
+            for value, token in zip(values, tokens):
+                if value < min_log_prob:
+                    min_log_prob = value
+                cumulative_log_prob = exec_req.cumulative_log_prob + value
+                log_prob_map[cumulative_log_prob] = (exec_req, token)
+
+            if min_log_prob < global_min_log_prob:
+                global_min_log_prob = min_log_prob
+
+        return self._get_exec_req_selections(log_prob_map, global_min_log_prob)
 
     def process_beams(self, eos_token_id):
         exec_reqs_selections = self.evaluate_topk()
