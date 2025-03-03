@@ -1,10 +1,21 @@
 from asyncio import gather
+from dataclasses import dataclass
 from typing import Dict, List, Tuple
 from uuid import uuid4
 
 import numpy as np
 
 from .messages import InferenceExecRequest
+
+
+@dataclass
+class ExecRequestSelection:
+    """Helper class top make `BeamGroup.evaluate_top_k` return cleaner."""
+
+    log_prob: float
+    exec_req: InferenceExecRequest
+    token: int
+    min_log_prob: float
 
 
 class BeamGroup:
@@ -39,12 +50,13 @@ class BeamGroup:
         logsumexp = np.log(np.exp(logits - c).sum())
         return logits - c - logsumexp
 
-    def evaluate_topk(self) -> List[tuple[float, InferenceExecRequest, int]]:
+    def evaluate_topk(self) -> List[ExecRequestSelection]:
         # TODO: Use temperature when processing logits for better diversity of
         # outputs.
         exec_reqs = self.exec_reqs
 
         log_prob_map: Dict[float, tuple[InferenceExecRequest, int]] = {}
+        min_log_prob = 0.0
         # Find the topk tokens for each req in our beam group
         for exec_req in exec_reqs:
             if exec_req in self.completed_reqs:
@@ -59,23 +71,30 @@ class BeamGroup:
             log_logits = self.log_softmax(logits)
             log_logits = np.squeeze(log_logits, 1)
             values, tokens = self.topk(log_logits, self.n_beams, -1)
+            min_val = values[-1]
+            if min_val < min_log_prob:
+                min_log_prob = min_val
             for value, token in zip(values, tokens):
                 cumulative_log_prob = exec_req.cumulative_log_prob + value
                 log_prob_map[cumulative_log_prob] = (exec_req, token)
 
         # Find the topk tokens across all exec_reqs
         sorted_keys = sorted(log_prob_map.keys(), reverse=True)
-        exec_req_selections: List[tuple[float, InferenceExecRequest, int]] = []
+        exec_req_selections: List[ExecRequestSelection] = []
         for key in sorted_keys[: self.n_beams - len(self.completed_reqs)]:
             exec_req, token = log_prob_map[key]
-            exec_req.cumulative_log_prob = key
             exec_req_selections.append(
-                (
-                    key,
-                    *log_prob_map[key],
+                ExecRequestSelection(
+                    # Shift log_probs to the right to avoid large
+                    # negative numbers
+                    log_prob=key - min_log_prob,
+                    exec_req=exec_req,
+                    token=token,
+                    min_log_prob=min_log_prob,
                 )
             )
 
+        # TODO: Create a quick helper class so that this tuple doesn't disgust me
         return exec_req_selections
 
     def process_beams(self, eos_token_id):
@@ -83,18 +102,22 @@ class BeamGroup:
         visited_reqs: Dict[str, InferenceExecRequest] = {}
         new_reqs = set()
 
-        for log_prob, req, token in exec_reqs_selections:
-            new_req = req
+        for selection in exec_reqs_selections:
+            new_req = selection.exec_req
+            token = selection.token
             if new_req.instance_id not in visited_reqs:
                 new_req.input_token_ids.append(token)
+                new_req.output_token_ids.append(token)
                 new_req.start_position += 1
+                new_req.accumulated_normalization += abs(selection.min_log_prob)
 
             else:
                 visited_req = visited_reqs[new_req.instance_id]
                 new_req = visited_req.replicate_self()
                 new_req.input_token_ids.append(token)
+                new_req.output_token_ids.append(token)
 
-            new_req.cumulative_log_prob = log_prob
+            new_req.cumulative_log_prob = selection.log_prob
             visited_reqs[new_req.instance_id] = new_req
             new_reqs.add(new_req)
             if token == eos_token_id:
@@ -106,16 +129,22 @@ class BeamGroup:
 
         self.exec_reqs = list(new_reqs)
 
+    def _final_score(self, exec_req: InferenceExecRequest):
+        return (
+            exec_req.cumulative_log_prob - exec_req.accumulated_normalization
+        ) / len(exec_req.output_token_ids)
+
     def find_top_beam(self) -> InferenceExecRequest:
         completed_reqs = list(self.completed_reqs)
         if not completed_reqs:
             completed_reqs = self.exec_reqs
-        max_score = completed_reqs[0].cumulative_log_prob
+        max_score = self._final_score(completed_reqs[0])
         selected_req = completed_reqs[0]
         for req in completed_reqs[1:]:
-            if req.cumulative_log_prob > max_score:
+            score = self._final_score(req)
+            if score > max_score:
                 selected_req = req
-                max_score = req.cumulative_log_prob
+                max_score = score
 
         return selected_req
 

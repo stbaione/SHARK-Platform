@@ -74,6 +74,7 @@ class GenerateItemProcess(sf.Process):
             # Decode loop.
             exec.start_position = len(self.input_token_ids) - 1
             exec.input_token_ids.append(token_int)
+            exec.output_token_ids.append(token_int)
             if self.n_beams > 1:
                 await self.beam_search_decode_loop(exec)
             else:
@@ -93,6 +94,7 @@ class GenerateItemProcess(sf.Process):
             if token_int == self.eos_token_id:
                 break
             exec_req.input_token_ids.append(token_int)
+            exec_req.output_token_ids.append(token_int)
             exec_req.start_position += 1
 
     async def beam_search_decode_loop(self, exec_req: InferenceExecRequest):
@@ -126,14 +128,14 @@ class GenerateItemProcess(sf.Process):
             reqs = beam_group.completed_reqs
             for req in beam_group.exec_reqs:
                 reqs.add(req)
-            results = [req.input_token_ids for req in reqs]
+            results = [req.output_token_ids for req in reqs]
             self.result_token_ids = results
             self.client.stream_results(self)
             self.beam_manager.delete_beam(beam_group_id)
             return
 
         selected_req = beam_group.find_top_beam()
-        self.result_token_ids = selected_req.input_token_ids
+        self.result_token_ids = selected_req.output_token_ids
         self.client.stream_results(self)
         self.beam_manager.delete_beam(beam_group_id)
 

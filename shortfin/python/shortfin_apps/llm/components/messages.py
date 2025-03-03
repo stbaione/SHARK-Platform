@@ -31,11 +31,13 @@ class InferenceExecRequest(sf.Message):
         self.phase = phase
         self.start_position: int = 0
         self.input_token_ids = input_token_ids
+        self.output_token_ids = []
         self.done = sf.VoidFuture()
         self.rid = rid
         self.instance_id = str(uuid4())
         self.beam_group_id: str | None = None
-        self.cumulative_log_prob: float = 1.0
+        self.cumulative_log_prob: float = 0.0
+        self.accumulated_normalization: float = 0.0
 
         # Response control.
         # If True, return all sequence position logits. If False, return only
@@ -68,6 +70,8 @@ class InferenceExecRequest(sf.Message):
             copy.deepcopy(self.input_token_ids),
             self.rid,
         )
+        new_exec_req.output_token_ids = copy.deepcopy(self.output_token_ids)
+        new_exec_req.accumulated_normalization = self.accumulated_normalization
         new_exec_req.start_position = self.start_position
         result_logits: sfnp.device_array = self.result_logits.for_transfer()
         result_logits.copy_from(self.result_logits)
