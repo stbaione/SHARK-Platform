@@ -64,7 +64,11 @@ class GenerateItemProcess(sf.Process):
         self.decode_strategy: DecodeStrategy = None
 
         # See if an `n_beams` value, other than the server param was requested
-        requested_beams = gen_req.sampling_params.get("n_beams")
+        requested_beams = (
+            gen_req.sampling_params.get("n_beams")
+            if gen_req.is_single
+            else gen_req.sampling_params[index].get("n_beams")
+        )
         if requested_beams is not None:
             n_beams = requested_beams
         self.n_beams = n_beams
@@ -234,7 +238,7 @@ class ClientGenerateBatchProcess(sf.Process):
                             out.write(b"\n\n")
                 self.responder.send_response(out.getvalue())
         except Exception as e:
-            logger.error(e)
+            logger.exception(e)
         finally:
             self.responder.ensure_response()
 
