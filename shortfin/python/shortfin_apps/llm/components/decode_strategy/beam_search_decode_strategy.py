@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import numpy as np
 
-from ..messages import InferenceExecRequest, InferencePhase
+from ..messages import LlmInferenceExecRequest, InferencePhase
 
 
 @dataclass
@@ -16,7 +16,7 @@ class ExecRequestSelection:
     """Helper class top make `BeamGroup.evaluate_top_k` return cleaner."""
 
     log_prob: float
-    exec_req: InferenceExecRequest
+    exec_req: LlmInferenceExecRequest
     token: int
     min_log_prob: float
 
@@ -27,13 +27,13 @@ class BeamGroup:
         beam_group_id: str,
         n_beams: int,
         temperature: int,
-        exec_reqs: list[InferenceExecRequest],
+        exec_reqs: list[LlmInferenceExecRequest],
     ):
         self.beam_group_id = beam_group_id
         self.n_beams = n_beams
         self.temperature = temperature
         self.exec_reqs = exec_reqs
-        self.completed_reqs: set[InferenceExecRequest] = set()
+        self.completed_reqs: set[LlmInferenceExecRequest] = set()
 
     async def wait(self):
         done_signals = [
@@ -65,7 +65,7 @@ class BeamGroup:
 
     def _get_exec_req_selections(
         self,
-        log_prob_map: Dict[float, tuple[InferenceExecRequest, int]],
+        log_prob_map: Dict[float, tuple[LlmInferenceExecRequest, int]],
         min_log_prob: int,
     ):
         # Find the topk tokens across all exec_reqs
@@ -91,7 +91,7 @@ class BeamGroup:
         # outputs.
         exec_reqs = self.exec_reqs
 
-        log_prob_map: Dict[float, tuple[InferenceExecRequest, int]] = {}
+        log_prob_map: Dict[float, tuple[LlmInferenceExecRequest, int]] = {}
         global_min_log_prob = 0.0
         # Find the topk tokens for each req in our beam group
         for exec_req in exec_reqs:
@@ -122,7 +122,7 @@ class BeamGroup:
 
     def process_beams(self, eos_token_id):
         exec_reqs_selections = self.evaluate_topk()
-        visited_reqs: Dict[str, InferenceExecRequest] = {}
+        visited_reqs: Dict[str, LlmInferenceExecRequest] = {}
         new_reqs = set()
 
         for selection in exec_reqs_selections:
@@ -155,12 +155,12 @@ class BeamGroup:
 
         self.exec_reqs = list(new_reqs)
 
-    def _final_score(self, exec_req: InferenceExecRequest):
+    def _final_score(self, exec_req: LlmInferenceExecRequest):
         return (
             exec_req.cumulative_log_prob - exec_req.accumulated_normalization
         ) / len(exec_req.output_token_ids)
 
-    def find_top_beam(self) -> InferenceExecRequest:
+    def find_top_beam(self) -> LlmInferenceExecRequest:
         completed_reqs = list(self.completed_reqs)
         if not completed_reqs:
             completed_reqs = self.exec_reqs
@@ -202,7 +202,7 @@ class BeamSearchDecodeStrategy(DecodeStrategy):
     def decode_strategy_config(self):
         return self._decode_strategy_config
 
-    def create_beam(self, requests: list[InferenceExecRequest]) -> BeamGroup:
+    def create_beam(self, requests: list[LlmInferenceExecRequest]) -> BeamGroup:
         beam_group_id = str(uuid4())
         for req in requests:
             req.beam_group_id = beam_group_id
@@ -222,7 +222,7 @@ class BeamSearchDecodeStrategy(DecodeStrategy):
 
     async def decode(
         self,
-        exec_req: InferenceExecRequest,
+        exec_req: LlmInferenceExecRequest,
     ) -> List[int] | List[List[int]]:
         config = self.decode_strategy_config
         decode_reqs = [exec_req]

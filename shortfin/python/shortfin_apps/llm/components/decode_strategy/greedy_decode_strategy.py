@@ -1,7 +1,7 @@
 import shortfin.array as sfnp
 
 from .base_decode_strategy import DecodeStrategy, DecodeStrategyConfig
-from ..messages import InferenceExecRequest, InferencePhase
+from ..messages import LlmInferenceExecRequest, InferencePhase
 
 
 class GreedyDecodeStrategy(DecodeStrategy):
@@ -17,7 +17,7 @@ class GreedyDecodeStrategy(DecodeStrategy):
 
     async def decode(
         self,
-        exec_req: InferenceExecRequest,
+        exec_req: LlmInferenceExecRequest,
     ):
         config = self.decode_strategy_config
         for _ in range(config.max_completion_tokens):

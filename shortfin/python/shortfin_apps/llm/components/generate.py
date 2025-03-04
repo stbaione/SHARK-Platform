@@ -66,13 +66,13 @@ class GenerateItemProcess(sf.Process):
         # See if an `n_beams` value, other than the server param was requested
         requested_beams = (
             gen_req.sampling_params.get("n_beams")
-            if gen_req.is_single
+            if isinstance(gen_req.sampling_params, dict)
             else gen_req.sampling_params[index].get("n_beams")
         )
         if requested_beams is not None:
             n_beams = requested_beams
-        self.n_beams = n_beams
 
+        self.n_beams = n_beams
         if n_beams > 1:
             logger.info(f"Using `beam_search` decode strategy with {n_beams} beams")
             decode_strategy_config = BeamSearchDecodeStrategyConfig(

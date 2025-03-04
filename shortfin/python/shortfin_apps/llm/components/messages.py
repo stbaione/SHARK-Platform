@@ -68,8 +68,8 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         self.return_host_array = True
         self.result_logits = None
 
-    def replicate_self(self) -> "InferenceExecRequest":
-        new_exec_req = InferenceExecRequest(
+    def replicate_self(self) -> "LlmInferenceExecRequest":
+        new_exec_req = LlmInferenceExecRequest(
             self.phase,
             copy.deepcopy(self.input_token_ids),
             self.rid,
@@ -121,4 +121,4 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         if self.return_host_array:
             flags.append("host")
         flags_str = ",".join(flags)
-        return f"InferenceExecRequest[phase={phase_char},pos={self.start_position},rid={self.rid},instance_id={self.instance_id},flags={flags_str},input_token_ids={self.input_token_ids}]"
+        return f"LlmInferenceExecRequest[phase={phase_char},pos={self.start_position},rid={self.rid},instance_id={self.instance_id},flags={flags_str},input_token_ids={self.input_token_ids}]"
