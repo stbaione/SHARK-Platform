@@ -12,6 +12,7 @@ import shortfin.array as sfnp
 
 from .kvcache.base_attention_cache import BasePagedAttentionCache, PageAllocation
 from .kvcache.page_pool import PageInfo
+from ...utils import InferenceExecRequest
 
 from uuid import uuid4
 
@@ -21,7 +22,7 @@ class InferencePhase(Enum):
     DECODE = 2
 
 
-class InferenceExecRequest(sf.Message):
+class LlmInferenceExecRequest(InferenceExecRequest):
     """Performs a prefill operation."""
 
     def __init__(
@@ -105,7 +106,7 @@ class InferenceExecRequest(sf.Message):
         """
         String representation for logging purposes. It looks like this:
 
-        InferenceExecRequest[phase=P,pos=0,rid=test123,flags=host,input_token_ids=[1, 2, 3, 4]]
+        LlmInferenceExecRequest[phase=P,pos=0,rid=test123,flags=host,input_token_ids=[1, 2, 3, 4]]
 
         Use
         `logging.debug("Request: %r", request)`
@@ -121,9 +122,3 @@ class InferenceExecRequest(sf.Message):
             flags.append("host")
         flags_str = ",".join(flags)
         return f"InferenceExecRequest[phase={phase_char},pos={self.start_position},rid={self.rid},instance_id={self.instance_id},flags={flags_str},input_token_ids={self.input_token_ids}]"
-
-
-class StrobeMessage(sf.Message):
-    """Sent to strobe a queue with fake activity (generate a wakeup)."""
-
-    ...

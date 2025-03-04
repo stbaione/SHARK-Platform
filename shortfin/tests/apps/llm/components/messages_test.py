@@ -5,7 +5,10 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import pytest
-from shortfin_apps.llm.components.messages import InferenceExecRequest, InferencePhase
+from shortfin_apps.llm.components.messages import (
+    LlmInferenceExecRequest,
+    InferencePhase,
+)
 from unittest.mock import patch
 
 
@@ -22,15 +25,15 @@ def test_inference_exec_request_repr(mock_void_future):
     instance_id = req.instance_id
     assert (
         str(req)
-        == f"InferenceExecRequest[phase=P,pos=0,rid=test123,instance_id={instance_id},flags=host,input_token_ids=[1, 2, 3, 4]]"
+        == f"LlmInferenceExecRequest[phase=P,pos=0,rid=test123,instance_id={instance_id},flags=host,input_token_ids=[1, 2, 3, 4]]"
     )
 
-    req = InferenceExecRequest(InferencePhase.DECODE, [], rid="test123")
+    req = LlmInferenceExecRequest(InferencePhase.DECODE, [], rid="test123")
     req.return_host_array = False
     req.return_all_logits = False
     req.rid = None
     req.instance_id = None
     assert (
         str(req)
-        == "InferenceExecRequest[phase=D,pos=0,rid=None,instance_id=None,flags=,input_token_ids=[]]"
+        == "LlmInferenceExecRequest[phase=D,pos=0,rid=None,instance_id=None,flags=,input_token_ids=[]]"
     )
