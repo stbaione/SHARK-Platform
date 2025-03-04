@@ -25,7 +25,10 @@ class InferenceExecRequest(sf.Message):
     """Performs a prefill operation."""
 
     def __init__(
-        self, phase: InferencePhase, input_token_ids: list[int], rid=None, n_beams=1
+        self,
+        phase: InferencePhase,
+        input_token_ids: list[int],
+        rid=None,
     ):
         super().__init__()
         self.phase = phase

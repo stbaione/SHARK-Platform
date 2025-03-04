@@ -60,11 +60,17 @@ class GenerateItemProcess(sf.Process):
         self.result_token_ids: list[int] = []
         self.max_completion_tokens = max_completion_tokens
         self.eos_token_id = eos_token_id
-        self.n_beams = n_beams
         self.temperature = temperature
         self.decode_strategy: DecodeStrategy = None
+
+        # See if an `n_beams` value, other than the server param was requested
+        requested_beams = gen_req.sampling_params.get("n_beams")
+        if requested_beams is not None:
+            n_beams = requested_beams
+        self.n_beams = n_beams
+
         if n_beams > 1:
-            logger.info("Using `beam_search` decode strategy")
+            logger.info(f"Using `beam_search` decode strategy with {n_beams} beams")
             decode_strategy_config = BeamSearchDecodeStrategyConfig(
                 batcher_callback=self.client.batcher.submit,
                 streaming_callback=self.append_token,
@@ -76,7 +82,7 @@ class GenerateItemProcess(sf.Process):
             )
             self.decode_strategy = BeamSearchDecodeStrategy(decode_strategy_config)
         else:
-            logger.info("Using `greedy` decode strategy")
+            logger.info(f"Using `greedy` decode strategy")
             decode_strategy_config = DecodeStrategyConfig(
                 batcher_callback=self.client.batcher.submit,
                 streaming_callback=self.append_token,
@@ -154,7 +160,7 @@ class ClientGenerateBatchProcess(sf.Process):
         self.tokenizer = service.tokenizer
         self.batcher = service.batcher
         self.complete_infeed = self.system.create_queue()
-        self.n_beams = service.model_params.n_beams
+        self.n_beams = service.server_params.n_beams
 
     async def run(self):
         logger.debug("Started ClientBatchGenerateProcess: %r", self)

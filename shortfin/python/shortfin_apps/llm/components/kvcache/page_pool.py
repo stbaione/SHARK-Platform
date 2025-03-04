@@ -120,13 +120,14 @@ class PagePool:
         if dst_pages is None:
             return None
 
-        for src_page, dst_page in zip(src_pages, dst_pages):
-            for page_table in self.page_tables:
-                # View of source and destination pages
-                src_view = page_table.view(src_page.index)
-                dst_view = page_table.view(dst_page.index)
-                # Copy the data
-                dst_view.copy_from(src_view)
+        with self._lock:
+            for src_page, dst_page in zip(src_pages, dst_pages):
+                for page_table in self.page_tables:
+                    # View of source and destination pages
+                    src_view = page_table.view(src_page.index)
+                    dst_view = page_table.view(dst_page.index)
+                    # Copy the data
+                    dst_view.copy_from(src_view)
         return dst_pages
 
     def copy_page(self, src_page: PageInfo) -> PageInfo:

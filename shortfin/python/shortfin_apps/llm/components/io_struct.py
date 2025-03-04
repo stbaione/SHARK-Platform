@@ -31,6 +31,7 @@ class GenerateReqInput:
     # The image input. It can be a file name, a url, or base64 encoded string.
     # See also python/sglang/srt/utils.py:load_image.
     image_data: Optional[Union[List[str], str]] = None
+    # TODO: Create a dataclass for `sampling_params`
     # The sampling_params. See descriptions below.
     sampling_params: Union[List[Dict], Dict] = None
     # The request id.

@@ -141,8 +141,9 @@ class ModelParams:
     # Cache parameters.
     paged_kv_cache: PagedKVCacheParams | None = None
 
-    # Number of beams to use during token generation.
-    n_beams: int = 1
+    # Beam size for beam_search
+    # This is currently just a placeholder, so that dataclass doesn't complain.
+    n_beams: int | None = None
 
     # Size in bytes of the KV cache dtype.
     @property
@@ -220,6 +221,9 @@ class ServerParams:
 
     # Program isolation configuration
     program_isolation: str = "per_call"
+
+    # Decode Strategy configuration
+    n_beams: int = 1
 
     # Device configuration
     device_ids: list[str] = field(default_factory=list)

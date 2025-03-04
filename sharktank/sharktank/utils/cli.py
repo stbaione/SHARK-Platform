@@ -127,12 +127,6 @@ def add_model_options(parser: argparse.ArgumentParser):
         type=int,
         default=512,
     )
-    parser.add_argument(
-        "--n-beams",
-        help="Number of beams to use when generating tokens.",
-        type=int,
-        default=1,
-    )
 
 
 def add_quantization_options(parser: argparse.ArgumentParser):
