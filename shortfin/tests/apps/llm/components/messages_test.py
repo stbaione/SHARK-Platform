@@ -21,7 +21,7 @@ def test_inference_exec_request_repr(mock_void_future):
 
     Patches shortfin.VoidFuture with a mock because we're not running this testcase on a worker thread.
     """
-    req = InferenceExecRequest(InferencePhase.PREFILL, [1, 2, 3, 4], rid="test123")
+    req = LlmInferenceExecRequest(InferencePhase.PREFILL, [1, 2, 3, 4], rid="test123")
     instance_id = req.instance_id
     assert (
         str(req)

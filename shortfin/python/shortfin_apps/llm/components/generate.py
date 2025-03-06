@@ -221,7 +221,7 @@ class ClientGenerateBatchProcess(sf.Process):
                         result_tokens = result_tokens[0]
                     out.write(bytes(json.dumps(result_tokens), "utf-8"))
                 else:
-                    if self.gen_req.return_top_k and self.n_beams > 1:
+                    if self.gen_req.return_top_k:
                         logger.info("Returning `topk` results.")
                         for batch in result_tokens:
                             result_texts = self.tokenizer.decode(batch)
