@@ -15,6 +15,26 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class RefCount:
+    """
+    A reference counter to replace simple int.
+    """
+
+    count: int = 0
+
+    def increment(self) -> int:
+        self.count += 1
+        return self.count
+
+    def decrement(self) -> int:
+        self.count -= 1
+        return self.count
+
+    def is_empty(self) -> bool:
+        return self.count <= 0
+
+
+@dataclass
 class PageInfo:
     """
     Page index with some metadata about its contents.
@@ -22,6 +42,7 @@ class PageInfo:
 
     index: int
     pool: PagePool
+    ref_count: RefCount
 
 
 @dataclass
@@ -73,10 +94,7 @@ class PagePool:
 
         # Setup accounting structs.
         self.attn_page_entries = [
-            PageInfo(
-                index=i,
-                pool=self,
-            )
+            PageInfo(index=i, pool=self, ref_count=RefCount())
             for i in range(self.config.alloc_page_count)
         ]
 
@@ -109,26 +127,22 @@ class PagePool:
             available = len(self.available_pages)
             if count > available:
                 return None
-            return [self.available_pages.pop() for _ in range(count)]
+            pages = []
+            for _ in range(count):
+                available_page = self.available_pages.pop()
+                available_page.ref_count.increment()
+                pages.append(available_page)
+            return pages
 
     def free_pages(self, pages: list[PageInfo]):
         with self._lock:
-            self.available_pages.extend(pages)
-
-    def copy_pages(self, src_pages: List[PageInfo]) -> List[PageInfo]:
-        dst_pages = self.acquire_free_pages(len(src_pages))
-        if dst_pages is None:
-            return None
-
-        with self._lock:
-            for src_page, dst_page in zip(src_pages, dst_pages):
-                for page_table in self.page_tables:
-                    # View of source and destination pages
-                    src_view = page_table.view(src_page.index)
-                    dst_view = page_table.view(dst_page.index)
-                    # Copy the data
-                    dst_view.copy_from(src_view)
-        return dst_pages
+            available_pages = []
+            for page in pages:
+                page.ref_count.decrement()
+                if page.ref_count.count == 0:
+                    available_pages.append(page)
+            self.available_pages.extend(available_pages)
+            logger.info(f"After freeing Cache Pages: {str(self)}")
 
     def copy_page(self, src_page: PageInfo) -> PageInfo:
         """
@@ -146,12 +160,13 @@ class PagePool:
         # fill src page with data
 
         # Copy the data on each device
-        for page_table in self.page_tables:
-            # View of source and destination pages
-            src_view = page_table.view(src_page.index)
-            dst_view = page_table.view(dst_page.index)
-            # Copy the data
-            dst_view.copy_from(src_view)
+        with self._lock:
+            for page_table in self.page_tables:
+                # View of source and destination pages
+                src_view = page_table.view(src_page.index)
+                dst_view = page_table.view(dst_page.index)
+                # Copy the data
+                dst_view.copy_from(src_view)
 
         return dst_page
 

@@ -85,9 +85,13 @@ class BasePagedAttentionCacheAllocation(PageAllocation):
         self._is_released = True
 
     def replicate_self(self) -> "BasePagedAttentionCacheAllocation":
-        new_pages = self._cache.page_pool.copy_pages(self.pages)
-        if new_pages is None:
+        logger.info(f"Cache State:\n\nPage Pool: {str(self._cache.page_pool)}")
+        new_pages = self.pages
+        last_page = new_pages.pop(-1)
+        last_page_copy = self._cache.page_pool.copy_page(last_page)
+        if last_page_copy is None:
             raise CacheAllocationFailure()
+        new_pages.append(last_page_copy)
 
         return BasePagedAttentionCacheAllocation(new_pages, self._cache)
 

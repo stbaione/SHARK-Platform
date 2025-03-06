@@ -3,12 +3,16 @@ from .base_decode_strategy import DecodeStrategy, DecodeStrategyConfig
 
 from asyncio import gather
 from dataclasses import dataclass
+import logging
 from typing import Dict, List, Tuple
 from uuid import uuid4
 
 import numpy as np
 
 from ..messages import LlmInferenceExecRequest, InferencePhase
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -174,7 +178,8 @@ class BeamGroup:
 
         return selected_req
 
-    def __del__(self):
+    def clean_up(self):
+        logger.info("Cleaning up...")
         for req in self.exec_reqs:
             req.free_cache_pages()
 
@@ -218,7 +223,7 @@ class BeamSearchDecodeStrategy(DecodeStrategy):
 
     def delete_beam(self, beam_group_id: str):
         beam_group = BeamSearchDecodeStrategy.beam_map[beam_group_id]
-        del beam_group
+        beam_group.clean_up()
 
     async def decode(
         self,
