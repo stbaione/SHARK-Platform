@@ -139,7 +139,7 @@ class PagePool:
             available_pages = []
             for page in pages:
                 page.ref_count.decrement()
-                if page.ref_count.count == 0:
+                if page.ref_count.is_empty():
                     available_pages.append(page)
             self.available_pages.extend(available_pages)
             logger.info(f"After freeing Cache Pages: {str(self)}")
