@@ -42,7 +42,6 @@ class PageInfo:
 
     index: int
     pool: PagePool
-    ref_count: RefCount
 
 
 @dataclass
@@ -86,6 +85,8 @@ class PagePool:
     `radix_tree.py`.
     """
 
+    ref_counts: dict[int, RefCount] = {}
+
     def __init__(self, *, devices: Sequence[sf.ScopedDevice], config: PagePoolConfig):
         self._lock = threading.Lock()
         self.devices = list(devices)
@@ -94,8 +95,7 @@ class PagePool:
 
         # Setup accounting structs.
         self.attn_page_entries = [
-            PageInfo(index=i, pool=self, ref_count=RefCount())
-            for i in range(self.config.alloc_page_count)
+            PageInfo(index=i, pool=self) for i in range(self.config.alloc_page_count)
         ]
 
         self.available_pages = list(self.attn_page_entries)
@@ -130,7 +130,9 @@ class PagePool:
             pages = []
             for _ in range(count):
                 available_page = self.available_pages.pop()
-                available_page.ref_count.increment()
+                if PagePool.ref_counts.get(available_page.index) is None:
+                    PagePool.ref_counts[available_page.index] = RefCount()
+                PagePool.ref_counts[available_page.index].increment()
                 pages.append(available_page)
             return pages
 
@@ -138,8 +140,8 @@ class PagePool:
         with self._lock:
             available_pages = []
             for page in pages:
-                page.ref_count.decrement()
-                if page.ref_count.is_empty():
+                PagePool.ref_counts[page.index].decrement()
+                if PagePool.ref_counts[page.index].is_empty():
                     available_pages.append(page)
             self.available_pages.extend(available_pages)
             logger.info(f"After freeing Cache Pages: {str(self)}")
