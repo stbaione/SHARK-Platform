@@ -5,7 +5,10 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import copy
+from dataclasses import dataclass
 from enum import Enum
+from time import time
+from typing import List
 
 import shortfin as sf
 import shortfin.array as sfnp
@@ -22,6 +25,76 @@ class InferencePhase(Enum):
     DECODE = 2
 
 
+@dataclass
+class LlmInferenceMetrics:
+    # NOTE: THIS IS A TEMPORARY CLASS FOR THE DEMO
+
+    prefill_times: List[float]
+    decode_times: List[float]
+    batcher_pending_times: List[float]
+    ttft: float | None = None
+    start_time: float | None = None
+    end_time: float | None = None
+
+    def add_prefill_time(self, time: float):
+        self.prefill_times.append(time)
+
+    def add_decode_time(self, time: float):
+        self.decode_times.append(time)
+
+    @property
+    def average_prefill_time(self):
+        return sum(self.prefill_times) / len(self.prefill_times)
+
+    @property
+    def average_decode_time(self):
+        return sum(self.decode_times) / len(self.decode_times)
+
+    @property
+    def average_batcher_pending_time(self):
+        return sum(self.batcher_pending_times) / len(self.batcher_pending_times)
+
+    @property
+    def tpot(self):
+        total_tokens = len(self.prefill_times) + len(self.decode_times)
+        return (self.end_time - self.start_time) / total_tokens
+
+    def set_start_time(self):
+        self.start_time = time()
+
+    def set_end_time(self):
+        self.end_time = time()
+
+    def set_ttft(self, time: float):
+        self.ttft = time - self.start_time
+
+    def replicate_self(self) -> "LlmInferenceMetrics":
+        return LlmInferenceMetrics(
+            prefill_times=copy.deepcopy(self.prefill_times),
+            decode_times=copy.deepcopy(self.decode_times),
+            batcher_pending_times=copy.deepcopy(self.batcher_pending_times),
+            ttft=self.ttft,
+            start_time=self.start_time,
+            end_time=self.end_time,
+        )
+
+    def __str__(self):
+        return f"""
+            Total Prefills: {len(self.prefill_times)}
+            Total Prefill Time: {sum(self.prefill_times)}
+            Average Prefill Time: {self.average_prefill_time}
+            Total Decodes: {len(self.decode_times)}
+            Total Decode Time: {sum(self.decode_times)}
+            Average Decode Time: {self.average_decode_time}
+            Total Times Batched: {len(self.batcher_pending_times)}
+            Total Batcher Pending Times: {sum(self.batcher_pending_times)}
+            Average Batcher Pending Time: {self.average_batcher_pending_time}
+            TTFT: {self.ttft}
+            TPOT: {self.tpot}
+            E2E Time: {self.end_time - self.start_time}
+        """
+
+
 class LlmInferenceExecRequest(InferenceExecRequest):
     """Performs a prefill operation."""
 
@@ -29,7 +102,8 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         self,
         phase: InferencePhase,
         input_token_ids: list[int],
-        rid=None,
+        rid: str | None = None,
+        llm_inference_metrics: LlmInferenceMetrics | None = None,
     ):
         super().__init__()
         self.phase = phase
@@ -60,6 +134,8 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         self.cache: BasePagedAttentionCache | None = None
         self.allocation: PageAllocation | None = None
 
+        self.llm_inference_metrics: LlmInferenceMetrics | None = llm_inference_metrics
+
     def reset(self, phase: InferencePhase):
         """Resets all per request state in preparation for an subsequent execution."""
         self.phase = phase
@@ -83,6 +159,7 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         new_exec_req.beam_group_id = self.beam_group_id
         new_exec_req.cache = self.cache
         new_exec_req.allocation = self.allocation.replicate_self()
+        new_exec_req.llm_inference_metrics = self.llm_inference_metrics.replicate_self()
         return new_exec_req
 
     def cache_page_indices(self, max_len: int) -> list[int]:

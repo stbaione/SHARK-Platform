@@ -48,6 +48,8 @@ class GenerateReqInput:
     return_text_in_logprobs: bool = False
     # Whether to return multiple beams from server when using `beam_search`
     return_top_k: bool = False
+    # Whether to return inference metrics with response.
+    return_metrics: bool = False
     # Whether to stream output.
     stream: bool = False
     # The modalities of the image data [image, multi-images, video]

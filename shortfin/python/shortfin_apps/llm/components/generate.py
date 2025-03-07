@@ -5,10 +5,10 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import asyncio
-import copy
 import io
 import json
 import logging
+from time import time
 from typing import List
 
 import shortfin as sf
@@ -18,7 +18,7 @@ import shortfin.array as sfnp
 from shortfin.interop.fastapi import FastAPIResponder
 
 from .io_struct import GenerateReqInput
-from .messages import LlmInferenceExecRequest, InferencePhase
+from .messages import LlmInferenceExecRequest, InferencePhase, LlmInferenceMetrics
 from .service import GenerateService
 from .tokenizer import Encoding
 
@@ -62,17 +62,11 @@ class GenerateItemProcess(sf.Process):
         self.eos_token_id = eos_token_id
         self.temperature = temperature
         self.decode_strategy: DecodeStrategy = None
-
-        # See if an `n_beams` value, other than the server param was requested
-        requested_beams = (
-            gen_req.sampling_params.get("n_beams")
-            if isinstance(gen_req.sampling_params, dict)
-            else gen_req.sampling_params[index].get("n_beams")
-        )
-        if requested_beams is not None:
-            n_beams = requested_beams
-
         self.n_beams = n_beams
+
+        if gen_req.return_metrics:
+            self.llm_inference_metrics = []
+
         if n_beams > 1:
             logger.info(f"Using `beam_search` decode strategy with {n_beams} beams")
             decode_strategy_config = BeamSearchDecodeStrategyConfig(
@@ -87,6 +81,8 @@ class GenerateItemProcess(sf.Process):
             self.decode_strategy = BeamSearchDecodeStrategy(decode_strategy_config)
         else:
             logger.info(f"Using `greedy` decode strategy")
+            if gen_req.return_top_k:
+                gen_req.return_top_k = False
             decode_strategy_config = DecodeStrategyConfig(
                 batcher_callback=self.client.batcher.submit,
                 streaming_callback=self.append_token,
@@ -105,6 +101,13 @@ class GenerateItemProcess(sf.Process):
             input_token_ids=self.input_token_ids,
             rid=self.gen_req.rid,
         )
+        if self.gen_req.return_metrics:
+            exec.llm_inference_metrics = LlmInferenceMetrics(
+                prefill_times=[],
+                decode_times=[],
+                batcher_pending_times=[],
+                start_time=time(),
+            )
         try:
             self.client.batcher.submit(exec)
             await exec.done
@@ -112,6 +115,8 @@ class GenerateItemProcess(sf.Process):
             # Prefill result.
             token = sfnp.argmax(exec.result_logits)
             token_int = token.items[0]
+            if self.gen_req.return_metrics:
+                exec.llm_inference_metrics.set_ttft(time())
 
             self.append_token(token_int)
             # Decode loop.
@@ -123,11 +128,22 @@ class GenerateItemProcess(sf.Process):
             logger.info(f"Freeing cache pages: {exec.rid}")
             exec.free_cache_pages()
 
-    def append_token(self, token: int | List[int]):
+    def append_token(
+        self,
+        token: int | List[int],
+        inference_metrics: (
+            LlmInferenceMetrics | List[LlmInferenceMetrics] | None
+        ) = None,
+    ):
         if isinstance(token, list):
             self.result_token_ids = token
         else:
             self.result_token_ids.append(token)
+
+        if isinstance(inference_metrics, list):
+            self.llm_inference_metrics = inference_metrics
+        elif inference_metrics is not None:
+            self.llm_inference_metrics.append(inference_metrics)
 
         self.client.stream_results(self)
 
@@ -193,6 +209,19 @@ class ClientGenerateBatchProcess(sf.Process):
                     if self.gen_req.is_single
                     else self.gen_req.sampling_params[index]["temperature"]
                 )
+                requested_beams = (
+                    self.gen_req.sampling_params.get("n_beams")
+                    if isinstance(self.gen_req.sampling_params, dict)
+                    else self.gen_req.sampling_params[index].get("n_beams")
+                )
+                n_beams = self.n_beams
+                if requested_beams is not None:
+                    n_beams = requested_beams
+
+                # In case somebody requests top_k, with the server/request
+                # set to `greedy`.
+                if n_beams == 1 or n_beams is None:
+                    self.gen_req.return_top_k = False
                 gen_process = GenerateItemProcess(
                     self,
                     self.gen_req,
@@ -200,47 +229,79 @@ class ClientGenerateBatchProcess(sf.Process):
                     input_tokens if is_pretokenized else input_tokens.ids,
                     max_completion_tokens=max_completion_tokens,
                     eos_token_id=self.tokenizer.eos_token_id,
-                    n_beams=self.n_beams,
+                    n_beams=n_beams,
                     temperature=temperature,
                 )
                 gen_processes.append(gen_process)
                 gen_process.launch()
 
             await asyncio.gather(*gen_processes)
-
-            if streaming:
-                logger.debug("Responding to streaming batch")
-                self.responder.stream_part(b"data: [DONE]\n\n")
-                self.responder.stream_part(None)
-            else:
-                logging.debug("Responding to one shot batch")
-                out = io.BytesIO()
-                result_tokens = [p.result_token_ids for p in gen_processes]
-                if self.gen_req.return_input_ids:
-                    if self.gen_req.is_single:
-                        result_tokens = result_tokens[0]
-                    out.write(bytes(json.dumps(result_tokens), "utf-8"))
-                else:
-                    if self.gen_req.return_top_k:
-                        logger.info("Returning `topk` results.")
-                        for batch in result_tokens:
-                            result_texts = self.tokenizer.decode(batch)
-                            for result_text in result_texts:
-                                out.write(b"data: ")
-                                out.write(result_text.encode())
-                                out.write(b"\n\n")
-                    else:
-                        logger.info("Returning result.")
-                        result_texts = self.tokenizer.decode(result_tokens)
-                        for result_text in result_texts:
-                            out.write(b"data: ")
-                            out.write(result_text.encode())
-                            out.write(b"\n\n")
-                self.responder.send_response(out.getvalue())
+            self.respond(gen_processes, streaming)
         except Exception as e:
             logger.exception(e)
         finally:
             self.responder.ensure_response()
+
+    def respond(self, gen_processes: List[GenerateItemProcess], streaming: bool):
+        if streaming:
+            logger.debug("Responding to streaming batch")
+            self.responder.stream_part(b"data: [DONE]\n\n")
+            self.responder.stream_part(None)
+        else:
+            logging.debug("Responding to one shot batch")
+            out = io.BytesIO()
+            result_tokens = [p.result_token_ids for p in gen_processes]
+            result_metrics = None
+            if self.gen_req.return_metrics:
+                result_metrics = []
+                for p in gen_processes:
+                    result_metrics.extend(p.llm_inference_metrics)
+            if self.gen_req.return_input_ids:
+                if self.gen_req.is_single:
+                    result_tokens = result_tokens[0]
+                    result_metrics = result_metrics[0]
+                out.write(bytes(json.dumps(result_tokens), "utf-8"))
+                if result_metrics is not None:
+                    out.write(b"\n")
+                    out.write(bytes(str(result_metrics), "utf-8"))
+            else:
+                if self.gen_req.return_top_k:
+                    logger.info("Returning `topk` results.")
+                    result_metrics = None
+                    if self.gen_req.return_metrics:
+                        result_metrics = [
+                            p.llm_inference_metrics for p in gen_processes
+                        ]
+                    for batch_index, batch in enumerate(result_tokens):
+                        result_texts = self.tokenizer.decode(batch)
+                        for text_index, result_text in enumerate(result_texts):
+                            out.write(b"data: ")
+                            out.write(result_text.encode())
+                            out.write(b"\n\n")
+                            if result_metrics is not None:
+                                out.write(b"\n")
+                                out.write(
+                                    bytes(
+                                        str(result_metrics[batch_index][text_index]),
+                                        "utf-8",
+                                    )
+                                )
+                                out.write(b"\n\n")
+                else:
+                    logger.info("Returning result.")
+                    result_texts = self.tokenizer.decode(result_tokens)
+                    if self.gen_req.return_metrics:
+                        result_metrics = []
+                        for p in gen_processes:
+                            result_metrics.extend(p.llm_inference_metrics)
+                    for index, result_text in enumerate(result_texts):
+                        out.write(b"data: ")
+                        out.write(result_text.encode())
+                        out.write(b"\n\n")
+                        if self.gen_req.return_metrics:
+                            out.write(bytes(str(result_metrics[index]), "utf-8"))
+                            out.write(b"\n\n")
+            self.responder.send_response(out.getvalue())
 
     def stream_results(self, gen_process: GenerateItemProcess):
         if not self.gen_req.stream:

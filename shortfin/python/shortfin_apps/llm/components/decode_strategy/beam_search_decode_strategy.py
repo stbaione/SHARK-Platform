@@ -148,6 +148,7 @@ class BeamGroup:
             visited_reqs[new_req.instance_id] = new_req
             new_reqs.add(new_req)
             if token == eos_token_id:
+                new_req.llm_inference_metrics.set_end_time()
                 self.completed_reqs.add(new_req)
 
         for req in self.exec_reqs:
@@ -230,6 +231,7 @@ class BeamSearchDecodeStrategy(DecodeStrategy):
         exec_req: LlmInferenceExecRequest,
     ) -> List[int] | List[List[int]]:
         config = self.decode_strategy_config
+        return_metrics = exec_req.llm_inference_metrics is not None
         decode_reqs = [exec_req]
         for _ in range(config.n_beams - 1):
             decode_req = exec_req.replicate_self()
@@ -249,15 +251,28 @@ class BeamSearchDecodeStrategy(DecodeStrategy):
             await beam_group.wait()
             beam_group.process_beams(config.eos_token_id)
 
-        result = None
+        result = []
+        metrics = []
         if config.return_top_k:
             reqs = beam_group.completed_reqs
             for req in beam_group.exec_reqs:
+                req.llm_inference_metrics.set_end_time()
                 reqs.add(req)
-            result = [req.output_token_ids for req in reqs]
+            for req in reqs:
+                result.append(req.output_token_ids)
+                if return_metrics:
+                    metrics.append(req.llm_inference_metrics)
 
         else:
-            result = beam_group.find_top_beam().output_token_ids
+            top_beam = beam_group.find_top_beam()
+            result = top_beam.output_token_ids
+            if return_metrics:
+                if top_beam.llm_inference_metrics.end_time is None:
+                    top_beam.llm_inference_metrics.set_end_time()
+                metrics.append(top_beam.llm_inference_metrics)
 
         self.delete_beam(beam_group.beam_group_id)
-        config.streaming_callback(result)
+        if metrics:
+            config.streaming_callback(result, metrics)
+        else:
+            config.streaming_callback(result)

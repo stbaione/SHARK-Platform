@@ -4,10 +4,9 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-import asyncio
 import logging
 import os
-from pathlib import Path
+from time import time
 
 
 import shortfin as sf
@@ -139,8 +138,8 @@ class LlmBatcherProcess(BatcherProcessBase):
     committed cache state).
     """
 
-    STROBE_SHORT_DELAY = 0.1
-    STROBE_LONG_DELAY = 0.25
+    STROBE_SHORT_DELAY = 0.05
+    STROBE_LONG_DELAY = 0.125
 
     def __init__(self, service: GenerateService):
         super().__init__(fiber=service.main_fiber)
@@ -149,15 +148,20 @@ class LlmBatcherProcess(BatcherProcessBase):
         self.pending_decodes: set[LlmInferenceExecRequest] = set()
         # TODO: There is no "ideal" batch size. Use prefill/decode dynamic
         # batching in the scheduling algo.
-        self.ideal_batch_size: int = max(service.model_params.prefill_batch_sizes)
+        self.prefill_batch_size: int = max(service.model_params.prefill_batch_sizes)
+        self.decode_batch_size: int = max(service.model_params.decode_batch_sizes)
         self.page_seq_stride = service.model_params.paged_kv_cache.block_seq_stride
 
-    def handle_inference_request(self, request):
+    def handle_inference_request(self, request: LlmInferenceExecRequest):
         """Handle an inference request."""
         phase = request.phase
         if phase == InferencePhase.PREFILL:
+            if request.llm_inference_metrics is not None:
+                request.llm_inference_metrics.batcher_pending_times.append(time())
             self.pending_prefills.add(request)
         elif phase == InferencePhase.DECODE:
+            if request.llm_inference_metrics is not None:
+                request.llm_inference_metrics.batcher_pending_times.append(time())
             self.pending_decodes.add(request)
         else:
             logger.error("Illegal LlmInferenceExecRequest phase: %r", phase)
@@ -170,7 +174,7 @@ class LlmBatcherProcess(BatcherProcessBase):
         waiting_count = len(self.pending_prefills) + len(self.pending_decodes)
         if waiting_count == 0:
             return
-        if waiting_count < self.ideal_batch_size and self.strobes < 2:
+        if waiting_count < self.prefill_batch_size and self.strobes < 2:
             logger.info("Waiting a bit longer to fill flight")
             return
         self.strobes = 0
@@ -200,7 +204,7 @@ class LlmBatcherProcess(BatcherProcessBase):
         )
         for prefill_request in pending_prefills:
             assert prefill_request.phase == InferencePhase.PREFILL
-            if len(exec_process.exec_requests) >= self.ideal_batch_size:
+            if len(exec_process.exec_requests) >= self.prefill_batch_size:
                 break
             needed_pages = math.ceil(
                 len(prefill_request.input_token_ids) / self.page_seq_stride
@@ -241,7 +245,7 @@ class LlmBatcherProcess(BatcherProcessBase):
         )
         for decode_request in pending_decodes:
             assert decode_request.phase == InferencePhase.DECODE
-            if len(exec_process.exec_requests) >= self.ideal_batch_size:
+            if len(exec_process.exec_requests) >= self.decode_batch_size:
                 break
             decode_request.allocation.extend_allocation(
                 decode_request.input_token_ids, extra_token_slots=1
@@ -417,13 +421,19 @@ class InferenceExecutorProcess(sf.Process):
                 )
 
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
+            start_time = time()
             (logits,) = await fn(*args, fiber=self.fiber)
+            end_time = time()
 
             # publish cache pages
             for r in self.exec_requests:
                 total_tokens = r.start_position + len(r.input_token_ids)
                 number_of_complete_pages = total_tokens // seq_stride
                 r.publish_allocated_pages(number_of_complete_pages)
+                if r.llm_inference_metrics is not None:
+                    r.llm_inference_metrics.batcher_pending_times[-1] = (
+                        start_time - r.llm_inference_metrics.batcher_pending_times[-1]
+                    )
 
             # Return results.
             for i in range(req_count):
@@ -439,6 +449,10 @@ class InferenceExecutorProcess(sf.Process):
                     await device0
                 else:
                     req.result_logits = logits_item
+                if is_decode and req.llm_inference_metrics is not None:
+                    req.llm_inference_metrics.add_decode_time(end_time - start_time)
+                elif req.llm_inference_metrics is not None:
+                    req.llm_inference_metrics.add_prefill_time(end_time - start_time)
                 req.done.set_success()
 
         except Exception:
