@@ -84,16 +84,8 @@ class GenerateItemProcess(sf.Process):
             rid=self.gen_req.rid,
         )
         try:
-            self.client.batcher.submit(exec_req)
-            await exec_req.done
-
             # Prefill result.
-            token = sfnp.argmax(exec_req.result_logits)
-            token_int = token.items[0]
-
-            self.append_token(token_int)
-            exec_req.input_token_ids.append(token_int)
-            exec_req.start_position = len(exec_req.input_token_ids) - 1
+            await self.decode_strategy.prefill(exec_req)
 
             # Decode loop.
             await self.decode_strategy.decode(exec_req)
