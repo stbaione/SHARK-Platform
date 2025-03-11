@@ -15,6 +15,12 @@ import shortfin.array as sfnp
 # TODO: Have a generic "Responder" interface vs just the concrete impl.
 from shortfin.interop.fastapi import FastAPIResponder
 
+from .decode_strategy import (
+    DecodeStrategy,
+    DecodeStrategyConfig,
+    GreedyDecodeStrategy,
+    SupportedDecodeStrategies,
+)
 from .io_struct import GenerateReqInput
 from .messages import LlmInferenceExecRequest, InferencePhase
 from .service import LlmGenerateService
@@ -39,6 +45,7 @@ class GenerateItemProcess(sf.Process):
         input_token_ids: list[int],
         max_completion_tokens: int,
         eos_token_id: int,
+        supported_decode_strategy: SupportedDecodeStrategies = SupportedDecodeStrategies.GREEDY,
     ):
         super().__init__(fiber=client.fiber)
         self.client = client
@@ -48,39 +55,50 @@ class GenerateItemProcess(sf.Process):
         self.result_token_ids: list[int] = []
         self.max_completion_tokens = max_completion_tokens
         self.eos_token_id = eos_token_id
+        self.supported_decode_strategy = supported_decode_strategy
+        self.decode_strategy = self._instantiate_decode_strategy()
 
         self.streamed_tokens_index = 0
 
+    def _instantiate_decode_strategy(self) -> DecodeStrategy:
+        if self.supported_decode_strategy == SupportedDecodeStrategies.GREEDY:
+            decode_strategy_config = DecodeStrategyConfig(
+                batcher_callback=self.client.batcher.submit,
+                results_callback=self.append_token,
+                eos_token_id=self.eos_token_id,
+                max_completion_tokens=self.max_completion_tokens,
+            )
+            return GreedyDecodeStrategy(
+                decode_strategy_config=decode_strategy_config,
+            )
+
+        raise NotImplementedError(
+            f"Unsupported decode strategy: {self.supported_decode_strategy}.\n"
+            f"Supported strategies: {','.join([strategy.name for strategy in SupportedDecodeStrategies])}"
+        )
+
     async def run(self):
-        exec = LlmInferenceExecRequest(
+        exec_req = LlmInferenceExecRequest(
             phase=InferencePhase.PREFILL,
             input_token_ids=self.input_token_ids,
             rid=self.gen_req.rid,
         )
         try:
-            self.client.batcher.submit(exec)
-            await exec.done
+            self.client.batcher.submit(exec_req)
+            await exec_req.done
 
             # Prefill result.
-            token = sfnp.argmax(exec.result_logits)
+            token = sfnp.argmax(exec_req.result_logits)
             token_int = token.items[0]
 
             self.append_token(token_int)
+            exec_req.input_token_ids.append(token_int)
+            exec_req.start_position = len(exec_req.input_token_ids) - 1
+
             # Decode loop.
-            exec.start_position = len(self.input_token_ids) - 1
-            for i in range(self.max_completion_tokens):
-                exec.reset(InferencePhase.DECODE)
-                exec.input_token_ids.append(token_int)
-                exec.start_position += 1
-                self.client.batcher.submit(exec)
-                await exec.done
-                token = sfnp.argmax(exec.result_logits)
-                token_int = token.items[0]
-                self.append_token(token_int)
-                if token_int == self.eos_token_id:
-                    break
+            await self.decode_strategy.decode(exec_req)
         finally:
-            exec.free_cache_pages()
+            exec_req.free_cache_pages()
 
     def append_token(self, token: int):
         self.result_token_ids.append(token)
