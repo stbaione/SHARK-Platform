@@ -14,27 +14,27 @@ import shortfin.array as sfnp
 from shortfin_apps.llm.components.messages import (
     LlmInferenceExecRequest,
 )
-from shortfin_apps.llm.components.decode_strategy import (
-    DecodeStrategyConfig,
-    GreedyDecodeStrategy,
+from shortfin_apps.llm.components.token_selection_strategy import (
+    TokenSelectionStrategyConfig,
+    GreedyTokenSelectionStrategy,
 )
 
 logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="function")
-def greedy_decode_strategy():
-    yield GreedyDecodeStrategy(
+def greedy_token_selection_strategy():
+    yield GreedyTokenSelectionStrategy(
         None,
     )
 
 
 @pytest.mark.asyncio
 async def test_greedy_decode_single(
-    device, exec_req: LlmInferenceExecRequest, greedy_decode_strategy
+    device, exec_req: LlmInferenceExecRequest, greedy_token_selection_strategy
 ):
     def _batcher_callback(request: LlmInferenceExecRequest):
-        """Mock the batcher function to isolate `DecodeStrategy.prefill`.
+        """Mock the batcher function to isolate `TokenSelectionStrategy.prefill`.
 
         This adds a `device_array` to the `LlmInferenceExecRequest's` result_logits.
         Then we set the request to done, effectively simulating what would
@@ -55,7 +55,7 @@ async def test_greedy_decode_single(
         results_array.append(token)
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
-    decode_strategy_config = DecodeStrategyConfig(
+    decode_strategy_config = TokenSelectionStrategyConfig(
         batcher_callback=_batcher_callback,
         results_callback=_results_callback,
         eos_token_id=-1,
@@ -64,11 +64,11 @@ async def test_greedy_decode_single(
 
     # Single token generated
     with patch.object(
-        greedy_decode_strategy,
-        "_decode_strategy_config",
+        greedy_token_selection_strategy,
+        "_token_selection_strategy_config",
         new=decode_strategy_config,
     ):
-        await greedy_decode_strategy.decode(exec_req)
+        await greedy_token_selection_strategy.decode(exec_req)
 
         assert results_array[0] == 15
         assert exec_req.input_token_ids[-1] == 15
@@ -77,7 +77,7 @@ async def test_greedy_decode_single(
 
 @pytest.mark.asyncio
 async def test_greedy_decode_multiple_completions(
-    device, exec_req: LlmInferenceExecRequest, greedy_decode_strategy
+    device, exec_req: LlmInferenceExecRequest, greedy_token_selection_strategy
 ):
     results_array = []
 
@@ -87,7 +87,7 @@ async def test_greedy_decode_multiple_completions(
     count = 0
 
     def _batcher_callback_multiple_completions(request: LlmInferenceExecRequest):
-        """Mock the batcher function to isolate `DecodeStrategy.prefill`.
+        """Mock the batcher function to isolate `TokenSelectionStrategy.prefill`.
 
         This adds a `device_array` to the `LlmInferenceExecRequest's` result_logits.
         Then we set the request to done, effectively simulating what would
@@ -108,20 +108,20 @@ async def test_greedy_decode_multiple_completions(
         count += 1
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
-    decode_strategy_config = DecodeStrategyConfig(
+    decode_strategy_config = TokenSelectionStrategyConfig(
         batcher_callback=_batcher_callback_multiple_completions,
         results_callback=_results_callback,
         eos_token_id=-1,
         max_completion_tokens=5,
     )
 
-    # Multiple token generated
+    # Multiple tokens generated
     with patch.object(
-        greedy_decode_strategy,
-        "_decode_strategy_config",
+        greedy_token_selection_strategy,
+        "_token_selection_strategy_config",
         new=decode_strategy_config,
     ):
-        await greedy_decode_strategy.decode(exec_req)
+        await greedy_token_selection_strategy.decode(exec_req)
 
         assert results_array == [0, 1, 2, 3, 4]
         assert len(exec_req.input_token_ids) == 11
@@ -130,7 +130,7 @@ async def test_greedy_decode_multiple_completions(
 
 @pytest.mark.asyncio
 async def test_greedy_decode_eos_token(
-    device, exec_req: LlmInferenceExecRequest, greedy_decode_strategy
+    device, exec_req: LlmInferenceExecRequest, greedy_token_selection_strategy
 ):
     results_array = []
 
@@ -140,7 +140,7 @@ async def test_greedy_decode_eos_token(
     count = 0
 
     def _batcher_callback_multiple_completions(request: LlmInferenceExecRequest):
-        """Mock the batcher function to isolate `DecodeStrategy.prefill`.
+        """Mock the batcher function to isolate `TokenSelectionStrategy.prefill`.
 
         This adds a `device_array` to the `LlmInferenceExecRequest's` result_logits.
         Then we set the request to done, effectively simulating what would
@@ -161,7 +161,7 @@ async def test_greedy_decode_eos_token(
         count += 1
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
-    decode_strategy_config = DecodeStrategyConfig(
+    decode_strategy_config = TokenSelectionStrategyConfig(
         batcher_callback=_batcher_callback_multiple_completions,
         results_callback=_results_callback,
         eos_token_id=5,
@@ -170,11 +170,11 @@ async def test_greedy_decode_eos_token(
 
     # Multiple tokens generated, eos is hit
     with patch.object(
-        greedy_decode_strategy,
-        "_decode_strategy_config",
+        greedy_token_selection_strategy,
+        "_token_selection_strategy_config",
         new=decode_strategy_config,
     ):
-        await greedy_decode_strategy.decode(exec_req)
+        await greedy_token_selection_strategy.decode(exec_req)
 
         assert results_array == [0, 1, 2, 3, 4, 5]
         assert len(exec_req.input_token_ids) == 11

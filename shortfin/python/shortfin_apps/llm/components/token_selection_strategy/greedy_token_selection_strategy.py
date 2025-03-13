@@ -8,29 +8,37 @@ import logging
 
 import shortfin.array as sfnp
 
-from .base_decode_strategy import DecodeStrategy, DecodeStrategyConfig
+from .base_token_selection_strategy import (
+    TokenSelectionStrategy,
+    TokenSelectionStrategyConfig,
+)
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
 
 logger = logging.getLogger(__name__)
 
 
-class GreedyDecodeStrategy(DecodeStrategy):
+class GreedyTokenSelectionStrategy(TokenSelectionStrategy):
     def __init__(
         self,
-        decode_strategy_config: DecodeStrategyConfig,
+        token_selection_strategy_config: TokenSelectionStrategyConfig,
     ):
-        self._decode_strategy_config = decode_strategy_config
+        self._token_selection_strategy_config = token_selection_strategy_config
 
     @property
-    def decode_strategy_config(self):
-        return self._decode_strategy_config
+    def token_selection_strategy_config(self):
+        return self._token_selection_strategy_config
 
     async def decode(
         self,
         exec_req: LlmInferenceExecRequest,
     ):
-        config = self.decode_strategy_config
+        """Perform greedy token selection in a loop, to obtain decode token list.
+
+        Args:
+            exec_req (LlmInferenceExecRequest): Execution request that has had prefill invoked on it.
+        """
+        config = self.token_selection_strategy_config
         for _ in range(config.max_completion_tokens):
             exec_req.reset(InferencePhase.DECODE)
             config.batcher_callback(exec_req)

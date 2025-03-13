@@ -12,20 +12,20 @@ import shortfin.array as sfnp
 from shortfin_apps.llm.components.messages import (
     LlmInferenceExecRequest,
 )
-from shortfin_apps.llm.components import decode_strategy
+from shortfin_apps.llm.components import token_selection_strategy
 
 
 def test_imports():
-    for attr in decode_strategy.__all__:
-        assert hasattr(decode_strategy, attr)
+    for attr in token_selection_strategy.__all__:
+        assert hasattr(token_selection_strategy, attr)
 
 
 @pytest.mark.asyncio
 async def test_prefill(
-    device, exec_req: LlmInferenceExecRequest, dummy_decode_strategy
+    device, exec_req: LlmInferenceExecRequest, dummy_token_selection_strategy
 ):
     def _batcher_callback(request: LlmInferenceExecRequest):
-        """Mock the batcher function to isolate `DecodeStrategy.prefill`.
+        """Mock the batcher function to isolate `TokenSelectionStrategy.prefill`.
 
         This adds a `device_array` to the `LlmInferenceExecRequest's` result_logits.
         Then we set the request to done, effectively simulating what would
@@ -45,14 +45,18 @@ async def test_prefill(
     def _results_callback(token: int):
         results_array.append(token)
 
-    decode_strategy_config = decode_strategy.DecodeStrategyConfig(
-        batcher_callback=_batcher_callback,
-        results_callback=_results_callback,
-        eos_token_id=0,
-        max_completion_tokens=1,
+    token_selection_strategy_config = (
+        token_selection_strategy.TokenSelectionStrategyConfig(
+            batcher_callback=_batcher_callback,
+            results_callback=_results_callback,
+            eos_token_id=0,
+            max_completion_tokens=1,
+        )
     )
-    dummy_decode_strategy._decode_strategy_config = decode_strategy_config
-    await dummy_decode_strategy.prefill(exec_req)
+    dummy_token_selection_strategy._token_selection_strategy_config = (
+        token_selection_strategy_config
+    )
+    await dummy_token_selection_strategy.prefill(exec_req)
 
     assert results_array[0] == 15
     assert exec_req.input_token_ids[-1] == 15

@@ -13,9 +13,9 @@ from shortfin_apps.llm.components.messages import (
     LlmInferenceExecRequest,
     InferencePhase,
 )
-from shortfin_apps.llm.components.decode_strategy import (
-    DecodeStrategy,
-    DecodeStrategyConfig,
+from shortfin_apps.llm.components.token_selection_strategy import (
+    TokenSelectionStrategy,
+    TokenSelectionStrategyConfig,
 )
 
 
@@ -42,21 +42,21 @@ def exec_req():
         )
 
 
-class DummyDecodeStrategy(DecodeStrategy):
-    def __init__(self, decode_strategy_config: DecodeStrategyConfig):
+class DummyTokenSelectionStrategy(TokenSelectionStrategy):
+    def __init__(self, token_selection_strategy_config: TokenSelectionStrategyConfig):
         # Initialize with a dummy config instance.
-        self._decode_strategy_config = decode_strategy_config
+        self._token_selection_strategy_config = token_selection_strategy_config
 
     @property
-    def decode_strategy_config(self):
-        return self._decode_strategy_config
+    def token_selection_strategy_config(self):
+        return self._token_selection_strategy_config
 
     async def decode(self, exec_req):
         pass
 
 
 @pytest.fixture(scope="module")
-def dummy_decode_strategy():
-    yield DummyDecodeStrategy(
+def dummy_token_selection_strategy():
+    yield DummyTokenSelectionStrategy(
         None,
     )

@@ -15,11 +15,11 @@ import shortfin.array as sfnp
 # TODO: Have a generic "Responder" interface vs just the concrete impl.
 from shortfin.interop.fastapi import FastAPIResponder
 
-from .decode_strategy import (
-    DecodeStrategy,
-    DecodeStrategyConfig,
-    GreedyDecodeStrategy,
-    SupportedDecodeStrategies,
+from .token_selection_strategy import (
+    TokenSelectionStrategy,
+    TokenSelectionStrategyConfig,
+    GreedyTokenSelectionStrategy,
+    SupportedTokenSelectionStrategies,
 )
 from .io_struct import GenerateReqInput
 from .messages import LlmInferenceExecRequest, InferencePhase
@@ -45,7 +45,7 @@ class GenerateItemProcess(sf.Process):
         input_token_ids: list[int],
         max_completion_tokens: int,
         eos_token_id: int,
-        supported_decode_strategy: SupportedDecodeStrategies = SupportedDecodeStrategies.GREEDY,
+        supported_token_selection_strategy: SupportedTokenSelectionStrategies = SupportedTokenSelectionStrategies.GREEDY,
     ):
         super().__init__(fiber=client.fiber)
         self.client = client
@@ -55,26 +55,29 @@ class GenerateItemProcess(sf.Process):
         self.result_token_ids: list[int] = []
         self.max_completion_tokens = max_completion_tokens
         self.eos_token_id = eos_token_id
-        self.supported_decode_strategy = supported_decode_strategy
-        self.decode_strategy = self._instantiate_decode_strategy()
+        self.supported_token_selection_strategy = supported_token_selection_strategy
+        self.token_selection_strategy = self._instantiate_token_selection_strategy()
 
         self.streamed_tokens_index = 0
 
-    def _instantiate_decode_strategy(self) -> DecodeStrategy:
-        if self.supported_decode_strategy == SupportedDecodeStrategies.GREEDY:
-            decode_strategy_config = DecodeStrategyConfig(
+    def _instantiate_token_selection_strategy(self) -> TokenSelectionStrategy:
+        if (
+            self.supported_token_selection_strategy
+            == SupportedTokenSelectionStrategies.GREEDY
+        ):
+            token_selection_strategy_config = TokenSelectionStrategyConfig(
                 batcher_callback=self.client.batcher.submit,
                 results_callback=self.append_token,
                 eos_token_id=self.eos_token_id,
                 max_completion_tokens=self.max_completion_tokens,
             )
-            return GreedyDecodeStrategy(
-                decode_strategy_config=decode_strategy_config,
+            return GreedyTokenSelectionStrategy(
+                token_selection_strategy_config=token_selection_strategy_config,
             )
 
         raise NotImplementedError(
-            f"Unsupported decode strategy: {self.supported_decode_strategy}.\n"
-            f"Supported strategies: {','.join([strategy.name for strategy in SupportedDecodeStrategies])}"
+            f"Unsupported decode strategy: {self.supported_token_selection_strategy}.\n"
+            f"Supported strategies: {','.join([strategy.name for strategy in SupportedTokenSelectionStrategies])}"
         )
 
     async def run(self):
@@ -85,10 +88,10 @@ class GenerateItemProcess(sf.Process):
         )
         try:
             # Prefill result.
-            await self.decode_strategy.prefill(exec_req)
+            await self.token_selection_strategy.prefill(exec_req)
 
             # Decode loop.
-            await self.decode_strategy.decode(exec_req)
+            await self.token_selection_strategy.decode(exec_req)
         finally:
             exec_req.free_cache_pages()
 
