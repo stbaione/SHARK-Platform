@@ -14,7 +14,7 @@ from ..messages import LlmInferenceExecRequest
 import shortfin.array as sfnp
 
 
-class SupportedTokenSelectionStrategies(Enum):
+class TokenSelectionStrategy(Enum):
     """Supported token selection strategies."""
 
     GREEDY = auto()
@@ -31,7 +31,7 @@ class TokenSelectionStrategyConfig:
     max_completion_tokens: int
 
 
-class TokenSelectionStrategy(ABC):
+class BaseTokenSelectionStrategy(ABC):
     """Abstract class for implementing token selection strategies."""
 
     @property

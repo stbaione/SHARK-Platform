@@ -9,7 +9,7 @@ import logging
 import shortfin.array as sfnp
 
 from .base_token_selection_strategy import (
-    TokenSelectionStrategy,
+    BaseTokenSelectionStrategy,
     TokenSelectionStrategyConfig,
 )
 from ..messages import LlmInferenceExecRequest, InferencePhase
@@ -18,7 +18,7 @@ from ..messages import LlmInferenceExecRequest, InferencePhase
 logger = logging.getLogger(__name__)
 
 
-class GreedyTokenSelectionStrategy(TokenSelectionStrategy):
+class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
     def __init__(
         self,
         token_selection_strategy_config: TokenSelectionStrategyConfig,

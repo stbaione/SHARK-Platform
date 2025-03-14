@@ -16,10 +16,10 @@ import shortfin.array as sfnp
 from shortfin.interop.fastapi import FastAPIResponder
 
 from .token_selection_strategy import (
-    TokenSelectionStrategy,
+    BaseTokenSelectionStrategy,
     TokenSelectionStrategyConfig,
     GreedyTokenSelectionStrategy,
-    SupportedTokenSelectionStrategies,
+    TokenSelectionStrategy,
 )
 from .io_struct import GenerateReqInput
 from .messages import LlmInferenceExecRequest, InferencePhase
@@ -45,7 +45,7 @@ class GenerateItemProcess(sf.Process):
         input_token_ids: list[int],
         max_completion_tokens: int,
         eos_token_id: int,
-        supported_token_selection_strategy: SupportedTokenSelectionStrategies = SupportedTokenSelectionStrategies.GREEDY,
+        token_selection_strategy: TokenSelectionStrategy = TokenSelectionStrategy.GREEDY,
     ):
         super().__init__(fiber=client.fiber)
         self.client = client
@@ -55,16 +55,13 @@ class GenerateItemProcess(sf.Process):
         self.result_token_ids: list[int] = []
         self.max_completion_tokens = max_completion_tokens
         self.eos_token_id = eos_token_id
-        self.supported_token_selection_strategy = supported_token_selection_strategy
+        self.token_selection_strategy = token_selection_strategy
         self.token_selection_strategy = self._instantiate_token_selection_strategy()
 
         self.streamed_tokens_index = 0
 
-    def _instantiate_token_selection_strategy(self) -> TokenSelectionStrategy:
-        if (
-            self.supported_token_selection_strategy
-            == SupportedTokenSelectionStrategies.GREEDY
-        ):
+    def _instantiate_token_selection_strategy(self) -> BaseTokenSelectionStrategy:
+        if self.token_selection_strategy == TokenSelectionStrategy.GREEDY:
             token_selection_strategy_config = TokenSelectionStrategyConfig(
                 prefill_callback=self.client.prefill_batcher.submit,
                 decode_callback=self.client.decode_batcher.submit,
@@ -77,8 +74,8 @@ class GenerateItemProcess(sf.Process):
             )
 
         raise NotImplementedError(
-            f"Unsupported decode strategy: {self.supported_token_selection_strategy}.\n"
-            f"Supported strategies: {','.join([strategy.name for strategy in SupportedTokenSelectionStrategies])}"
+            f"Unsupported decode strategy: {self.token_selection_strategy}.\n"
+            f"Supported strategies: {','.join([strategy.name for strategy in TokenSelectionStrategy])}"
         )
 
     async def run(self):

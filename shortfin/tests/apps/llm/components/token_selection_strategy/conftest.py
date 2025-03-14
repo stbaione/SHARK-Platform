@@ -14,7 +14,7 @@ from shortfin_apps.llm.components.messages import (
     InferencePhase,
 )
 from shortfin_apps.llm.components.token_selection_strategy import (
-    TokenSelectionStrategy,
+    BaseTokenSelectionStrategy,
     TokenSelectionStrategyConfig,
 )
 
@@ -42,7 +42,7 @@ def exec_req():
         )
 
 
-class DummyTokenSelectionStrategy(TokenSelectionStrategy):
+class DummyTokenSelectionStrategy(BaseTokenSelectionStrategy):
     def __init__(self, token_selection_strategy_config: TokenSelectionStrategyConfig):
         # Initialize with a dummy config instance.
         self._token_selection_strategy_config = token_selection_strategy_config
