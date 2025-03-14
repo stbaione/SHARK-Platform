@@ -75,6 +75,10 @@ def test_build_token_selector():
     assert token_selector._token_selection_strategy_config == config
     assert token_selector.token_selection_strategy_config == config
 
+    with pytest.raises(NotImplementedError):
+        config.token_selection_strategy = "NotImplemented"
+        token_selection_strategy.build_token_selector(config)
+
 
 @pytest.mark.asyncio
 async def test_prefill(
@@ -111,7 +115,7 @@ async def test_prefill(
         eos_token_id=0,
         max_completion_tokens=1,
     )
-    dummy_token_selection_strategy._token_selection_strategy_config = (config,)
+    dummy_token_selection_strategy._token_selection_strategy_config = config
     await dummy_token_selection_strategy.prefill(exec_req)
 
     assert results_array[0] == 15

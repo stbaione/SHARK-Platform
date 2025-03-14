@@ -81,7 +81,7 @@ def build_token_selector(
             )
         case _:
             raise NotImplementedError(
-                f"Unsupported token selection strategy: {token_selection_strategy}.\n"
+                f"Unsupported token selection strategy: {config.token_selection_strategy}.\n"
                 f"Supported strategies: {','.join([strategy.name for strategy in TokenSelectionStrategy])}"
             )
 
