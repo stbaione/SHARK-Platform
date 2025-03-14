@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
 import math
+import threading
 from typing import List, Iterable
 
 from .page_pool import PageInfo, PagePool
@@ -23,26 +24,6 @@ logger = logging.getLogger(__name__)
 # exception for when cache allocation failed
 class CacheAllocationFailure(Exception):
     pass
-
-
-@dataclass
-class RefCount:
-    """
-    A reference counter to replace simple int.
-    """
-
-    count: int = 0
-
-    def increment(self) -> int:
-        self.count += 1
-        return self.count
-
-    def decrement(self) -> int:
-        self.count -= 1
-        return self.count
-
-    def is_empty(self) -> bool:
-        return self.count <= 0
 
 
 class PageAllocation(ABC):
@@ -111,7 +92,7 @@ class BasePagedAttentionCacheAllocation(PageAllocation):
             )
             if new_pages is None:
                 raise CacheAllocationFailure()
-            if self._cache.ref_counts is not None:
+            if self._cache.use_ref_counts:
                 self._cache.increment_pages(new_pages)
 
             self._pages += tuple(new_pages)
@@ -140,13 +121,21 @@ class BasePagedAttentionCache:
         - Reference counting prevents eviction of in-use pages
     """
 
-    def __init__(self, page_pool: PagePool, tokens_per_page: int, ref_count=False):
+    def __init__(
+        self, page_pool: PagePool, tokens_per_page: int, use_ref_counts: bool = False
+    ):
         self.page_pool = page_pool
         self.tokens_per_page = tokens_per_page
-        self.ref_counts = (
+
+        # Reference counting
+        self.use_ref_counts = use_ref_counts
+        self.ref_counts: None | List[int] = (
             None
-            if not ref_count
-            else [RefCount() for _ in range(len(self.page_pool.attn_page_entries))]
+            if not use_ref_counts
+            else [0 for _ in range(len(self.page_pool.attn_page_entries))]
+        )
+        self._ref_count_lock: None | threading.Lock = (
+            None if not use_ref_counts else threading.Lock()
         )
 
     def acquire_pages_for_tokens(
@@ -172,30 +161,31 @@ class BasePagedAttentionCache:
         if pages is None:
             raise CacheAllocationFailure()
 
-        if self.ref_counts is not None:
-            for page in pages:
-                self.ref_counts[page.index].increment()
+        if self.use_ref_counts:
+            self.increment_pages(pages)
 
         return BasePagedAttentionCacheAllocation(pages, cache=self)
 
     def increment_pages(self, pages: List[PageInfo]):
-        for page in pages:
-            self.ref_counts[page.index].increment()
+        with self._ref_count_lock:
+            for page in pages:
+                self.ref_counts[page.index] += 1
 
     def decrement_pages(
         self, pages: List[PageInfo], return_empty_pages: bool = False
     ) -> None | List[PageInfo]:
-        if return_empty_pages:
-            empty_pages = []
-        for page in pages:
-            self.ref_counts[page.index].decrement()
-            if return_empty_pages and self.ref_counts[page.index].is_empty():
-                empty_pages.append(page)
+        with self._ref_count_lock:
+            if return_empty_pages:
+                empty_pages = []
+            for page in pages:
+                self.ref_counts[page.index] -= 1
+                if return_empty_pages and self.ref_counts[page.index] <= 0:
+                    empty_pages.append(page)
 
         return empty_pages if return_empty_pages else None
 
     def free_pages(self, pages: List[PageInfo]):
-        if self.ref_counts is None:
+        if not self.use_ref_counts:
             self.page_pool.free_pages(pages)
             return
 
