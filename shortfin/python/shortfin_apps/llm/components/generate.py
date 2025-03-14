@@ -66,7 +66,8 @@ class GenerateItemProcess(sf.Process):
             == SupportedTokenSelectionStrategies.GREEDY
         ):
             token_selection_strategy_config = TokenSelectionStrategyConfig(
-                batcher_callback=self.client.batcher.submit,
+                prefill_callback=self.client.prefill_batcher.submit,
+                decode_callback=self.client.decode_batcher.submit,
                 results_callback=self.append_token,
                 eos_token_id=self.eos_token_id,
                 max_completion_tokens=self.max_completion_tokens,
@@ -87,9 +88,6 @@ class GenerateItemProcess(sf.Process):
             rid=self.gen_req.rid,
         )
         try:
-            self.client.prefill_batcher.submit(exec_req)
-            await exec_req.done
-
             # Prefill result.
             await self.token_selection_strategy.prefill(exec_req)
 

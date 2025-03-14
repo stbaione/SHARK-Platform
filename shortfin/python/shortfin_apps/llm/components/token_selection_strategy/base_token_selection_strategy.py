@@ -24,7 +24,8 @@ class SupportedTokenSelectionStrategies(Enum):
 class TokenSelectionStrategyConfig:
     """Configuration for token selection strategies."""
 
-    batcher_callback: Callable[[LlmInferenceExecRequest], None]
+    prefill_callback: Callable[[LlmInferenceExecRequest], None]
+    decode_callback: Callable[[LlmInferenceExecRequest], None]
     results_callback: Callable[[Union[int, List[int]]], None]
     eos_token_id: int
     max_completion_tokens: int
@@ -58,7 +59,7 @@ class TokenSelectionStrategy(ABC):
         """
         token_selection_strategy_config = self.token_selection_strategy_config
 
-        token_selection_strategy_config.batcher_callback(exec_req)
+        token_selection_strategy_config.prefill_callback(exec_req)
         await exec_req.done
 
         token = sfnp.argmax(exec_req.result_logits)

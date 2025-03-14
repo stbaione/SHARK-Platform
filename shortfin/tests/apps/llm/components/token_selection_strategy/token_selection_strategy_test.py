@@ -47,7 +47,8 @@ async def test_prefill(
 
     token_selection_strategy_config = (
         token_selection_strategy.TokenSelectionStrategyConfig(
-            batcher_callback=_batcher_callback,
+            prefill_callback=_batcher_callback,
+            decode_callback=_batcher_callback,
             results_callback=_results_callback,
             eos_token_id=0,
             max_completion_tokens=1,

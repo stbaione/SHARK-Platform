@@ -41,7 +41,7 @@ class GreedyTokenSelectionStrategy(TokenSelectionStrategy):
         config = self.token_selection_strategy_config
         for _ in range(config.max_completion_tokens):
             exec_req.reset(InferencePhase.DECODE)
-            config.batcher_callback(exec_req)
+            config.decode_callback(exec_req)
             await exec_req.done
             token = sfnp.argmax(exec_req.result_logits)
             token_int = token.items[0]

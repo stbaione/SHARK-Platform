@@ -56,7 +56,8 @@ async def test_greedy_decode_single(
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
     decode_strategy_config = TokenSelectionStrategyConfig(
-        batcher_callback=_batcher_callback,
+        prefill_callback=_batcher_callback,
+        decode_callback=_batcher_callback,
         results_callback=_results_callback,
         eos_token_id=-1,
         max_completion_tokens=1,
@@ -109,7 +110,8 @@ async def test_greedy_decode_multiple_completions(
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
     decode_strategy_config = TokenSelectionStrategyConfig(
-        batcher_callback=_batcher_callback_multiple_completions,
+        prefill_callback=_batcher_callback_multiple_completions,
+        decode_callback=_batcher_callback_multiple_completions,
         results_callback=_results_callback,
         eos_token_id=-1,
         max_completion_tokens=5,
@@ -162,7 +164,8 @@ async def test_greedy_decode_eos_token(
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
     decode_strategy_config = TokenSelectionStrategyConfig(
-        batcher_callback=_batcher_callback_multiple_completions,
+        prefill_callback=_batcher_callback_multiple_completions,
+        decode_callback=_batcher_callback_multiple_completions,
         results_callback=_results_callback,
         eos_token_id=5,
         max_completion_tokens=10,
