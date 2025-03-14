@@ -15,8 +15,9 @@ from shortfin_apps.llm.components.messages import (
     LlmInferenceExecRequest,
 )
 from shortfin_apps.llm.components.token_selection_strategy import (
-    TokenSelectionStrategyConfig,
+    build_token_selector_config,
     GreedyTokenSelectionStrategy,
+    TokenSelectionStrategy,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,8 @@ async def test_greedy_decode_single(
         results_array.append(token)
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
-    decode_strategy_config = TokenSelectionStrategyConfig(
+    config = build_token_selector_config(
+        TokenSelectionStrategy.GREEDY,
         prefill_callback=_batcher_callback,
         decode_callback=_batcher_callback,
         results_callback=_results_callback,
@@ -67,7 +69,7 @@ async def test_greedy_decode_single(
     with patch.object(
         greedy_token_selection_strategy,
         "_token_selection_strategy_config",
-        new=decode_strategy_config,
+        new=config,
     ):
         await greedy_token_selection_strategy.decode(exec_req)
 
@@ -109,7 +111,8 @@ async def test_greedy_decode_multiple_completions(
         count += 1
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
-    decode_strategy_config = TokenSelectionStrategyConfig(
+    config = build_token_selector_config(
+        TokenSelectionStrategy.GREEDY,
         prefill_callback=_batcher_callback_multiple_completions,
         decode_callback=_batcher_callback_multiple_completions,
         results_callback=_results_callback,
@@ -121,7 +124,7 @@ async def test_greedy_decode_multiple_completions(
     with patch.object(
         greedy_token_selection_strategy,
         "_token_selection_strategy_config",
-        new=decode_strategy_config,
+        new=config,
     ):
         await greedy_token_selection_strategy.decode(exec_req)
 
@@ -163,7 +166,8 @@ async def test_greedy_decode_eos_token(
         count += 1
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
-    decode_strategy_config = TokenSelectionStrategyConfig(
+    config = build_token_selector_config(
+        TokenSelectionStrategy.GREEDY,
         prefill_callback=_batcher_callback_multiple_completions,
         decode_callback=_batcher_callback_multiple_completions,
         results_callback=_results_callback,
@@ -175,7 +179,7 @@ async def test_greedy_decode_eos_token(
     with patch.object(
         greedy_token_selection_strategy,
         "_token_selection_strategy_config",
-        new=decode_strategy_config,
+        new=config,
     ):
         await greedy_token_selection_strategy.decode(exec_req)
 

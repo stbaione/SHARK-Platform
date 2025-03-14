@@ -18,8 +18,9 @@ from shortfin.interop.fastapi import FastAPIResponder
 from .token_selection_strategy import (
     BaseTokenSelectionStrategy,
     TokenSelectionStrategyConfig,
-    GreedyTokenSelectionStrategy,
     TokenSelectionStrategy,
+    build_token_selector,
+    build_token_selector_config,
 )
 from .io_struct import GenerateReqInput
 from .messages import LlmInferenceExecRequest, InferencePhase
@@ -56,27 +57,19 @@ class GenerateItemProcess(sf.Process):
         self.max_completion_tokens = max_completion_tokens
         self.eos_token_id = eos_token_id
         self.token_selection_strategy = token_selection_strategy
-        self.token_selection_strategy = self._instantiate_token_selection_strategy()
+        config: TokenSelectionStrategyConfig = build_token_selector_config(
+            self.token_selection_strategy,
+            prefill_callback=self.client.prefill_batcher.submit,
+            decode_callback=self.client.decode_batcher.submit,
+            results_callback=self.append_token,
+            eos_token_id=self.eos_token_id,
+            max_completion_tokens=self.max_completion_tokens,
+        )
+        self.token_selector: BaseTokenSelectionStrategy = build_token_selector(
+            config,
+        )
 
         self.streamed_tokens_index = 0
-
-    def _instantiate_token_selection_strategy(self) -> BaseTokenSelectionStrategy:
-        if self.token_selection_strategy == TokenSelectionStrategy.GREEDY:
-            token_selection_strategy_config = TokenSelectionStrategyConfig(
-                prefill_callback=self.client.prefill_batcher.submit,
-                decode_callback=self.client.decode_batcher.submit,
-                results_callback=self.append_token,
-                eos_token_id=self.eos_token_id,
-                max_completion_tokens=self.max_completion_tokens,
-            )
-            return GreedyTokenSelectionStrategy(
-                token_selection_strategy_config=token_selection_strategy_config,
-            )
-
-        raise NotImplementedError(
-            f"Unsupported decode strategy: {self.token_selection_strategy}.\n"
-            f"Supported strategies: {','.join([strategy.name for strategy in TokenSelectionStrategy])}"
-        )
 
     async def run(self):
         exec_req = LlmInferenceExecRequest(
@@ -86,10 +79,10 @@ class GenerateItemProcess(sf.Process):
         )
         try:
             # Prefill result.
-            await self.token_selection_strategy.prefill(exec_req)
+            await self.token_selector.prefill(exec_req)
 
             # Decode loop.
-            await self.token_selection_strategy.decode(exec_req)
+            await self.token_selector.decode(exec_req)
         finally:
             exec_req.free_cache_pages()
 

@@ -24,6 +24,7 @@ class TokenSelectionStrategy(Enum):
 class TokenSelectionStrategyConfig:
     """Configuration for token selection strategies."""
 
+    token_selection_strategy: TokenSelectionStrategy
     prefill_callback: Callable[[LlmInferenceExecRequest], None]
     decode_callback: Callable[[LlmInferenceExecRequest], None]
     results_callback: Callable[[Union[int, List[int]]], None]

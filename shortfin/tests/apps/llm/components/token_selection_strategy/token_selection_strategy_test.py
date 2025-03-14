@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import math
+from typing import List
 import pytest
 
 import shortfin.array as sfnp
@@ -18,6 +19,61 @@ from shortfin_apps.llm.components import token_selection_strategy
 def test_imports():
     for attr in token_selection_strategy.__all__:
         assert hasattr(token_selection_strategy, attr)
+
+
+def _batcher_callback(exec_req: LlmInferenceExecRequest):
+    pass
+
+
+def _results_callback(token: int | List[int]):
+    pass
+
+
+def test_build_token_selector_config():
+    strategy = token_selection_strategy.TokenSelectionStrategy.GREEDY
+
+    config = token_selection_strategy.build_token_selector_config(
+        strategy,
+        prefill_callback=_batcher_callback,
+        decode_callback=_batcher_callback,
+        results_callback=_results_callback,
+        eos_token_id=0,
+        max_completion_tokens=42,
+    )
+
+    assert config.prefill_callback == _batcher_callback
+    assert config.decode_callback == _batcher_callback
+    assert config.results_callback == _results_callback
+    assert config.eos_token_id == 0
+    assert config.max_completion_tokens == 42
+
+    with pytest.raises(NotImplementedError):
+        config = token_selection_strategy.build_token_selector_config(
+            "NotImplemented",
+            prefill_callback=_batcher_callback,
+            decode_callback=_batcher_callback,
+            results_callback=_results_callback,
+            eos_token_id=0,
+            max_completion_tokens=42,
+        )
+
+
+def test_build_token_selector():
+    strategy = token_selection_strategy.TokenSelectionStrategy.GREEDY
+
+    config = token_selection_strategy.build_token_selector_config(
+        strategy,
+        prefill_callback=_batcher_callback,
+        decode_callback=_batcher_callback,
+        results_callback=_results_callback,
+        eos_token_id=0,
+        max_completion_tokens=42,
+    )
+    token_selector = token_selection_strategy.build_token_selector(
+        config,
+    )
+    assert token_selector._token_selection_strategy_config == config
+    assert token_selector.token_selection_strategy_config == config
 
 
 @pytest.mark.asyncio
@@ -45,18 +101,17 @@ async def test_prefill(
     def _results_callback(token: int):
         results_array.append(token)
 
-    token_selection_strategy_config = (
-        token_selection_strategy.TokenSelectionStrategyConfig(
-            prefill_callback=_batcher_callback,
-            decode_callback=_batcher_callback,
-            results_callback=_results_callback,
-            eos_token_id=0,
-            max_completion_tokens=1,
-        )
+    strategy = token_selection_strategy.TokenSelectionStrategy.GREEDY
+
+    config = token_selection_strategy.build_token_selector_config(
+        strategy,
+        prefill_callback=_batcher_callback,
+        decode_callback=_batcher_callback,
+        results_callback=_results_callback,
+        eos_token_id=0,
+        max_completion_tokens=1,
     )
-    dummy_token_selection_strategy._token_selection_strategy_config = (
-        token_selection_strategy_config
-    )
+    dummy_token_selection_strategy._token_selection_strategy_config = (config,)
     await dummy_token_selection_strategy.prefill(exec_req)
 
     assert results_array[0] == 15
