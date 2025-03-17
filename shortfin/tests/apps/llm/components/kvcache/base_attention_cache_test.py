@@ -337,7 +337,7 @@ def test_concurrent_increment_pages(cache_ref_count, num_workers):
 
     # Validate that each page's ref_count is correctly incremented
     for page in pages:
-        expected_count = num_workers  # Initial count + num_threads increments
+        expected_count = num_workers
         assert (
             ref_counts[page.index] == expected_count
         ), f"Thread safety issue w/ num_workers == {num_workers}: expected {expected_count}, got {ref_counts[page.index]} for page {page.index}."
@@ -423,7 +423,7 @@ def test_concurrent_decrement_pages(cache_ref_count, num_workers):
 
     # Validate that each page's ref_count is correctly incremented
     for page in pages:
-        expected_count = 0  # Initial count + num_threads increments
+        expected_count = 0
         assert (
             ref_counts[page.index] == expected_count
         ), f"Thread safety issue w/ num_workers == {num_workers}: expected {expected_count}, got {ref_counts[page.index]} for page {page.index}."
