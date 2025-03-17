@@ -6,12 +6,13 @@
 
 import asyncio
 import logging
-import json
 
 from typing import (
     TypeVar,
     Union,
 )
+
+from fastapi.responses import JSONResponse
 
 from shortfin_apps.types.Base64CharacterEncodedByteSequence import (
     Base64CharacterEncodedByteSequence,
@@ -65,26 +66,6 @@ class GenerateImageProcess(sf.Process):
             if exec.response_image
             else None
         )
-
-
-Item = TypeVar("Item")
-
-
-def from_batch(
-    given_subject: list[Item] | Item | None,
-    given_batch_index,
-) -> Item:
-    if given_subject is None:
-        raise Exception("Expected an item or batch of items but got `None`")
-
-    if not isinstance(given_subject, list):
-        return given_subject
-
-    # some args are broadcasted to each prompt, hence overriding index for single-item entries
-    if len(given_subject) == 1:
-        return given_subject[0]
-
-    return given_subject[given_batch_index]
 
 
 class ClientGenerateBatchProcess(sf.Process):
@@ -144,8 +125,13 @@ class ClientGenerateBatchProcess(sf.Process):
                 each_png_image = png_from(each_process.output.image)
                 png_images.append(each_png_image)
 
-            response_body = {"images": png_images}
-            response_body_in_json = json.dumps(response_body)
-            self.responder.send_response(response_body_in_json)
+            self.responder.send_response(
+                JSONResponse(
+                    content={
+                        "images": png_images,
+                    },
+                    media_type="application/json",
+                )
+            )
         finally:
             self.responder.ensure_response()
