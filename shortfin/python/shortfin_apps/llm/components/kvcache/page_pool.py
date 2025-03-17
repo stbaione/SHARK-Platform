@@ -131,7 +131,7 @@ class PagePool:
         if dst_page is None:
             return None
 
-        (dst_page,) = dst_page
+        dst_page = dst_page[0]
 
         # Copy the data on each device
         for page_table in self.page_tables:
