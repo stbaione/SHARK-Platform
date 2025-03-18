@@ -59,20 +59,19 @@ class GenerateItemProcess(sf.Process):
         self.result_token_ids: list[int] = []
         self.max_completion_tokens = max_completion_tokens
         self.eos_token_id = eos_token_id
-        config: TokenSelectionStrategyConfig = build_token_selector_config(
-            decode_config,
-            prefill_callback=self.client.prefill_batcher.submit,
-            decode_callback=self.client.decode_batcher.submit,
-            results_callback=(
-                self.results_multi_beam
-                if is_multi_beam(decode_config.token_selection_strategy)
-                else self.append_token
-            ),
-            eos_token_id=self.eos_token_id,
-            max_completion_tokens=self.max_completion_tokens,
+        self.decode_config = decode_config
+        self.token_selector_config: TokenSelectionStrategyConfig = (
+            build_token_selector_config(
+                decode_config,
+                prefill_callback=self.client.prefill_batcher.submit,
+                decode_callback=self.client.decode_batcher.submit,
+                results_callback=self.results_callback,
+                eos_token_id=self.eos_token_id,
+                max_completion_tokens=self.max_completion_tokens,
+            )
         )
         self.token_selector: BaseTokenSelectionStrategy = build_token_selector(
-            config,
+            self.token_selector_config,
         )
 
         self.streamed_tokens_index = 0
@@ -93,11 +92,18 @@ class GenerateItemProcess(sf.Process):
         finally:
             exec_req.free_cache_pages()
 
-    def append_token(self, token: int):
+    def results_callback(self, result: int | List[List[int]]):
+        if is_multi_beam(self.decode_config.token_selection_strategy):
+            self._results_multi_beam(result)
+
+        else:
+            self._append_token(result)
+
+    def _append_token(self, token: int):
         self.result_token_ids.append(token)
         self.client.stream_results(self)
 
-    def results_multi_beam(self, tokens: List[List[int]]):
+    def _results_multi_beam(self, tokens: List[List[int]]):
         # TODO: Fix for batch request scenario
         self.result_token_ids = tokens
         self.client.stream_results(self)
