@@ -56,17 +56,14 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
             self.select_greedy,
         )
 
-        count = 0
-        while (
-            count < config.max_completion_tokens
-            and len(beam_group.active_exec_reqs) > 0
-        ):
+        for _ in range(config.max_completion_tokens):
+            if not beam_group.active_exec_reqs:
+                break
             for req in beam_group.active_exec_reqs:
                 req.reset(InferencePhase.DECODE)
                 config.decode_callback(req)
             await beam_group.wait()
             await beam_group.process_beams()
-            count += 1
 
         results = [
             exec_req.input_token_ids[exec_req.prompt_length :]
