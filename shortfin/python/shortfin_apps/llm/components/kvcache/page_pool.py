@@ -115,7 +115,7 @@ class PagePool:
         with self._lock:
             self.available_pages.extend(pages)
 
-    def copy_page(self, src_page: PageInfo) -> PageInfo:
+    async def copy_page(self, src_page: PageInfo) -> PageInfo:
         """
         Copy a page's contents to a new page.
 
@@ -137,8 +137,13 @@ class PagePool:
         for page_table in self.page_tables:
             # View of source and destination pages
             src_view = page_table.view(src_page.index)
-            with page_table.view(dst_page.index).map(discard=True) as m:
-                m.items = src_view.items
+            dst_view = page_table.view(dst_page.index)
+
+            # Copy the data
+            dst_view.copy_from(src_view)
+
+            # Wait for data to be copied over
+            await page_table.device
 
         return dst_page
 

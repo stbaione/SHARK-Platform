@@ -218,6 +218,12 @@ class ServerParams:
     # Program isolation configuration
     program_isolation: str = "per_call"
 
+    # Number of beams to use during generation
+    num_beams: int = 1
+
+    # Strategy for selecting tokens during generation
+    token_selection_strategy: str = "greedy"
+
     # Device configuration
     device_ids: list[str] = field(default_factory=list)
     amdgpu_async_allocations: bool = False

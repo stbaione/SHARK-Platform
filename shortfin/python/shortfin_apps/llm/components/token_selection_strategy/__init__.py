@@ -9,8 +9,11 @@ from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
     TokenSelectionStrategyConfig,
     TokenSelectionStrategy,
+    get_strategy_from_str,
+    is_ref_counted,
 )
 from .greedy_token_selection_strategy import GreedyTokenSelectionStrategy
+from .multi_greedy_token_selection_strategy import MultiGreedyTokenSelectionStrategy
 
 from ..messages import LlmInferenceExecRequest
 
@@ -22,6 +25,7 @@ def build_token_selector_config(
     results_callback: Callable[[Union[int, List[int]]], None],
     eos_token_id: int,
     max_completion_tokens: int,
+    num_beams: int = 1,
 ) -> TokenSelectionStrategyConfig:
     """Build a configuration class for a given token selection strategy.
 
@@ -41,7 +45,7 @@ def build_token_selector_config(
     """
     config: None | TokenSelectionStrategyConfig = None
     match token_selection_strategy:
-        case TokenSelectionStrategy.GREEDY:
+        case TokenSelectionStrategy.GREEDY | TokenSelectionStrategy.MULTI_GREEDY:
             config = TokenSelectionStrategyConfig(
                 token_selection_strategy,
                 prefill_callback=prefill_callback,
@@ -49,6 +53,7 @@ def build_token_selector_config(
                 results_callback=results_callback,
                 eos_token_id=eos_token_id,
                 max_completion_tokens=max_completion_tokens,
+                num_beams=num_beams,
             )
         case _:
             raise NotImplementedError(
@@ -79,6 +84,10 @@ def build_token_selector(
             token_selector = GreedyTokenSelectionStrategy(
                 config,
             )
+        case TokenSelectionStrategy.MULTI_GREEDY:
+            token_selector = MultiGreedyTokenSelectionStrategy(
+                config,
+            )
         case _:
             raise NotImplementedError(
                 f"Unsupported token selection strategy: {config.token_selection_strategy}.\n"
@@ -88,11 +97,24 @@ def build_token_selector(
     return token_selector
 
 
+def is_multi_beam(token_selection_strategy: TokenSelectionStrategy):
+    match token_selection_strategy:
+        case TokenSelectionStrategy.MULTI_GREEDY:
+            return True
+
+        case _:
+            return False
+
+
 __all__ = [
     "BaseTokenSelectionStrategy",
     "TokenSelectionStrategyConfig",
     "TokenSelectionStrategy",
     "GreedyTokenSelectionStrategy",
+    "MultiGreedyTokenSelectionStrategy",
     "build_token_selector",
     "build_token_selector_config",
+    "get_strategy_from_str",
+    "is_ref_counted",
+    "is_multi_beam",
 ]

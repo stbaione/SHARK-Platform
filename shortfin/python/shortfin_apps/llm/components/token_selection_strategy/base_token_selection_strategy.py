@@ -18,6 +18,21 @@ class TokenSelectionStrategy(Enum):
     """Supported token selection strategies."""
 
     GREEDY = auto()
+    MULTI_GREEDY = auto()
+
+
+def get_strategy_from_str(token_selection_strategy: str) -> TokenSelectionStrategy:
+    name_to_strategy = {
+        strategy.name.lower(): strategy for strategy in TokenSelectionStrategy
+    }
+    strategy = token_selection_strategy.lower()
+    if strategy in name_to_strategy:
+        return name_to_strategy[token_selection_strategy.lower()]
+    raise KeyError(f"Unknown token_selection_strategy: {token_selection_strategy}")
+
+
+def is_ref_counted(token_selection_strategy: TokenSelectionStrategy) -> bool:
+    return token_selection_strategy in {TokenSelectionStrategy.MULTI_GREEDY}
 
 
 @dataclass
@@ -30,6 +45,10 @@ class TokenSelectionStrategyConfig:
     results_callback: Callable[[Union[int, List[int]]], None]
     eos_token_id: int
     max_completion_tokens: int
+
+    # Number of hypothesis to maintain while generating tokens.
+    # This applies to multi-hypothesis based selection strategies.
+    num_beams: int = 1
 
 
 class BaseTokenSelectionStrategy(ABC):
