@@ -23,6 +23,8 @@ from dataclasses_json import dataclass_json, Undefined
 
 import shortfin.array as sfnp
 
+from .token_selection_strategy import DecodeConfig
+
 
 def _decode_dtype(name: str) -> sfnp.DType:
     obj = getattr(sfnp, name, None)
@@ -192,15 +194,6 @@ class ModelParams:
         return ModelParams.from_json(json_text)
 
 
-# From: https://stackoverflow.com/questions/1094841/get-human-readable-version-of-file-size
-def human_size(num, suffix="B"):
-    for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
-        if abs(num) < 1024.0:
-            return f"{num:3.1f}{unit}{suffix}"
-        num /= 1024.0
-    return f"{num:.1f}Yi{suffix}"
-
-
 @dataclass_json(undefined=Undefined.RAISE)
 @dataclass
 class ServerParams:
@@ -221,8 +214,7 @@ class ServerParams:
     # Number of beams to use during generation
     num_beams: int = 1
 
-    # Strategy for selecting tokens during generation
-    token_selection_strategy: str = "greedy"
+    decode_config: DecodeConfig | None = None
 
     # Device configuration
     device_ids: list[str] = field(default_factory=list)

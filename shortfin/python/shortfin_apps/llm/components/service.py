@@ -52,7 +52,6 @@ class LlmGenerateService(GenerateService):
         self.server_params = server_params
 
         self.set_isolation(program_isolation)
-        self.set_token_selection_strategy(server_params.token_selection_strategy)
         self.initialize_worker_and_fiber()
         self.initialize_page_cache()
 
@@ -82,15 +81,14 @@ class LlmGenerateService(GenerateService):
             self.page_cache = BasePagedAttentionCache(
                 page_pool=page_pool,
                 tokens_per_page=self.model_params.paged_kv_cache.block_seq_stride,
-                use_ref_counts=is_ref_counted(self.token_selection_strategy),
+                use_ref_counts=is_ref_counted(
+                    self.server_params.decode_config.token_selection_strategy
+                ),
             )
         else:
             raise ValueError(
                 f"Unknown prefix_sharing_algorithm {self.server_params.prefix_sharing_algorithm}. Currently only supporting 'trie' and 'none'."
             )
-
-    def set_token_selection_strategy(self, token_selection_strategy: str):
-        self.token_selection_strategy = get_strategy_from_str(token_selection_strategy)
 
     def start(self):
         component_modules = self.initialize_program_modules("main")

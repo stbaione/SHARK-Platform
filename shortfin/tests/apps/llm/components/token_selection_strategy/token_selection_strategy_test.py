@@ -31,9 +31,12 @@ def _results_callback(token: int | List[int]):
 
 def test_build_token_selector_config():
     strategy = token_selection_strategy.TokenSelectionStrategy.GREEDY
+    decode_config = token_selection_strategy.DecodeConfig(
+        token_selection_strategy=strategy,
+    )
 
     config = token_selection_strategy.build_token_selector_config(
-        strategy,
+        decode_config,
         prefill_callback=_batcher_callback,
         decode_callback=_batcher_callback,
         results_callback=_results_callback,
@@ -48,8 +51,9 @@ def test_build_token_selector_config():
     assert config.max_completion_tokens == 42
 
     with pytest.raises(NotImplementedError):
+        decode_config.token_selection_strategy = "NotImplemented"
         config = token_selection_strategy.build_token_selector_config(
-            "NotImplemented",
+            decode_config,
             prefill_callback=_batcher_callback,
             decode_callback=_batcher_callback,
             results_callback=_results_callback,
@@ -61,8 +65,11 @@ def test_build_token_selector_config():
 def test_build_token_selector():
     strategy = token_selection_strategy.TokenSelectionStrategy.GREEDY
 
+    decode_config = token_selection_strategy.DecodeConfig(
+        token_selection_strategy=strategy,
+    )
     config = token_selection_strategy.build_token_selector_config(
-        strategy,
+        decode_config,
         prefill_callback=_batcher_callback,
         decode_callback=_batcher_callback,
         results_callback=_results_callback,
@@ -76,7 +83,7 @@ def test_build_token_selector():
     assert token_selector.token_selection_strategy_config == config
 
     with pytest.raises(NotImplementedError):
-        config.token_selection_strategy = "NotImplemented"
+        config.decode_config.token_selection_strategy = "NotImplemented"
         token_selection_strategy.build_token_selector(config)
 
 
@@ -107,8 +114,12 @@ async def test_prefill(
 
     strategy = token_selection_strategy.TokenSelectionStrategy.GREEDY
 
+    decode_config = token_selection_strategy.DecodeConfig(
+        token_selection_strategy=strategy,
+    )
+
     config = token_selection_strategy.build_token_selector_config(
-        strategy,
+        decode_config,
         prefill_callback=_batcher_callback,
         decode_callback=_batcher_callback,
         results_callback=_results_callback,

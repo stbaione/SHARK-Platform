@@ -46,12 +46,12 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
 
         # Copy `exec_req` to `num_beams` total requests
         exec_reqs = [exec_req]
-        for _ in range(config.num_beams - 1):
+        for _ in range(config.decode_config.num_beams - 1):
             exec_reqs.append(LlmInferenceExecRequest.copy_exec_request(exec_req))
 
         beam_group = BeamGroup(
             config.eos_token_id,
-            config.num_beams,
+            config.decode_config.num_beams,
             exec_reqs,
             self.select_greedy,
         )

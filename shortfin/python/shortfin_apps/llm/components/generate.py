@@ -16,6 +16,10 @@ import shortfin.array as sfnp
 # TODO: Have a generic "Responder" interface vs just the concrete impl.
 from shortfin.interop.fastapi import FastAPIResponder
 
+from .config_struct import DecodeConfig
+from .io_struct import GenerateReqInput
+from .messages import LlmInferenceExecRequest, InferencePhase
+from .service import LlmGenerateService
 from .token_selection_strategy import (
     BaseTokenSelectionStrategy,
     TokenSelectionStrategyConfig,
@@ -24,9 +28,6 @@ from .token_selection_strategy import (
     build_token_selector_config,
     is_multi_beam,
 )
-from .io_struct import GenerateReqInput
-from .messages import LlmInferenceExecRequest, InferencePhase
-from .service import LlmGenerateService
 from .tokenizer import Encoding
 
 logger = logging.getLogger(__name__)
@@ -48,8 +49,7 @@ class GenerateItemProcess(sf.Process):
         input_token_ids: list[int],
         max_completion_tokens: int,
         eos_token_id: int,
-        num_beams: int = 1,
-        token_selection_strategy: TokenSelectionStrategy = TokenSelectionStrategy.GREEDY,
+        decode_config: DecodeConfig,
     ):
         super().__init__(fiber=client.fiber)
         self.client = client
@@ -59,20 +59,17 @@ class GenerateItemProcess(sf.Process):
         self.result_token_ids: list[int] = []
         self.max_completion_tokens = max_completion_tokens
         self.eos_token_id = eos_token_id
-        self.num_beams = num_beams
-        self.token_selection_strategy = token_selection_strategy
         config: TokenSelectionStrategyConfig = build_token_selector_config(
-            self.token_selection_strategy,
+            decode_config,
             prefill_callback=self.client.prefill_batcher.submit,
             decode_callback=self.client.decode_batcher.submit,
             results_callback=(
                 self.results_multi_beam
-                if is_multi_beam(token_selection_strategy)
+                if is_multi_beam(decode_config.token_selection_strategy)
                 else self.append_token
             ),
             eos_token_id=self.eos_token_id,
             max_completion_tokens=self.max_completion_tokens,
-            num_beams=self.num_beams,
         )
         self.token_selector: BaseTokenSelectionStrategy = build_token_selector(
             config,
@@ -124,8 +121,7 @@ class ClientGenerateBatchProcess(sf.Process):
         "prefill_batcher",
         "responder",
         "tokenizer",
-        "num_beams",
-        "token_selection_strategy",
+        "decode_config",
     ]
 
     def __init__(
@@ -142,8 +138,7 @@ class ClientGenerateBatchProcess(sf.Process):
         self.decode_batcher = service.decode_batcher
         self.complete_infeed = self.system.create_queue()
 
-        self.num_beams = service.server_params.num_beams
-        self.token_selection_strategy = service.token_selection_strategy
+        self.decode_config = service.server_params.decode_config
 
     async def run(self):
         logger.debug("Started ClientBatchGenerateProcess: %r", self)
@@ -174,8 +169,7 @@ class ClientGenerateBatchProcess(sf.Process):
                     input_tokens if is_pretokenized else input_tokens.ids,
                     max_completion_tokens=max_completion_tokens,
                     eos_token_id=self.tokenizer.eos_token_id,
-                    num_beams=self.num_beams,
-                    token_selection_strategy=self.token_selection_strategy,
+                    decode_config=self.decode_config,
                 )
                 gen_processes.append(gen_process)
                 gen_process.launch()
@@ -200,7 +194,7 @@ class ClientGenerateBatchProcess(sf.Process):
                 if self.gen_req.is_single:
                     result_tokens = result_tokens[0]
                 out.write(bytes(json.dumps(result_tokens), "utf-8"))
-            elif is_multi_beam(self.token_selection_strategy):
+            elif is_multi_beam(self.decode_config.token_selection_strategy):
                 out = self._respond_multi_beams(result_tokens, out)
             else:
                 result_texts = self.tokenizer.decode(result_tokens)

@@ -11,7 +11,6 @@ import shortfin as sf
 import shortfin.array as sfnp
 
 from .kvcache.base_attention_cache import BasePagedAttentionCache, PageAllocation
-from .kvcache.page_pool import PageInfo
 from ...utils import InferenceExecRequest
 
 

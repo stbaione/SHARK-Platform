@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import List, Callable, Union
 
+from dataclasses_json import dataclass_json, Undefined
+
 from ..messages import LlmInferenceExecRequest
 
 import shortfin.array as sfnp
@@ -35,20 +37,33 @@ def is_ref_counted(token_selection_strategy: TokenSelectionStrategy) -> bool:
     return token_selection_strategy in {TokenSelectionStrategy.MULTI_GREEDY}
 
 
+@dataclass_json(undefined=Undefined.RAISE)
+@dataclass
+class DecodeConfig:
+
+    # Number of beams to use during generation
+    num_beams: int = 1
+
+    # Strategy for selecting tokens during generation
+    token_selection_strategy: str | TokenSelectionStrategy = "greedy"
+
+    def __post_init__(self):
+        if isinstance(self.token_selection_strategy, str):
+            self.token_selection_strategy = get_strategy_from_str(
+                self.token_selection_strategy
+            )
+
+
 @dataclass
 class TokenSelectionStrategyConfig:
     """Configuration for token selection strategies."""
 
-    token_selection_strategy: TokenSelectionStrategy
+    decode_config: DecodeConfig
     prefill_callback: Callable[[LlmInferenceExecRequest], None]
     decode_callback: Callable[[LlmInferenceExecRequest], None]
     results_callback: Callable[[Union[int, List[int]]], None]
     eos_token_id: int
     max_completion_tokens: int
-
-    # Number of hypothesis to maintain while generating tokens.
-    # This applies to multi-hypothesis based selection strategies.
-    num_beams: int = 1
 
 
 class BaseTokenSelectionStrategy(ABC):

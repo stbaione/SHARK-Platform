@@ -5,8 +5,10 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from typing import Callable, List, Union
+
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
+    DecodeConfig,
     TokenSelectionStrategyConfig,
     TokenSelectionStrategy,
     get_strategy_from_str,
@@ -19,13 +21,12 @@ from ..messages import LlmInferenceExecRequest
 
 
 def build_token_selector_config(
-    token_selection_strategy: TokenSelectionStrategy,
+    decode_config: DecodeConfig,
     prefill_callback: Callable[[LlmInferenceExecRequest], None],
     decode_callback: Callable[[LlmInferenceExecRequest], None],
     results_callback: Callable[[Union[int, List[int]]], None],
     eos_token_id: int,
     max_completion_tokens: int,
-    num_beams: int = 1,
 ) -> TokenSelectionStrategyConfig:
     """Build a configuration class for a given token selection strategy.
 
@@ -44,20 +45,19 @@ def build_token_selector_config(
         TokenSelectionStrategyConfig: Instantiated config for token selector.
     """
     config: None | TokenSelectionStrategyConfig = None
-    match token_selection_strategy:
+    match decode_config.token_selection_strategy:
         case TokenSelectionStrategy.GREEDY | TokenSelectionStrategy.MULTI_GREEDY:
             config = TokenSelectionStrategyConfig(
-                token_selection_strategy,
+                decode_config,
                 prefill_callback=prefill_callback,
                 decode_callback=decode_callback,
                 results_callback=results_callback,
                 eos_token_id=eos_token_id,
                 max_completion_tokens=max_completion_tokens,
-                num_beams=num_beams,
             )
         case _:
             raise NotImplementedError(
-                f"Unsupported token selection strategy: {token_selection_strategy}.\n"
+                f"Unsupported token selection strategy: {decode_config.token_selection_strategy}.\n"
                 f"Supported strategies: {','.join([strategy.name for strategy in TokenSelectionStrategy])}"
             )
     return config
@@ -79,7 +79,7 @@ def build_token_selector(
         BaseTokenSelectionStrategy: Instantiated token selector. Current only `Greedy`, but more will be added.
     """
     token_selector: BaseTokenSelectionStrategy | None = None
-    match config.token_selection_strategy:
+    match config.decode_config.token_selection_strategy:
         case TokenSelectionStrategy.GREEDY:
             token_selector = GreedyTokenSelectionStrategy(
                 config,
@@ -90,7 +90,7 @@ def build_token_selector(
             )
         case _:
             raise NotImplementedError(
-                f"Unsupported token selection strategy: {config.token_selection_strategy}.\n"
+                f"Unsupported token selection strategy: {config.decode_config.token_selection_strategy}.\n"
                 f"Supported strategies: {','.join([strategy.name for strategy in TokenSelectionStrategy])}"
             )
 
