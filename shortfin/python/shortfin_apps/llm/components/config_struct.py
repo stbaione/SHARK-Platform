@@ -211,9 +211,6 @@ class ServerParams:
     # Program isolation configuration
     program_isolation: str = "per_call"
 
-    # Number of beams to use during generation
-    num_beams: int = 1
-
     decode_config: DecodeConfig | None = None
 
     # Device configuration
