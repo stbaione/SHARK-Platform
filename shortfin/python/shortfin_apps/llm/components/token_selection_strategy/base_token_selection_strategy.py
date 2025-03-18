@@ -28,9 +28,10 @@ def get_strategy_from_str(token_selection_strategy: str) -> TokenSelectionStrate
         strategy.name.lower(): strategy for strategy in TokenSelectionStrategy
     }
     strategy = token_selection_strategy.lower()
-    if strategy in name_to_strategy:
-        return name_to_strategy[token_selection_strategy.lower()]
-    raise KeyError(f"Unknown token_selection_strategy: {token_selection_strategy}")
+    if strategy not in name_to_strategy:
+        raise KeyError(f"Unknown token_selection_strategy: {token_selection_strategy}")
+
+    return name_to_strategy[strategy]
 
 
 def is_ref_counted(token_selection_strategy: TokenSelectionStrategy) -> bool:
@@ -99,7 +100,10 @@ class BaseTokenSelectionStrategy(ABC):
 
         token = sfnp.argmax(exec_req.result_logits)
         token_int = token.items[0]
-        token_selection_strategy_config.results_callback(token_int)
+        decode_config = token_selection_strategy_config.decode_config
+        # TODO: This is only temporary until streaming is enabled for `MultiGreedy`
+        if decode_config.token_selection_strategy == TokenSelectionStrategy.GREEDY:
+            token_selection_strategy_config.results_callback(token_int)
 
         exec_req.input_token_ids.append(token_int)
         exec_req.start_position = len(exec_req.input_token_ids) - 1

@@ -192,23 +192,24 @@ class ClientGenerateBatchProcess(sf.Process):
             logger.debug("Responding to streaming batch")
             self.responder.stream_part(b"data: [DONE]\n\n")
             self.responder.stream_part(None)
+            return
+
+        logging.debug("Responding to one shot batch")
+        out = io.BytesIO()
+        result_tokens = [p.result_token_ids for p in gen_processes]
+        if self.gen_req.return_input_ids:
+            if self.gen_req.is_single:
+                result_tokens = result_tokens[0]
+            out.write(bytes(json.dumps(result_tokens), "utf-8"))
+        elif is_multi_beam(self.decode_config.token_selection_strategy):
+            out = self._respond_multi_beams(result_tokens, out)
         else:
-            logging.debug("Responding to one shot batch")
-            out = io.BytesIO()
-            result_tokens = [p.result_token_ids for p in gen_processes]
-            if self.gen_req.return_input_ids:
-                if self.gen_req.is_single:
-                    result_tokens = result_tokens[0]
-                out.write(bytes(json.dumps(result_tokens), "utf-8"))
-            elif is_multi_beam(self.decode_config.token_selection_strategy):
-                out = self._respond_multi_beams(result_tokens, out)
-            else:
-                result_texts = self.tokenizer.decode(result_tokens)
-                for result_text in result_texts:
-                    out.write(b"data: ")
-                    out.write(result_text.encode())
-                    out.write(b"\n\n")
-            self.responder.send_response(out.getvalue())
+            result_texts = self.tokenizer.decode(result_tokens)
+            for result_text in result_texts:
+                out.write(b"data: ")
+                out.write(result_text.encode())
+                out.write(b"\n\n")
+        self.responder.send_response(out.getvalue())
 
     def _respond_multi_beams(
         self, result_token_ids: List[List[int]], out: io.BytesIO
