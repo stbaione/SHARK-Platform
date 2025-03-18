@@ -1,18 +1,23 @@
+# Copyright 2024 Advanced Micro Devices, Inc.
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+import asyncio
 import pytest
 import threading
 import queue
 import random
 import time
 from collections import defaultdict
-from unittest.mock import Mock
-from dataclasses import dataclass
-from typing import List, Optional, Set
+from typing import List
 
+# import shortfin as sf
 import shortfin.array as sfnp
 
 from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     BasePagedAttentionCache,
-    BasePagedAttentionCacheAllocation,
     CacheAllocationFailure,
 )
 from shortfin_apps.llm.components.kvcache.page_pool import PagePool, PageInfo
@@ -586,7 +591,8 @@ def test_free_pages_use_ref_count(
     ],
 )
 # fmt: on
-def test_fork_pages(cache_ref_count, tokens, expected_pages, case_name):
+@pytest.mark.asyncio
+async def test_fork_pages(cache_ref_count, tokens, expected_pages, case_name):
     ref_counts = cache_ref_count.ref_counts
 
     allocation = cache_ref_count.acquire_pages_for_tokens(tokens)
@@ -598,7 +604,11 @@ def test_fork_pages(cache_ref_count, tokens, expected_pages, case_name):
     with page_tables[0].view(last_page.index).map(discard=True) as m:
         m.fill(1)
 
-    new_pages = cache_ref_count.fork_pages(pages)
+    new_allocation = cache_ref_count.fork_pages(pages)
+    new_pages = new_allocation.pages
+    # The await here allows the data to finish copying over,
+    # before we check the values.
+    await asyncio.sleep(0.1)
     pages.pop(-1)
     new_last_page = new_pages.pop(-1)
 
@@ -637,7 +647,8 @@ def test_fork_pages(cache_ref_count, tokens, expected_pages, case_name):
     ), f"Fork Error in {case_name}: Page data should be the same."
 
 
-def test_fork_pages_allocation_error(cache_ref_count):
+@pytest.mark.asyncio
+async def test_fork_pages_allocation_error(cache_ref_count):
     # Use all pages
     tokens = list(range(TEST_PAGE_SIZE * TEST_POOL_CAPACITY))
 

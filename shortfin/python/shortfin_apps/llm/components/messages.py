@@ -53,7 +53,7 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         self.allocation: PageAllocation | None = None
 
     @classmethod
-    async def copy_exec_request(
+    def copy_exec_request(
         cls, exec_req: "LlmInferenceExecRequest"
     ) -> "LlmInferenceExecRequest":
         new_exec_req = cls(
@@ -65,7 +65,7 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         new_exec_req.start_position = exec_req.start_position
         new_exec_req.prompt_length = exec_req.prompt_length
         new_exec_req._cache = exec_req._cache
-        new_exec_req.allocation = await new_exec_req._cache.fork_pages(
+        new_exec_req.allocation = new_exec_req._cache.fork_pages(
             exec_req.allocation.pages
         )
         return new_exec_req

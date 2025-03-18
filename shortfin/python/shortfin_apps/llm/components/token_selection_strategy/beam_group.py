@@ -63,7 +63,7 @@ class BeamGroup:
 
             else:
                 visited_req = visited_reqs[new_req.instance_id]
-                new_req = await LlmInferenceExecRequest.copy_exec_request(visited_req)
+                new_req = LlmInferenceExecRequest.copy_exec_request(visited_req)
                 new_req.input_token_ids.append(token)
 
             visited_reqs[new_req.instance_id] = new_req

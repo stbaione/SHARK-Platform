@@ -195,10 +195,10 @@ class BasePagedAttentionCache:
         )
         self.page_pool.free_pages(pages_to_free)
 
-    async def fork_pages(self, pages: List[PageInfo]) -> List[PageInfo]:
+    def fork_pages(self, pages: List[PageInfo]) -> List[PageInfo]:
         new_pages = pages.copy()
         last_page = new_pages.pop(-1)
-        new_page = await self.page_pool.copy_page(last_page)
+        new_page = self.page_pool.copy_page(last_page)
         if new_page is None:
             raise CacheAllocationFailure()
 
