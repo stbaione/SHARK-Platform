@@ -92,6 +92,11 @@ def page_pool(device):
 
 
 @pytest.fixture
+def dummy_pages(page_pool) -> List[PageInfo]:
+    return [PageInfo(index=i, pool=page_pool) for i in range(3)]
+
+
+@pytest.fixture
 def cache(page_pool):
     yield BasePagedAttentionCache(page_pool=page_pool, tokens_per_page=TEST_PAGE_SIZE)
 

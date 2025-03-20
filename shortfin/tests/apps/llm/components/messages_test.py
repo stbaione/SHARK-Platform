@@ -23,11 +23,6 @@ def mock_base_cache() -> BasePagedAttentionCache:
     return MagicMock(BasePagedAttentionCache)
 
 
-@pytest.fixture
-def dummy_pages(page_pool) -> List[PageInfo]:
-    return [PageInfo(index=i, pool=page_pool) for i in range(3)]
-
-
 @patch("shortfin.VoidFuture")
 def test_inference_exec_request_repr(mock_void_future):
     """

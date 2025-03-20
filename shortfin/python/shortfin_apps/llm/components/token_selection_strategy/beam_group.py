@@ -68,7 +68,6 @@ class BeamGroup:
 
             visited_reqs[new_req.instance_id] = new_req
             if token == self.eos_token_id:
-                logger.info(f"{new_req.instance_id} just completed...")
                 completed_reqs.add(new_req)
             else:
                 new_reqs.add(new_req)
@@ -78,7 +77,7 @@ class BeamGroup:
 
         for req in self.active_exec_reqs:
             # Free cache pages of reqs we don't need anymore
-            if req not in new_reqs:
+            if req not in new_reqs and req not in completed_reqs:
                 req.free_cache_pages()
 
         self.active_exec_reqs = list(new_reqs)
