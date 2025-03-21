@@ -46,7 +46,7 @@ class BeamGroup:
         done_signals = [req.done for req in self.active_exec_reqs]
         return await gather(*done_signals)
 
-    async def process_beams(self):
+    def process_beams(self):
         exec_reqs_selections = self.selection_callback(
             self.active_exec_reqs, self.completed_reqs
         )

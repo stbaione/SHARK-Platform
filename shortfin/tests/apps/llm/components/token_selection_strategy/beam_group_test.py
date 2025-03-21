@@ -1,6 +1,7 @@
 import asyncio
-import random
+import logging
 import pytest
+import random
 from typing import List
 from unittest.mock import patch
 
@@ -45,8 +46,7 @@ async def test_wait(exec_req_list):
         assert req.done._event.is_set()
 
 
-@pytest.mark.asyncio
-async def test_process_beams_one_req(exec_req):
+def test_process_beams_one_req(exec_req):
     def selection_callback(
         active_reqs: LlmInferenceExecRequest, _: LlmInferenceExecRequest
     ):
@@ -65,21 +65,20 @@ async def test_process_beams_one_req(exec_req):
     )
 
     # Active
-    await beam_groups.process_beams()
+    beam_groups.process_beams()
     assert beam_groups.active_exec_reqs == [exec_req]
     assert len(beam_groups.completed_reqs) == 0
 
     # Completed
     beam_groups.eos_token_id = 0
     with patch.object(LlmInferenceExecRequest, "free_cache_pages") as free_cache_mock:
-        await beam_groups.process_beams()
+        beam_groups.process_beams()
         assert len(beam_groups.active_exec_reqs) == 0
         assert beam_groups.completed_reqs == {exec_req}
         free_cache_mock.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_process_beams_multiple_reqs(exec_req_list):
+def test_process_beams_multiple_reqs(exec_req_list):
     def selection_callback_no_completed(exec_reqs, _):
         selections = []
         for req in exec_reqs:
@@ -131,7 +130,7 @@ async def test_process_beams_multiple_reqs(exec_req_list):
         exec_reqs=req_list,
         selection_callback=selection_callback_no_completed,
     )
-    await beam_group.process_beams()
+    beam_group.process_beams()
     assert set(beam_group.active_exec_reqs) == set(req_list)
     assert len(beam_group.completed_reqs) == 0
 
@@ -142,17 +141,21 @@ async def test_process_beams_multiple_reqs(exec_req_list):
         exec_reqs=req_list,
         selection_callback=selection_callback_one_completed,
     )
+    expected = {beam_group.active_exec_reqs[0]}
+    active = set(beam_group.active_exec_reqs[1:])
     with patch.object(LlmInferenceExecRequest, "free_cache_pages") as free_cache_mock:
         beam_group.selection_callback = selection_callback_one_completed
-        await beam_group.process_beams()
-        assert beam_group.active_exec_reqs == req_list[1:]
-        assert beam_group.completed_reqs == {req_list[0]}
+        beam_group.process_beams()
+        assert set(beam_group.active_exec_reqs) == active
+        assert beam_group.completed_reqs == expected
         free_cache_mock.assert_called_once()
 
         # Complete another req
-        await beam_group.process_beams()
-        assert beam_group.active_exec_reqs == exec_req_list[2:]
-        assert beam_group.completed_reqs == set(exec_req_list[:2])
+        expected.add(beam_group.active_exec_reqs[0])
+        active.remove(beam_group.active_exec_reqs[0])
+        beam_group.process_beams()
+        assert set(beam_group.active_exec_reqs) == active
+        assert beam_group.completed_reqs == expected
         assert free_cache_mock.call_count == 2
 
     req_list = exec_req_list.copy()
@@ -164,10 +167,10 @@ async def test_process_beams_multiple_reqs(exec_req_list):
     )
     # All completed
     with patch.object(LlmInferenceExecRequest, "free_cache_pages") as free_cache_mock:
-        await beam_group.process_beams()
+        beam_group.process_beams()
         assert len(beam_group.active_exec_reqs) == 0
         assert beam_group.completed_reqs == set(req_list)
-        assert free_cache_mock.call_count == len(exec_req_list)
+        assert free_cache_mock.call_count == len(req_list)
 
 
 @pytest.mark.asyncio

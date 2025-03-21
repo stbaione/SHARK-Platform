@@ -113,4 +113,4 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         if self.return_host_array:
             flags.append("host")
         flags_str = ",".join(flags)
-        return f"LlmInferenceExecRequest[phase={phase_char},pos={self.start_position},rid={self.rid},flags={flags_str},input_token_ids={self.input_token_ids}]"
+        return f"LlmInferenceExecRequest[phase={phase_char},pos={self.start_position},rid={self.rid},instance_id={self.instance_id},flags={flags_str},input_token_ids={self.input_token_ids}]"

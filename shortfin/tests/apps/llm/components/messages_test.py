@@ -4,8 +4,10 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import List
 import pytest
+from unittest.mock import patch, MagicMock
+from uuid import uuid4
+
 from shortfin_apps.llm.components.messages import (
     InferencePhase,
     LlmInferenceExecRequest,
@@ -13,9 +15,7 @@ from shortfin_apps.llm.components.messages import (
 from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     BasePagedAttentionCache,
     BasePagedAttentionCacheAllocation,
-    PageInfo,
 )
-from unittest.mock import patch, MagicMock
 
 
 @pytest.fixture(scope="function")
@@ -33,18 +33,22 @@ def test_inference_exec_request_repr(mock_void_future):
     Patches shortfin.VoidFuture with a mock because we're not running this testcase on a worker thread.
     """
     req = LlmInferenceExecRequest(InferencePhase.PREFILL, [1, 2, 3, 4], rid="test123")
+    instance_id = str(uuid4())
+    req.instance_id = instance_id
     assert (
         str(req)
-        == "LlmInferenceExecRequest[phase=P,pos=0,rid=test123,flags=host,input_token_ids=[1, 2, 3, 4]]"
+        == f"LlmInferenceExecRequest[phase=P,pos=0,rid=test123,instance_id={instance_id},flags=host,input_token_ids=[1, 2, 3, 4]]"
     )
 
     req = LlmInferenceExecRequest(InferencePhase.DECODE, [], rid="test123")
     req.return_host_array = False
     req.return_all_logits = False
     req.rid = None
+    instance_id = str(uuid4())
+    req.instance_id = instance_id
     assert (
         str(req)
-        == "LlmInferenceExecRequest[phase=D,pos=0,rid=None,flags=,input_token_ids=[]]"
+        == f"LlmInferenceExecRequest[phase=D,pos=0,rid=None,instance_id={instance_id},flags=,input_token_ids=[]]"
     )
 
 

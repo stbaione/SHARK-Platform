@@ -63,7 +63,7 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
                 req.reset(InferencePhase.DECODE)
                 config.decode_callback(req)
             await beam_group.wait()
-            await beam_group.process_beams()
+            beam_group.process_beams()
 
         results = [
             exec_req.input_token_ids[exec_req.prompt_length :]

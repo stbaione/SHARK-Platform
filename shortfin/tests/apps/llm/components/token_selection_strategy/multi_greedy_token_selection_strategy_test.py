@@ -178,7 +178,7 @@ async def test_multi_greedy_decode_multiple_completions(
 
 
 @pytest.mark.asyncio
-async def test_greedy_decode_eos_token(
+async def test_multi_greedy_decode_eos_token(
     cache,
     device,
     dummy_pages,
