@@ -4,9 +4,10 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+import logging
+
 from asyncio import gather
 from dataclasses import dataclass
-import logging
 from typing import Callable, Dict, List, Set
 from uuid import uuid4
 
