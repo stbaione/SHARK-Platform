@@ -824,7 +824,7 @@ def _repeat_trampoline(
 
 @overridable
 def replicate(
-    input: AnyTensor, count: int, devices: Tuple[int] | None, pinned: bool | None
+    input: AnyTensor, count: int, devices: Tuple[int] | None
 ) -> ShardedTensor:
     """Replicate across devices.
 
@@ -838,19 +838,16 @@ def _replicate_trampoline(
     input: AnyTensor,
     count: int,
     devices: Tuple[int] | None = None,
-    pinned: bool | None = None,
 ) -> ShardedTensor:
     tensors = (input,)
     if isinstance(input, (torch.Tensor, PrimitiveTensor)):
         devices = devices if devices is not None else tuple(range(count))
-        pinned = pinned if pinned is not None else False
     else:
         # TODO: Is this correct? Will use data on `input`.
         assert devices is None
-        assert pinned is None
 
     for override in d.find_overrides(tensors):
-        result = override(input, count=count, devices=devices, pinned=pinned)
+        result = override(input, count=count, devices=devices)
         if result is not NotImplemented:
             return override, result
     else:
@@ -882,7 +879,10 @@ def _scaled_dot_product_attention(
 ):
     tensors = (q, k, v, a)
     for override in d.find_overrides(tensors):
-        result = override(q, k, v, a, is_causal=is_causal, scale=scale)
+        if is_causal is not None:
+            result = override(q, k, v, a, is_causal=is_causal, scale=scale)
+        else:
+            result = override(q, k, v, a, scale=scale)
         if result is not NotImplemented:
             return override, result
     else:
