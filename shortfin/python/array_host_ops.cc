@@ -910,20 +910,28 @@ void BindArrayHostOps(py::module_ &m) {
 
           auto max_vals = xt::eval(
               xt::amax(*input_t, axis, xt::evaluation_strategy::immediate));
+          std::cout << "(TEMP) Got Max Vals" << std::endl;
 
           std::vector<std::size_t> max_shape(max_vals.shape().begin(),
                                              max_vals.shape().end());
           max_shape.insert(max_shape.begin() + axis, 1);
+          std::cout << "(TEMP) Got Max Shape" << std::endl;
           auto max_vals_expanded = xt::reshape_view(max_vals, max_shape);
+          std::cout << "(TEMP) Expanded Max Vals" << std::endl;
 
           auto input_stable = xt::eval(*input_t - max_vals_expanded);
+          std::cout << "(TEMP) Got input_stable" << std::endl;
           auto exp_input = xt::exp(input_stable);
+          std::cout << "(TEMP) Got exp_input" << std::endl;
 
           auto sum_exp =
               xt::sum(exp_input, axis, xt::evaluation_strategy::immediate);
+          std::cout << "(TEMP) Got sum_exp" << std::endl;
           auto sum_exp_expanded = xt::expand_dims(sum_exp, axis);
+          std::cout << "(TEMP) Got sum_exp_expanded" << std::endl;
 
           auto log_sum_exp = xt::log(sum_exp_expanded);
+          std::cout << "(TEMP) Got log_sum_exp" << std::endl;
 
           auto result = xt::eval(input_stable - log_sum_exp);
           if (!out) {
