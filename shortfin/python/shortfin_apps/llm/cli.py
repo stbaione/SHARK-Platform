@@ -154,6 +154,8 @@ class Timer:
         self._end = time.perf_counter()
 
     def elapsed(self):
+        if self._end is None:
+            return time.perf_counter() - self._start
         return self._end - self._start
 
 
