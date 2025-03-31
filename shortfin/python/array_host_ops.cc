@@ -908,8 +908,8 @@ void BindArrayHostOps(py::module_ &m) {
         auto compute = [&]<typename EltTy>() {
           auto input_t = input.map_xtensor<EltTy>();
 
-          auto max_vals =
-              xt::amax(*input_t, axis, xt::evaluation_strategy::immediate);
+          auto max_vals = xt::eval(
+              xt::amax(*input_t, axis, xt::evaluation_strategy::immediate));
 
           std::vector<std::size_t> max_shape(max_vals.shape().begin(),
                                              max_vals.shape().end());
