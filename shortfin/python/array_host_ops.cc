@@ -910,7 +910,9 @@ void BindArrayHostOps(py::module_ &m) {
 
           auto max_vals =
               xt::amax(*input_t, axis, xt::evaluation_strategy::immediate);
-          auto max_shape = max_vals.shape();
+
+          std::vector<std::size_t> max_shape(max_vals.shape().begin(),
+                                             max_vals.shape().end());
           max_shape.insert(max_shape.begin() + axis, 1);
           auto max_vals_expanded = xt::reshape_view(max_vals, max_shape);
 
