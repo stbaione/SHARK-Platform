@@ -10,6 +10,7 @@
 #include "shortfin/support/logging.h"
 #include "xtensor/xmath.hpp"
 #include "xtensor/xrandom.hpp"
+#include "xtensor/xreducer.hpp"
 #include "xtensor/xsort.hpp"
 #include "xtl/xhalf_float.hpp"
 
@@ -906,19 +907,23 @@ void BindArrayHostOps(py::module_ &m) {
         }
         auto compute = [&]<typename EltTy>() {
           auto input_t = input.map_xtensor<EltTy>();
-          auto max = xt::amax(*input_t, axis);
-          auto &&maxExpanded = xt::eval(xt::expand_dims(max, axis));
 
-          // Equivalent to: log( ∑[i in axis] exp(x_i - c) )
-          // where x_i are the elements of the input tensor along the given
-          // axis, and c (maxExpanded) is the maximum value along that axis.
-          auto &&shiftedInput = xt::eval(*input_t - maxExpanded);
-          auto &&exp_shifted = xt::eval(xt::exp(shiftedInput));
-          auto &&sum_expression = xt::eval(xt::sum(exp_shifted, axis));
-          auto sum_axis_expanded = xt::expand_dims(sum_expression, axis);
-          auto &&log_sum_expression = xt::eval(xt::log(sum_axis_expanded));
+          auto max_vals =
+              xt::amax(*input_t, axis, xt::evaluation_strategy::immediate);
+          auto max_shape = max_vals.shape();
+          max_shape.insert(max_shape.begin() + axis, 1);
+          auto max_vals_expanded = xt::reshape_view(max_vals, max_shape);
 
-          auto &&result = xt::eval(shiftedInput - log_sum_expression);
+          auto input_stable = xt::eval(*input_t - max_vals_expanded);
+          auto exp_input = xt::exp(input_stable);
+
+          auto sum_exp =
+              xt::sum(exp_input, axis, xt::evaluation_strategy::immediate);
+          auto sum_exp_expanded = xt::expand_dims(sum_exp, axis);
+
+          auto log_sum_exp = xt::log(sum_exp_expanded);
+
+          auto result = xt::eval(input_stable - log_sum_exp);
           if (!out) {
             out.emplace(device_array::for_host(input.device(), result.shape(),
                                                input.dtype(), device_visible));
