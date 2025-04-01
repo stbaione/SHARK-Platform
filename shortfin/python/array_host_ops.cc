@@ -906,35 +906,18 @@ void BindArrayHostOps(py::module_ &m) {
                           input.dtype().name(), out->dtype().name()));
         }
         auto compute = [&]<typename EltTy>() {
-          auto input_t = input.map_xtensor<EltTy>();
+          auto input_t = input.map_xtensor_rw<EltTy>();
 
-          std::cout << "(TEMP) Obtaining Max Vals" << std::endl;
-          auto max_vals = xt::eval(
-              xt::amax(*input_t, axis, xt::evaluation_strategy::immediate));
-          std::cout << "(TEMP) Got Max Vals" << std::endl;
+          auto max_vals = xt::amax(*input_t, {axis});
+          xt::xarray<EltTy> max_vals_keep_dim = xt::expand_dims(max_vals, axis);
 
-          std::vector<std::size_t> max_shape(max_vals.shape().begin(),
-                                             max_vals.shape().end());
-          max_shape.insert(max_shape.begin() + axis, 1);
-          std::cout << "(TEMP) Got Max Shape" << std::endl;
-          auto max_vals_expanded = xt::reshape_view(max_vals, max_shape);
-          std::cout << "(TEMP) Expanded Max Vals" << std::endl;
-
-          auto input_stable = xt::eval(*input_t - max_vals_expanded);
-          std::cout << "(TEMP) Got input_stable" << std::endl;
-          auto exp_input = xt::exp(input_stable);
-          std::cout << "(TEMP) Got exp_input" << std::endl;
-
-          auto sum_exp =
-              xt::sum(exp_input, axis, xt::evaluation_strategy::immediate);
-          std::cout << "(TEMP) Got sum_exp" << std::endl;
+          xt::xarray<EltTy> exp_input = xt::exp(*input_t - max_vals_keep_dim);
+          auto sum_exp = xt::sum(exp_input, {axis});
           auto sum_exp_expanded = xt::expand_dims(sum_exp, axis);
-          std::cout << "(TEMP) Got sum_exp_expanded" << std::endl;
 
-          auto log_sum_exp = xt::log(sum_exp_expanded);
-          std::cout << "(TEMP) Got log_sum_exp" << std::endl;
+          xt::xarray<EltTy> log_sum_exp = xt::log(sum_exp_expanded);
 
-          auto result = xt::eval(input_stable - log_sum_exp);
+          auto result = *input_t - max_vals_keep_dim - log_sum_exp;
           if (!out) {
             out.emplace(device_array::for_host(input.device(), result.shape(),
                                                input.dtype(), device_visible));
