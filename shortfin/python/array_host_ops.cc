@@ -911,19 +911,22 @@ void BindArrayHostOps(py::module_ &m) {
           auto max_vals = xt::amax(*input_t, {axis});
           xt::xarray<EltTy> max_vals_keep_dim = xt::expand_dims(max_vals, axis);
 
-          xt::xarray<EltTy> exp_input = xt::exp(*input_t - max_vals_keep_dim);
-          auto sum_exp = xt::sum(exp_input, {axis});
-          auto sum_exp_expanded = xt::expand_dims(sum_exp, axis);
+          xt::xarray<EltTy> input_stable = *input_t - max_vals_keep_dim;
 
+          auto sum_exp = xt::sum(xt::exp(input_stable), {axis});
+          auto sum_exp_expanded = xt::expand_dims(sum_exp, axis);
           xt::xarray<EltTy> log_sum_exp = xt::log(sum_exp_expanded);
 
-          auto result = *input_t - max_vals_keep_dim - log_sum_exp;
+          xt::xarray<EltTy> result = input_stable - log_sum_exp;
+
           if (!out) {
             out.emplace(device_array::for_host(input.device(), result.shape(),
                                                input.dtype(), device_visible));
           }
+
           auto out_t = out->map_xtensor_w<EltTy>();
           *out_t = result;
+
           return *out;
         };
 
