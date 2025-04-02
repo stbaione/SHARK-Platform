@@ -94,7 +94,6 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
         selections = []
         for exec_req in active_exec_reqs:
             # Take `log_softmax` of the logits.
-            # TODO (#1196): Conditionally do this depending on model configuration
             log_softmax_logits = sfnp.log_softmax(exec_req.result_logits)
             top_tokens, top_values = self._top_k(log_softmax_logits, -k)
 
@@ -113,8 +112,6 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
                     normalization_function=self._normalize_exec_req,
                 )
                 selections.append(selection)
-
-                # Only maintain the `k` top scores
 
             if min_log_prob < global_min_log_prob:
                 global_min_log_prob = min_log_prob
@@ -155,16 +152,7 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
             LlmInferenceExecRequest: Highest scoring request.
         """
         reqs = list(completed_reqs) if completed_reqs else active_reqs
-
-        max_score = self._final_score(reqs[0])
-        selected_req = reqs[0]
-        for req in reqs[1:]:
-            score = self._final_score(req)
-            if score > max_score:
-                selected_req = req
-                max_score = score
-
-        return selected_req
+        return max(reqs, key=lambda req: req.score)
 
     async def decode(
         self,
