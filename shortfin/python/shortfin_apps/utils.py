@@ -146,17 +146,16 @@ def convert_int_to_float(value: int, dtype: sfnp.DType) -> float:
     if exponent == 0:
         if frac == 0:
             return -0.0 if sign else 0.0  # Zero
-        else:
-            # Subnormal number
-            return (-1) ** sign * (frac / (1 << frac_bits)) * 2 ** (1 - bias)
+
+        return (-1) ** sign * (frac / (1 << frac_bits)) * 2 ** (1 - bias)
     elif exponent == exponent_mask:
         if frac == 0:
             return float("-inf") if sign else float("inf")  # Infinity
-        else:
-            return float("nan")  # NaN
-    else:
-        # Normalized number
-        return (-1) ** sign * (1 + frac / (1 << frac_bits)) * 2 ** (exponent - bias)
+
+        return float("nan")  # NaN
+
+    # Normalized number
+    return (-1) ** sign * (1 + frac / (1 << frac_bits)) * 2 ** (exponent - bias)
 
 
 dtype_to_filetag = {
