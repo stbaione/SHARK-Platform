@@ -18,13 +18,19 @@ logger = logging.getLogger(__name__)
 
 
 class MultiGreedyBeam(Beam):
-    def sample_logits(self):
+    def sample_logits(self) -> int:
+        """Return the single highest scoring token of the logits.
+
+        Returns:
+            int: The `argmax` of the logits.
+        """
         exec_req = self.exec_req
         token = sfnp.argmax(exec_req.result_logits)
         token_int = token.items[0]
         return token_int
 
     def update_exec_req(self):
+        """Update the `LlmInferenceExecRequest` with the selected token."""
         self.exec_req.input_token_ids.append(self.last_token)
         self.exec_req.start_position += 1
 
@@ -34,7 +40,7 @@ class MultiGreedyBeam(Beam):
     def normalize_score(self, value):
         raise NotImplementedError("MultiGreedyBeam does not track a score")
 
-    def update_final_score(self, value):
+    def update_final_score(self):
         raise NotImplementedError("MultiGreedyBeam does not track a score")
 
 
@@ -43,7 +49,16 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
         self,
         active_beams: List[MultiGreedyBeam],
         _: List[MultiGreedyBeam],
-    ):
+    ) -> List[MultiGreedyBeam]:
+        """Greedily select a token for each active beam.
+
+        Args:
+            active_beams (List[MultiGreedyBeam]): Beams that are still active.
+            _ (List[MultiGreedyBeam]): Beams that are completed.
+
+        Returns:
+            List[MultiGreedyBeam]: Beams with new token selected.
+        """
         selections = []
         for beam in active_beams:
             token = beam.sample_logits()
@@ -58,6 +73,11 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
         self,
         exec_req: LlmInferenceExecRequest,
     ):
+        """Orchestrate decode loop for `multi_greedy` selection strategy.
+
+        Args:
+            exec_req (LlmInferenceExecRequest): Initial inference request, post prefill.
+        """
         config = self.token_selection_strategy_config
 
         exec_req.reset(InferencePhase.DECODE)

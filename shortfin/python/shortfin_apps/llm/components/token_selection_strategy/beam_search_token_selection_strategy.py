@@ -49,6 +49,14 @@ class BeamSearchBeam(Beam):
         return top_tokens, top_values
 
     def sample_logits(self, k: int):
+        """Apply `log_softmax` and take the `top_k` token and values of the logits.
+
+        Args:
+            k (int): Number of max elements to return.
+
+        Returns:
+            Tuple[List[int], List[float]]: Tuple containing (top_tokens, top_values)
+        """
         # Take `log_softmax` of the logits.
         # TODO (1196): Conditionally take `log_softmax` depending on
         # model configuration.
@@ -57,16 +65,28 @@ class BeamSearchBeam(Beam):
         return self._top_k(log_softmax_logits, -k)
 
     def update_score(self, log_prob: float):
+        """Increment the cumulative_log_prob of the beam.
+
+        Args:
+            log_prob (float): Log probability of the token.
+        """
         self.score += log_prob
 
     def update_exec_req(self):
+        """Add a selected token to a request after a decode loop."""
         self.exec_req.input_token_ids.append(self.last_token)
         self.exec_req.start_position += 1
 
     def normalize_score(self, min_log_prob: float):
+        """Track the accumulated_normalization for a given beam.
+
+        Args:
+            min_log_prob (float): Minimum log probability of the selected tokens.
+        """
         self.accumulated_normalization += abs(min_log_prob)
 
     def update_final_score(self):
+        """Calculate the final score of a beam, with a brevity penalty."""
         exec_req = self.exec_req
         self.score = (self.score - self.accumulated_normalization) / (
             len(exec_req.input_token_ids) - exec_req.prompt_length
@@ -91,11 +111,11 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
         """Handle the selection of the `top_k` beams within a decode step.
 
         Args:
-            active_exec_reqs (List[LlmInferenceExecRequest]): Requests that are still active.
-            completed_exec_reqs (Set[LlmInferenceExecRequest]): Requests that have been completed.
+            active_beams (List[BeamSearchBeam]): Beams that are still active.
+            completed_beams (Set[BeamSearchBeam]): Beams that have been completed.
 
         Returns:
-            List[ExecRequestSelection]: The `top_k` selections, containing necessary info for `beam_group` to handle choosing and processing beams.
+            List[BeamSearchBeam]: The `top_k` selections, containing necessary info for `beam_group` to handle choosing and processing beams.
         """
         config = self.token_selection_strategy_config
         k = config.decode_config.num_beams - len(completed_beams)
@@ -137,11 +157,11 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
         """Find the highest scoring beam, post generation.
 
         Args:
-            active_reqs (List[LlmInferenceExecRequest]): Requests that are still actively generating.
-            completed_reqs (Set[LlmInferenceExecRequest]): Requests that have completed.
+            active_beams (List[BeamSearchBeam]): Beams that are still actively generating.
+            completed_beams (List[BeamSearchBeam]): Beams that have completed.
 
         Returns:
-            LlmInferenceExecRequest: Highest scoring request.
+            BeamSearchBeam: Highest scoring beam.
         """
         beams = list(completed_beams) if completed_beams else active_beams
         for beam in beams:

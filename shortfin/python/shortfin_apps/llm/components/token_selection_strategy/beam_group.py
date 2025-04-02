@@ -30,22 +30,35 @@ class Beam(ABC):
 
     @abstractmethod
     def sample_logits(self):
+        """Define how to sample and select tokens for a give `Beam`"""
         pass
 
     @abstractmethod
     def update_score(self, value: float):
+        """Update the score of a `beam`.
+
+        Args:
+            value (float): Value to update the score with.
+        """
         pass
 
     @abstractmethod
     def update_exec_req(self):
+        """Update an `LlmInferenceExecRequest`, after a decode loop"""
         pass
 
     @abstractmethod
     def normalize_score(self, value: float):
+        """Normalize the score of a `beam`.
+
+        Args:
+            value (float): Value to normalize the score with.
+        """
         pass
 
     @abstractmethod
-    def update_final_score(self, value: float):
+    def update_final_score(self):
+        """Define a `final_score` for a given beam, if applicable."""
         pass
 
 
@@ -115,5 +128,5 @@ class BeamGroup:
         logger.debug(f"Cleaning up {self.beam_group_id}...")
 
         # Ensure all requests have freed their cache pages
-        for beam in self.active_beams + list(self.completed_beams):
+        for beam in self.active_beams + self.completed_beams:
             beam.exec_req.free_cache_pages()
