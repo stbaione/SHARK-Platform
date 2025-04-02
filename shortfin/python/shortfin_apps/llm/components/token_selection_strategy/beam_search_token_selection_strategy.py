@@ -94,6 +94,7 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
         selections = []
         for exec_req in active_exec_reqs:
             # Take `log_softmax` of the logits.
+            # TODO (#1196): Conditionally do this depending on model configuration
             log_softmax_logits = sfnp.log_softmax(exec_req.result_logits)
             top_tokens, top_values = self._top_k(log_softmax_logits, -k)
 
