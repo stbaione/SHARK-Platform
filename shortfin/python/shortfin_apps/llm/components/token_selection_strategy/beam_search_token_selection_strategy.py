@@ -111,23 +111,20 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
                     score=cumulative_log_prob,
                     normalization_function=self._normalize_exec_req,
                 )
-                index = bisect.bisect_left(
-                    selections, selection.score, key=lambda x: x.score
-                )
-                selections.insert(index, selection)
+                selections.append(selection)
 
                 # Only maintain the `k` top scores
-                if len(selections) > k:
-                    selections.pop(0)
 
             if min_log_prob < global_min_log_prob:
                 global_min_log_prob = min_log_prob
 
         self.min_log_prob = global_min_log_prob
-        for selection in selections:
+        sorted_selections = sorted(
+            selections, key=lambda selection: selection.score, reverse=True
+        )[:k]
+        for selection in sorted_selections:
             selection.score -= global_min_log_prob
-        selections = selections[::-1]
-        return selections
+        return sorted_selections
 
     def _final_score(self, exec_req: LlmInferenceExecRequest) -> float:
         """Calculate the final score of a beam, post generation.
