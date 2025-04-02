@@ -70,31 +70,9 @@ def _batcher_workitem_callback():
     pass
 
 
-def float_to_float16_int(value):
-    # Pack the float into 4 bytes using IEEE 754 single-precision format
-    packed = struct.pack(">f", value)
-    # Unpack as a 32-bit integer
-    i32 = struct.unpack(">I", packed)[0]
-
-    # Extract sign, exponent, and mantissa
-    sign = (i32 >> 31) & 0x1
-    exponent = (i32 >> 23) & 0xFF
-    mantissa = i32 & 0x7FFFFF
-
-    # Adjust exponent for float16 bias (15) and float32 bias (127)
-    exponent -= 127 - 15
-
-    if exponent <= 0:
-        # Handle subnormal numbers and zero
-        f16 = 0
-    elif exponent >= 31:
-        # Handle infinity and NaN
-        f16 = (sign << 15) | (0x1F << 10) | (mantissa >> 13)
-    else:
-        # Normalized number
-        f16 = (sign << 15) | (exponent << 10) | (mantissa >> 13)
-
-    return f16
+def float_to_float16_int(value: float):
+    packed_val = struct.pack("<e", value)
+    return struct.unpack("<H", packed_val)[0]
 
 
 def test__top_k(device, beam_search_token_selection_strategy):
