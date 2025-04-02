@@ -6,6 +6,7 @@
 
 import logging
 
+from abc import ABC, abstractmethod
 from asyncio import gather
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Set
@@ -17,16 +18,35 @@ from ..messages import LlmInferenceExecRequest
 logger = logging.getLogger(__name__)
 
 
+# TODO: Define `top_p` function in base class when enabled in
+# shortfin.
 @dataclass
-class ExecRequestSelection:
-    """Helper class to standardize the return"""
-
+class Beam(ABC):
     exec_req: LlmInferenceExecRequest
-    token: int
-    score: float | None = None
-    normalization_function: (
-        None | Callable[[LlmInferenceExecRequest], LlmInferenceExecRequest]
-    ) = None
+
+    score: float = 0.0
+    accumulated_normalization: float = 0.0
+    last_token: int | None = None
+
+    @abstractmethod
+    def sample_logits(self):
+        pass
+
+    @abstractmethod
+    def update_score(self, value: float):
+        pass
+
+    @abstractmethod
+    def update_exec_req(self):
+        pass
+
+    @abstractmethod
+    def normalize_score(self, value: float):
+        pass
+
+    @abstractmethod
+    def final_score(self, value: float):
+        pass
 
 
 class BeamGroup:
@@ -34,74 +54,66 @@ class BeamGroup:
         self,
         eos_token_id: int,
         num_beams: int,
-        exec_reqs: List[LlmInferenceExecRequest],
+        beams: List[Beam],
         selection_callback: Callable[
-            [List[LlmInferenceExecRequest], Set[LlmInferenceExecRequest]],
-            List[ExecRequestSelection],
+            [List[Beam], Set[Beam]],
+            List[Beam],
         ],
     ):
         self.beam_group_id = str(uuid4())
         self.eos_token_id = eos_token_id
         self.num_beams = num_beams
-        self.active_exec_reqs = exec_reqs
+        self.active_beams = beams
         self.selection_callback = selection_callback
-        self.completed_reqs: set[LlmInferenceExecRequest] = set()
+        self.completed_beams: List[Beam] = []
 
     async def wait(self):
-        done_signals = [req.done for req in self.active_exec_reqs]
+        done_signals = [beam.exec_req.done for beam in self.active_beams]
         return await gather(*done_signals)
 
-    def _update_exec_req(self, selection: ExecRequestSelection):
-        token = selection.token
-        exec_req = selection.exec_req
-
-        exec_req.input_token_ids.append(token)
-        exec_req.start_position += 1
-        if selection.normalization_function is not None:
-            exec_req = selection.normalization_function(exec_req)
-        if selection.score is not None:
-            exec_req.score = selection.score
-
     def process_beams(self):
-        exec_reqs_selections = self.selection_callback(
-            self.active_exec_reqs, self.completed_reqs
+        beam_selections = self.selection_callback(
+            self.active_beams, self.completed_beams
         )
         visited_reqs: Dict[str, LlmInferenceExecRequest] = {}
-        active_reqs = set()
-        completed_reqs = set()
-        req_selection_map: Dict[str, ExecRequestSelection] = {}
+        active_beams: List[Beam] = []
+        active_reqs: Set[LlmInferenceExecRequest] = set()
+        completed_beams: List[Beam] = []
+        completed_reqs: Set[LlmInferenceExecRequest] = set()
 
-        for selection in exec_reqs_selections:
-            new_req, token = selection.exec_req, selection.token
+        for i in range(len(beam_selections)):
+            beam = beam_selections[i]
+            new_req, token = beam.exec_req, beam.last_token
 
             if new_req.instance_id in visited_reqs:
                 visited_req = visited_reqs[new_req.instance_id]
                 new_req = LlmInferenceExecRequest.copy_exec_request(visited_req)
-                selection.exec_req = new_req
+                beam.exec_req = new_req
 
-            req_selection_map[new_req.instance_id] = selection
             visited_reqs[new_req.instance_id] = new_req
             if token == self.eos_token_id:
+                completed_beams.append(beam)
                 completed_reqs.add(new_req)
             else:
+                active_beams.append(beam)
                 active_reqs.add(new_req)
 
-        for req in completed_reqs | active_reqs:
-            self._update_exec_req(req_selection_map[req.instance_id])
-            if req in completed_reqs:
-                req.free_cache_pages()
+        for beam in completed_beams + active_beams:
+            beam.update_exec_req()
+            if beam.exec_req in completed_reqs:
+                beam.exec_req.free_cache_pages()
 
         # Free cache pages of reqs we don't need anymore
-        for req in self.active_exec_reqs:
-            if req not in active_reqs and req not in completed_reqs:
-                req.free_cache_pages()
+        for beam in self.active_beams:
+            if beam.exec_req not in active_reqs and beam.exec_req not in completed_reqs:
+                beam.exec_req.free_cache_pages()
 
-        self.active_exec_reqs = list(active_reqs)
-        self.completed_reqs |= completed_reqs
+        self.active_beams = active_beams
+        self.completed_beams.extend(completed_beams)
 
     def clean_up(self):
         logger.debug(f"Cleaning up {self.beam_group_id}...")
 
         # Ensure all requests have freed their cache pages
-        for req in self.active_exec_reqs + list(self.completed_reqs):
-            req.free_cache_pages()
+        for beam in self.active_beams + list(self.completed_beams):
+            beam.exec_req.free_cache_pages()

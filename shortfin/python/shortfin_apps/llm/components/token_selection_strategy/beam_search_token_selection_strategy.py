@@ -4,7 +4,6 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-import bisect
 import logging
 
 from typing import List, Set, Tuple
@@ -13,7 +12,7 @@ from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
     TokenSelectionStrategyConfig,
 )
-from .beam_group import BeamGroup, ExecRequestSelection
+from .beam_group import BeamGroup, Beam
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
 from shortfin_apps.utils import convert_int_to_float
@@ -23,16 +22,7 @@ import shortfin.array as sfnp
 logger = logging.getLogger(__name__)
 
 
-class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
-    def __init__(self, token_selection_strategy_config: TokenSelectionStrategyConfig):
-        self._token_selection_strategy_config = token_selection_strategy_config
-
-        self.min_log_prob = 0.0
-
-    @property
-    def token_selection_strategy_config(self):
-        return self._token_selection_strategy_config
-
+class BeamSearchBeam(Beam):
     def _top_k(
         self, log_softmax_logits: sfnp.device_array, k: int
     ) -> Tuple[List[int], List[float]]:
@@ -58,6 +48,41 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
 
         return top_tokens, top_values
 
+    def sample_logits(self, k: int):
+        # Take `log_softmax` of the logits.
+        # TODO (1196): Conditionally take `log_softmax` depending on
+        # model configuration.
+        # This is where we'd add an optional call to our `sampling` mechanism.
+        log_softmax_logits = sfnp.log_softmax(self.exec_req.result_logits)
+        return self._top_k(log_softmax_logits, -k)
+
+    def update_score(self, log_prob: float):
+        self.score += log_prob
+
+    def update_exec_req(self):
+        self.exec_req.input_token_ids.append(self.last_token)
+        self.exec_req.start_position += 1
+
+    def normalize_score(self, min_log_prob: float):
+        self.accumulated_normalization += abs(min_log_prob)
+
+    def final_score(self):
+        exec_req = self.exec_req
+        return (self.score - self.accumulated_normalization) / (
+            len(exec_req.input_token_ids) - exec_req.prompt_length
+        )
+
+
+class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
+    def __init__(self, token_selection_strategy_config: TokenSelectionStrategyConfig):
+        self._token_selection_strategy_config = token_selection_strategy_config
+
+        self.min_log_prob = 0.0
+
+    @property
+    def token_selection_strategy_config(self):
+        return self._token_selection_strategy_config
+
     def _normalize_exec_req(
         self, exec_req: LlmInferenceExecRequest
     ) -> LlmInferenceExecRequest:
@@ -74,9 +99,9 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
 
     def select_top_k(
         self,
-        active_exec_reqs: List[LlmInferenceExecRequest],
-        completed_exec_reqs: Set[LlmInferenceExecRequest],
-    ) -> List[ExecRequestSelection]:
+        active_beams: List[BeamSearchBeam],
+        completed_beams: Set[BeamSearchBeam],
+    ) -> List[BeamSearchBeam]:
         """Handle the selection of the `top_k` beams within a decode step.
 
         Args:
@@ -87,61 +112,44 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
             List[ExecRequestSelection]: The `top_k` selections, containing necessary info for `beam_group` to handle choosing and processing beams.
         """
         config = self.token_selection_strategy_config
-        k = config.decode_config.num_beams - len(completed_exec_reqs)
+        k = config.decode_config.num_beams - len(completed_beams)
 
         global_min_log_prob = 0.0
 
-        selections = []
-        for exec_req in active_exec_reqs:
-            # Take `log_softmax` of the logits.
-            log_softmax_logits = sfnp.log_softmax(exec_req.result_logits)
-            top_tokens, top_values = self._top_k(log_softmax_logits, -k)
-
+        selections: List[BeamSearchBeam] = []
+        # import pdb
+        # pdb.set_trace()
+        for beam in active_beams:
             min_log_prob = 0.0
+            top_tokens, top_values = beam.sample_logits(k)
             for token, value in zip(top_tokens, top_values):
                 if value < min_log_prob:
                     min_log_prob = value
 
-                cumulative_log_prob = exec_req.score + value
-
-                # Insert into sorted array
-                selection = ExecRequestSelection(
-                    exec_req,
-                    token,
-                    score=cumulative_log_prob,
-                    normalization_function=self._normalize_exec_req,
+                new_beam = BeamSearchBeam(
+                    beam.exec_req,
+                    score=beam.score,
+                    accumulated_normalization=beam.accumulated_normalization,
+                    last_token=token,
                 )
-                selections.append(selection)
+                new_beam.update_score(value)
+                selections.append(new_beam)
 
             if min_log_prob < global_min_log_prob:
                 global_min_log_prob = min_log_prob
 
-        self.min_log_prob = global_min_log_prob
         sorted_selections = sorted(
-            selections, key=lambda selection: selection.score, reverse=True
+            selections, key=lambda beam: beam.score, reverse=True
         )[:k]
-        for selection in sorted_selections:
-            selection.score -= global_min_log_prob
+        for beam in sorted_selections:
+            beam.normalize_score(global_min_log_prob)
         return sorted_selections
-
-    def _final_score(self, exec_req: LlmInferenceExecRequest) -> float:
-        """Calculate the final score of a beam, post generation.
-
-        Args:
-            exec_req (LlmInferenceExecRequest): Request to calculate score of.
-
-        Returns:
-            float: Final score of a given beam.
-        """
-        return (exec_req.score - exec_req.accumulated_normalization) / (
-            len(exec_req.input_token_ids) - exec_req.prompt_length
-        )
 
     def _find_top_beam(
         self,
-        active_reqs: List[LlmInferenceExecRequest],
-        completed_reqs: Set[LlmInferenceExecRequest],
-    ) -> LlmInferenceExecRequest:
+        active_beams: List[BeamSearchBeam],
+        completed_beams: Set[BeamSearchBeam],
+    ) -> BeamSearchBeam:
         """Find the highest scoring beam, post generation.
 
         Args:
@@ -151,8 +159,8 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
         Returns:
             LlmInferenceExecRequest: Highest scoring request.
         """
-        reqs = list(completed_reqs) if completed_reqs else active_reqs
-        return max(reqs, key=lambda req: req.score)
+        beams = list(completed_beams) if completed_beams else active_beams
+        return max(beams, key=lambda beam: beam.score)
 
     async def decode(
         self,
@@ -168,14 +176,15 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
         beam_group = BeamGroup(
             config.eos_token_id,
             config.decode_config.num_beams,
-            [exec_req],
+            [BeamSearchBeam(exec_req)],
             self.select_top_k,
         )
         for _ in range(config.max_completion_tokens):
-            if not beam_group.active_exec_reqs:
+            if not beam_group.active_beams:
                 break
 
-            for req in beam_group.active_exec_reqs:
+            for beam in beam_group.active_beams:
+                req = beam.exec_req
                 req.reset(InferencePhase.DECODE)
                 config.decode_callback(req)
             await beam_group.wait()
@@ -191,16 +200,18 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
         """
         config = self.token_selection_strategy_config
         results = [
-            exec_req.input_token_ids[exec_req.prompt_length :]
-            for exec_req in beam_group.completed_reqs
+            beam.exec_req.input_token_ids[beam.exec_req.prompt_length :]
+            for beam in beam_group.completed_beams
         ]
         if len(results) < beam_group.num_beams:
-            active_exec_reqs = sorted(
-                beam_group.active_exec_reqs,
-                key=lambda exec_req: exec_req.score,
+            active_beams = sorted(
+                [beam for beam in beam_group.active_beams],
+                key=lambda beam: beam.score,
                 reverse=True,
             )
             for i in range(beam_group.num_beams - len(results)):
-                exec_req = active_exec_reqs[i]
-                results.append(exec_req.input_token_ids[exec_req.prompt_length :])
+                beam = active_beams[i]
+                results.append(
+                    beam.exec_req.input_token_ids[beam.exec_req.prompt_length :]
+                )
         config.results_callback(results)
