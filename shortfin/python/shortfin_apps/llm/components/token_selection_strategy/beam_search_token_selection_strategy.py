@@ -83,20 +83,6 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
     def token_selection_strategy_config(self):
         return self._token_selection_strategy_config
 
-    def _normalize_exec_req(
-        self, exec_req: LlmInferenceExecRequest
-    ) -> LlmInferenceExecRequest:
-        """Accumulate the normalization of an LlmInferenceExecRequest.
-
-        Args:
-            exec_req (LlmInferenceExecRequest): Request to accumulate.
-
-        Returns:
-            LlmInferenceExecRequest: Request.
-        """
-        exec_req.accumulated_normalization += abs(self.min_log_prob)
-        return exec_req
-
     def select_top_k(
         self,
         active_beams: List[BeamSearchBeam],
@@ -117,8 +103,6 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
         global_min_log_prob = 0.0
 
         selections: List[BeamSearchBeam] = []
-        # import pdb
-        # pdb.set_trace()
         for beam in active_beams:
             min_log_prob = 0.0
             top_tokens, top_values = beam.sample_logits(k)
