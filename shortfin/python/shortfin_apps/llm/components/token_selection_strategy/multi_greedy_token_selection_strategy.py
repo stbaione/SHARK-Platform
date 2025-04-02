@@ -34,7 +34,7 @@ class MultiGreedyBeam(Beam):
     def normalize_score(self, value):
         raise NotImplementedError("MultiGreedyBeam does not track a score")
 
-    def final_score(self, value):
+    def update_final_score(self, value):
         raise NotImplementedError("MultiGreedyBeam does not track a score")
 
 

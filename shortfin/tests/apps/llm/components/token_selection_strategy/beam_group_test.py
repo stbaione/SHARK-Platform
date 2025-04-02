@@ -42,7 +42,7 @@ class DummyBeam(Beam):
     def normalize_score(self, value: float):
         pass
 
-    def final_score(self, value: float):
+    def update_final_score(self, value: float):
         pass
 
 

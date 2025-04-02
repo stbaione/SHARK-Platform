@@ -66,9 +66,9 @@ class BeamSearchBeam(Beam):
     def normalize_score(self, min_log_prob: float):
         self.accumulated_normalization += abs(min_log_prob)
 
-    def final_score(self):
+    def update_final_score(self):
         exec_req = self.exec_req
-        return (self.score - self.accumulated_normalization) / (
+        self.score = (self.score - self.accumulated_normalization) / (
             len(exec_req.input_token_ids) - exec_req.prompt_length
         )
 
@@ -132,7 +132,7 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
     def _find_top_beam(
         self,
         active_beams: List[BeamSearchBeam],
-        completed_beams: Set[BeamSearchBeam],
+        completed_beams: List[BeamSearchBeam],
     ) -> BeamSearchBeam:
         """Find the highest scoring beam, post generation.
 
@@ -144,6 +144,8 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
             LlmInferenceExecRequest: Highest scoring request.
         """
         beams = list(completed_beams) if completed_beams else active_beams
+        for beam in beams:
+            beam.update_final_score()
         return max(beams, key=lambda beam: beam.score)
 
     async def decode(
@@ -188,6 +190,9 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
             for beam in beam_group.completed_beams
         ]
         if len(results) < beam_group.num_beams:
+            for beam in beam_group.active_beams:
+                beam.update_final_score()
+
             active_beams = sorted(
                 [beam for beam in beam_group.active_beams],
                 key=lambda beam: beam.score,

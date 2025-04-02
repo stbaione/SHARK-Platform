@@ -31,6 +31,9 @@ from shortfin_apps.llm.components.token_selection_strategy import (
     TokenSelectionStrategy,
     TokenSelectionStrategyConfig,
 )
+from shortfin_apps.llm.components.token_selection_strategy.beam_search_token_selection_strategy import (
+    BeamSearchBeam,
+)
 from shortfin_apps.llm.components.token_selection_strategy.beam_group import (
     BeamGroup,
 )
@@ -59,6 +62,13 @@ def beam_search_token_selection_strategy():
     )
 
 
+@pytest.fixture(scope="function")
+def beam_search_beam(exec_req):
+    yield BeamSearchBeam(
+        exec_req,
+    )
+
+
 class FakeBatcher:
     def __init__(self, submit_cb, workitem_cb):
         self.submit = submit_cb
@@ -75,13 +85,13 @@ def float_to_float16_int(value: float):
     return struct.unpack("<H", packed_val)[0]
 
 
-def test__top_k(device, beam_search_token_selection_strategy):
+def test_beam_search_beam__top_k(device, beam_search_beam):
     # Sorted ascending
     src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
     data = [float(i) for i in range(math.prod(src.shape))]
     src.items = data
     k = 8
-    top_tokens, top_values = beam_search_token_selection_strategy._top_k(src, -k)
+    top_tokens, top_values = beam_search_beam._top_k(src, -k)
     assert top_tokens == [i for i in range(8, 16)]
     assert top_values == [i for i in range(8, 16)]
 
@@ -89,7 +99,7 @@ def test__top_k(device, beam_search_token_selection_strategy):
     data = data[::-1]
     src.items = data
     k = 8
-    top_tokens, top_values = beam_search_token_selection_strategy._top_k(src, -k)
+    top_tokens, top_values = beam_search_beam._top_k(src, -k)
     assert sorted(top_tokens) == [i for i in range(0, 8)]
     assert sorted(top_values) == [i for i in range(8, 16)]
 
@@ -99,17 +109,17 @@ def test__top_k(device, beam_search_token_selection_strategy):
     k = 5
     expected_values = {val for val in range(11, 16)}
     expected_tokens = [i for i in range(len(data)) if data[i] in expected_values]
-    top_tokens, top_values = beam_search_token_selection_strategy._top_k(src, -k)
+    top_tokens, top_values = beam_search_beam._top_k(src, -k)
     assert sorted(top_tokens) == expected_tokens
     assert sorted(top_values) == list(expected_values)
 
 
-def test__top_k_float16(device, beam_search_token_selection_strategy):
+def test_beam_search_beam__top_k_float16(device, beam_search_beam):
     src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float16)
     data = [float_to_float16_int(float(i)) for i in range(math.prod(src.shape))]
     src.items = data
     k = 8
-    top_tokens, top_values = beam_search_token_selection_strategy._top_k(src, -k)
+    top_tokens, top_values = beam_search_beam._top_k(src, -k)
     assert top_tokens == [i for i in range(8, 16)]
     assert top_values == [i for i in range(8, 16)]
 
@@ -123,20 +133,49 @@ def test__top_k_float16(device, beam_search_token_selection_strategy):
         for i in range(len(data))
         if convert_int_to_float(data[i], sfnp.float16) in expected_values
     ]
-    top_tokens, top_values = beam_search_token_selection_strategy._top_k(src, -k)
+    top_tokens, top_values = beam_search_beam._top_k(src, -k)
     assert sorted(top_tokens) == expected_tokens
     assert sorted(top_values) == list(expected_values)
 
 
-def test__normalize_exec_req(beam_search_token_selection_strategy, exec_req):
-    beam_search_token_selection_strategy.min_log_prob = 42.0
+def test_beam_search_beam_sample_logits(device, beam_search_beam):
+    src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
+    data = [float(i) for i in range(math.prod(src.shape))]
+    src.items = data
+    beam_search_beam.exec_req.result_logits = src
+    top_tokens, top_values = beam_search_beam.sample_logits(3)
 
-    result = beam_search_token_selection_strategy._normalize_exec_req(exec_req)
-    assert result.accumulated_normalization == 42.0
+    assert len(top_tokens) == 3
+    assert len(top_values) == 3
+
+    assert top_tokens == [13, 14, 15]
+
+
+def test_beam_search_beam_update_score(beam_search_beam):
+    score = 42.0
+    beam_search_beam.update_score(score)
+    assert beam_search_beam.score == 42.0
+
+
+def test_beam_search_beam_update_exec_req(beam_search_beam):
+    expected_start_position = beam_search_beam.exec_req.start_position + 1
+    expected_token = 42
+
+    beam_search_beam.last_token = expected_token
+    beam_search_beam.update_exec_req()
+
+    assert beam_search_beam.exec_req.input_token_ids[-1] == expected_token
+    assert beam_search_beam.exec_req.start_position == expected_start_position
+
+
+def test_beam_search_beam_normalize_score(beam_search_beam):
+    min_log_prob = -42.0
+    beam_search_beam.normalize_score(min_log_prob)
+    assert beam_search_beam.accumulated_normalization == 42.0
 
 
 @patch("shortfin.VoidFuture")
-def test__final_score(mock_void_future, beam_search_token_selection_strategy):
+def test_beam_search_beam_update_final_score(mock_void_future):
     initial_prompt = [i for i in range(0, 5)]
     new_input_tokens = [i for i in range(5, 10)]
     score = random.uniform(0, 10)
@@ -147,107 +186,114 @@ def test__final_score(mock_void_future, beam_search_token_selection_strategy):
         initial_prompt,
     )
     exec_req.input_token_ids.extend(new_input_tokens)
-    exec_req.score = score
-    exec_req.accumulated_normalization = accumulated_normalization
+    beam = BeamSearchBeam(
+        exec_req,
+        score=score,
+        accumulated_normalization=accumulated_normalization,
+    )
 
     expected = (score - accumulated_normalization) / 5
-    final_score = beam_search_token_selection_strategy._final_score(exec_req)
-    assert final_score == expected
+    beam.update_final_score()
+    assert beam.score == expected
 
 
-def test__find_top_beam_completed_reqs(
+def test__find_top_beam_completed_beams(
     beam_search_token_selection_strategy, exec_req_list
 ):
-    scores = [float(val) for val in range(len(exec_req_list))]
-    for i, exec_req in enumerate(exec_req_list):
-        exec_req.score = scores[i]
+    beams = [BeamSearchBeam(exec_req) for exec_req in exec_req_list]
+    scores = [float(val) for val in range(len(beams))]
+    for i, beam in enumerate(beams):
+        beam.score = scores[i]
 
-    expected_top_beam = exec_req_list[-1]
+    expected_top_beam = beams[-1]
 
     # Completed Reqs
     with patch.object(
-        beam_search_token_selection_strategy,
-        "_final_score",
-        side_effect=lambda req: req.score,
+        BeamSearchBeam,
+        "update_final_score",
+        side_effect=lambda: None,
     ):
         # Sorted ascending
         top_beam = beam_search_token_selection_strategy._find_top_beam(
             [],
-            set(exec_req_list),
+            beams,
         )
         assert top_beam == expected_top_beam
 
         # Sorted descending
         top_beam = beam_search_token_selection_strategy._find_top_beam(
             [],
-            set(exec_req_list[::-1]),
+            beams[::-1],
         )
         assert top_beam == expected_top_beam
 
         # Randomized
-        random.shuffle(exec_req_list)
+        random.shuffle(beams)
         top_beam = beam_search_token_selection_strategy._find_top_beam(
             [],
-            set(exec_req_list),
+            beams,
         )
         assert top_beam == expected_top_beam
 
 
-def test__find_top_beam_active_reqs(
+def test__find_top_beam_active_beams(
     beam_search_token_selection_strategy, exec_req_list
 ):
-    scores = [float(val) for val in range(len(exec_req_list))]
-    for i, exec_req in enumerate(exec_req_list):
-        exec_req.score = scores[i]
+    beams = [BeamSearchBeam(exec_req) for exec_req in exec_req_list]
+    scores = [float(val) for val in range(len(beams))]
+    for i, beam in enumerate(beams):
+        beam.score = scores[i]
 
-    expected_top_beam = exec_req_list[-1]
+    expected_top_beam = beams[-1]
 
     # Completed Reqs
     with patch.object(
-        beam_search_token_selection_strategy,
-        "_final_score",
-        side_effect=lambda req: req.score,
+        BeamSearchBeam,
+        "update_final_score",
+        side_effect=lambda: None,
     ):
         # Sorted ascending
         top_beam = beam_search_token_selection_strategy._find_top_beam(
-            exec_req_list,
-            set(),
+            beams,
+            [],
         )
         assert top_beam == expected_top_beam
 
         # Sorted descending
         top_beam = beam_search_token_selection_strategy._find_top_beam(
-            exec_req_list[::-1],
-            set(),
+            beams[::-1],
+            [],
         )
         assert top_beam == expected_top_beam
 
         # Randomized
         random.shuffle(exec_req_list)
         top_beam = beam_search_token_selection_strategy._find_top_beam(
-            exec_req_list,
-            set(),
+            beams,
+            [],
         )
         assert top_beam == expected_top_beam
 
 
 def test_get_results(beam_search_token_selection_strategy, exec_req_list):
+    beams = [BeamSearchBeam(exec_req) for exec_req in exec_req_list]
     # Offset the input_ids to differentiate between reqs
     offset = 1
-    for exec_req in exec_req_list[1:]:
-        exec_req.input_token_ids = [
-            token + offset for token in exec_req.input_token_ids
+    for beam in beams[1:]:
+        beam.exec_req.input_token_ids = [
+            token + offset for token in beam.exec_req.input_token_ids
         ]
         offset += 1
 
     # Add a couple tokens, so that `input_token_ids` > `prompt_length`
-    for exec_req in exec_req_list:
+    for beam in beams:
+        exec_req = beam.exec_req
         lower_range = exec_req.input_token_ids[-1] + 1
         upper_range = lower_range + 5
         for i in range(lower_range, upper_range):
             exec_req.input_token_ids.append(i)
 
-    num_beams = len(exec_req_list)
+    num_beams = len(beams)
     config = TokenSelectionStrategyConfig(
         decode_config=DecodeConfig(
             num_beams=num_beams,
@@ -278,41 +324,43 @@ def test_get_results(beam_search_token_selection_strategy, exec_req_list):
     beam_group = BeamGroup(
         eos_token_id=-1,
         num_beams=len(exec_req_list),
-        exec_reqs=[],
+        beams=[],
         selection_callback=lambda _: None,
     )
-    beam_group.completed_reqs = set(exec_req_list)
+    beam_group.completed_beams = beams
 
     beam_search_token_selection_strategy.get_results(beam_group)
-    assert sorted(results) == expected_results
+    assert results == expected_results
 
     # All active
     results = []
-    beam_group.completed_reqs = set()
-    beam_group.active_exec_reqs = exec_req_list
+    beam_group.completed_beams = []
+    beam_group.active_beams = beams
     beam_search_token_selection_strategy.get_results(beam_group)
-    assert sorted(results) == expected_results
+    assert results == expected_results
 
     # Mixed
     results = []
-    beam_group.completed_reqs = set(exec_req_list[:2])
-    beam_group.active_exec_reqs = exec_req_list[2:]
+    beam_group.completed_beams = beams[:2]
+    beam_group.active_beams = beams[2:]
     beam_search_token_selection_strategy.get_results(beam_group)
-    assert sorted(results) == expected_results
+    assert results == expected_results
 
 
 @pytest.mark.parametrize("exec_req_list", [10], indirect=True)
 def test_get_results_extra_reqs(beam_search_token_selection_strategy, exec_req_list):
+    beams = [BeamSearchBeam(exec_req) for exec_req in exec_req_list]
     # Offset the input_ids to differentiate between reqs
     offset = 1
-    for exec_req in exec_req_list[1:]:
-        exec_req.input_token_ids = [
-            token + offset for token in exec_req.input_token_ids
+    for beam in beams[1:]:
+        beam.exec_req.input_token_ids = [
+            token + offset for token in beam.exec_req.input_token_ids
         ]
         offset += 1
 
     # Add a couple tokens, so that `input_token_ids` > `prompt_length`
-    for exec_req in exec_req_list:
+    for beam in beams:
+        exec_req = beam.exec_req
         lower_range = exec_req.input_token_ids[-1] + 1
         upper_range = lower_range + 5
         for i in range(lower_range, upper_range):
@@ -354,29 +402,29 @@ def test_get_results_extra_reqs(beam_search_token_selection_strategy, exec_req_l
     beam_group = BeamGroup(
         eos_token_id=-1,
         num_beams=num_beams,
-        exec_reqs=[],
+        beams=[],
         selection_callback=lambda _: None,
     )
-    beam_group.completed_reqs = set(exec_req_list[:num_beams])
-    beam_group.active_exec_reqs = exec_req_list[num_beams:]
+    beam_group.completed_beams = beams[:num_beams]
+    beam_group.active_beams = beams[num_beams:]
 
     beam_search_token_selection_strategy.get_results(beam_group)
-    assert sorted(results) == expected_results
+    assert results == expected_results
 
     # Completed < `num_beams`
     results = []
-    beam_group.completed_reqs = set(exec_req_list[: num_beams // 2])
-    active_reqs = exec_req_list[num_beams // 2 :]
-    score = len(active_reqs)
-    for req in active_reqs:
-        req.score = score
+    beam_group.completed_reqs = beams[: num_beams // 2]
+    active_beams = beams[num_beams // 2 :]
+    score = len(active_beams)
+    for beam in active_beams:
+        beam.score = score
         score -= 1
 
-    beam_group.active_exec_reqs = exec_req_list[num_beams // 2 :]
+    beam_group.active_beams = beams[num_beams // 2 :]
 
     beam_search_token_selection_strategy.get_results(beam_group)
     assert len(results) == num_beams
-    assert sorted(results) == expected_results
+    assert results == expected_results
 
 
 @pytest.mark.asyncio

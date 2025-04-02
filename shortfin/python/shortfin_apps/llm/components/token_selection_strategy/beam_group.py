@@ -45,7 +45,7 @@ class Beam(ABC):
         pass
 
     @abstractmethod
-    def final_score(self, value: float):
+    def update_final_score(self, value: float):
         pass
 
 
