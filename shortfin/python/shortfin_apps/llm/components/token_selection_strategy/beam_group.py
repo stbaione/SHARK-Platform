@@ -56,7 +56,7 @@ class BeamGroup:
         num_beams: int,
         beams: List[Beam],
         selection_callback: Callable[
-            [List[Beam], Set[Beam]],
+            [List[Beam], List[Beam]],
             List[Beam],
         ],
     ):

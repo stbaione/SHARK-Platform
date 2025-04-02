@@ -86,7 +86,7 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
     def select_top_k(
         self,
         active_beams: List[BeamSearchBeam],
-        completed_beams: Set[BeamSearchBeam],
+        completed_beams: List[BeamSearchBeam],
     ) -> List[BeamSearchBeam]:
         """Handle the selection of the `top_k` beams within a decode step.
 
