@@ -93,7 +93,7 @@ def build_token_selector(
     return strategy_map[config.decode_config.token_selection_strategy](config)
 
 
-def is_multi_beam(token_selection_strategy: TokenSelectionStrategy):
+def is_multi_response(token_selection_strategy: TokenSelectionStrategy):
     match token_selection_strategy:
         case TokenSelectionStrategy.MULTI_GREEDY | TokenSelectionStrategy.BEAM_SEARCH:
             return True
@@ -113,5 +113,5 @@ __all__ = [
     "build_token_selector_config",
     "get_strategy_from_str",
     "is_ref_counted",
-    "is_multi_beam",
+    "is_multi_response",
 ]
