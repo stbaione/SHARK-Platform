@@ -41,11 +41,11 @@ class MultiGreedyBeam(Beam):
 class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
     def select_greedy(
         self,
-        active_exec_reqs: List[MultiGreedyBeam],
+        active_beams: List[MultiGreedyBeam],
         _: List[MultiGreedyBeam],
     ):
         selections = []
-        for beam in active_exec_reqs:
+        for beam in active_beams:
             token = beam.sample_logits()
             beam.last_token = token
             selections.append(
