@@ -12,6 +12,7 @@ from typing import List, Callable, Union
 from dataclasses_json import dataclass_json, Undefined
 
 from ..messages import LlmInferenceExecRequest
+from ..io_struct import DEFAULT_TEMPERATURE
 
 import shortfin.array as sfnp
 
@@ -56,7 +57,7 @@ class DecodeConfig:
     max_completion_tokens: int = 50
 
     # Flatten or stretch logits to increase variability
-    temperature: float = 1.0
+    temperature: float = DEFAULT_TEMPERATURE
 
     def __post_init__(self):
         if isinstance(self.token_selection_strategy, str):
