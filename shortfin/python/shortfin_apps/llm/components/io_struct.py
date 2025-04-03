@@ -15,8 +15,9 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Union
 import uuid
 
+# TODO: Should max, min, and default change based on the model being ran?
 MAX_TEMPERATURE = 2.0
-# Source: https://github.com/ggml-org/llama.cpp/blob/master/examples/main/README.md?utm_source=chatgpt.com#temperature
+# Source: https://github.com/ggml-org/llama.cpp/blob/master/examples/main/README.md?#temperature
 DEFAULT_TEMPERATURE = 0.8
 MIN_TEMPERATURE = 0.1
 
