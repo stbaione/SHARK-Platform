@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import Enum, auto
 from typing import List, Callable, Union
 
@@ -52,11 +52,23 @@ class DecodeConfig:
     # Strategy for selecting tokens during generation
     token_selection_strategy: str | TokenSelectionStrategy = "greedy"
 
+    # Max number of tokens to generate in decode loop
+    max_completion_tokens: int = 50
+
+    # Flatten or stretch logits to increase variability
+    temperature: float = 1.0
+
     def __post_init__(self):
         if isinstance(self.token_selection_strategy, str):
             self.token_selection_strategy = get_strategy_from_str(
                 self.token_selection_strategy
             )
+
+    def update_from_sampling_params(self, sampling_params):
+        for field in fields(self):
+            value = getattr(sampling_params, field.name, None)
+            if value is not None:
+                setattr(self, field.name, value)
 
 
 @dataclass
@@ -70,7 +82,6 @@ class TokenSelectionStrategyConfig:
     decode_end_callback: Callable[[], None]
     results_callback: Callable[[Union[int, List[int]]], None]
     eos_token_id: int
-    max_completion_tokens: int
 
 
 class BaseTokenSelectionStrategy(ABC):
