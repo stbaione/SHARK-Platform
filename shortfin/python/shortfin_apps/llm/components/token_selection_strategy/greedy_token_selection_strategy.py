@@ -38,13 +38,13 @@ class GreedyBeam(Beam):
         self.exec_req.start_position += 1
 
     def update_score(self, value):
-        raise NotImplementedError("MultiGreedyBeam does not track a score")
+        raise NotImplementedError("GreedyBeam does not track a score")
 
     def normalize_score(self, value):
-        raise NotImplementedError("MultiGreedyBeam does not track a score")
+        raise NotImplementedError("GreedyBeam does not track a score")
 
     def update_final_score(self):
-        raise NotImplementedError("MultiGreedyBeam does not track a score")
+        raise NotImplementedError("GreedyBeam does not track a score")
 
 
 class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
