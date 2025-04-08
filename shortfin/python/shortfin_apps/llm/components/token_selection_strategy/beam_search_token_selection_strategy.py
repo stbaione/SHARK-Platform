@@ -225,11 +225,6 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
         logger.info("Starting `beam_search` decode loop...")
         config = self.token_selection_strategy_config
 
-        beam = BeamSearchBeam(
-            exec_req=exec_req,
-            temperature=config.decode_config.temperature,
-            logits_normalization=config.decode_config.logits_normalization,
-        )
         beam_group = BeamGroup(
             config.eos_token_id,
             config.decode_config.num_beams,

@@ -21,10 +21,6 @@ import shortfin.array as sfnp
 
 from .config import LogitsNormalization
 from ..messages import LlmInferenceExecRequest
-from ..io_struct import DEFAULT_TEMPERATURE
-
-
-import shortfin.array as sfnp
 
 logger = logging.getLogger(__name__)
 
@@ -88,18 +84,6 @@ class Beam(ABC):
             converted_logits = conversion_function(logits)
 
         return converted_logits
-
-    def apply_temperature(self):
-        """Apply temperature to the logits of a decode invocation.
-
-        Args:
-            temperature (float): Value to use for `temperature`.
-        """
-        if self.temperature == 1.0:
-            return
-        self.exec_req.result_logits = sfnp.divide(
-            self.exec_req.result_logits, self.temperature
-        )
 
     @abstractmethod
     def sample_logits(self):
