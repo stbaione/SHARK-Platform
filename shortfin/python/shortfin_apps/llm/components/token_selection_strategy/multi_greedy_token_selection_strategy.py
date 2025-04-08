@@ -61,7 +61,10 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
             exec_req, config.decode_config.num_beams - 1
         )
 
-        beams = [GreedyBeam(exec_req) for exec_req in exec_reqs]
+        beams = [
+            GreedyBeam(exec_req, decode_config=config.decode_config)
+            for exec_req in exec_reqs
+        ]
         beam_group = BeamGroup(
             config.eos_token_id,
             config.decode_config.num_beams,

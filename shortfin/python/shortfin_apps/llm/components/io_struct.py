@@ -15,9 +15,12 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Union
 import uuid
 
+
+NOT_PROVIDED = "NOT_PROVIDED"
+
 # TODO: Should max, min, and default change based on the model being ran?
-MAX_TEMPERATURE = 2.0
 # Source: https://github.com/ggml-org/llama.cpp/blob/master/examples/main/README.md?#temperature
+MAX_TEMPERATURE = 2.0
 DEFAULT_TEMPERATURE = 0.8
 MIN_TEMPERATURE = 0.1
 
@@ -30,6 +33,8 @@ class SamplingParams:
     max_completion_tokens: int = 50
     # Temperature to use during generation
     temperature: float = DEFAULT_TEMPERATURE
+    # Use `top_k` sampling during token selection process
+    top_k: int | str = NOT_PROVIDED
 
     def __post_init__(self):
         # Ensure temperature is within acceptable range

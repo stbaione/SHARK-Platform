@@ -12,7 +12,7 @@ from typing import List, Callable, Union
 from dataclasses_json import dataclass_json, Undefined
 
 from ..messages import LlmInferenceExecRequest
-from ..io_struct import DEFAULT_TEMPERATURE
+from ..io_struct import DEFAULT_TEMPERATURE, NOT_PROVIDED
 
 import shortfin.array as sfnp
 
@@ -58,6 +58,9 @@ class DecodeConfig:
 
     # Flatten or stretch logits to increase variability
     temperature: float = DEFAULT_TEMPERATURE
+
+    # Use `top_k` sampling during token selection process
+    top_k: int | str = NOT_PROVIDED
 
     def __post_init__(self):
         if isinstance(self.token_selection_strategy, str):

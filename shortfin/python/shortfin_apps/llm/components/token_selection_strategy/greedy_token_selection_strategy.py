@@ -8,11 +8,12 @@ import logging
 
 import shortfin.array as sfnp
 
-from .beam_group import Beam
+from .beam_group import Beam, BeamGroup
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
     TokenSelectionStrategyConfig,
 )
+from ..io_struct import NOT_PROVIDED
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
 
@@ -20,6 +21,17 @@ logger = logging.getLogger(__name__)
 
 
 class GreedyBeam(Beam):
+    def _sample_logits_top_k(self):
+        exec_req = self.exec_req
+        top_k = self.decode_config.top_k
+        softmax_logits = sfnp.softmax(exec_req.result_logits)
+
+        # Sample one token from the `top_k` highest probability tokens
+        tokens, probs = self.sampler.select_top_k(softmax_logits, -top_k)
+        token, _ = self.sampler.sample_top_k(tokens, probs, k=1)[0]
+
+        return token
+
     def sample_logits(self) -> int:
         """Return the single highest scoring token of the logits.
 
@@ -28,6 +40,9 @@ class GreedyBeam(Beam):
         """
         self.apply_temperature()
         exec_req = self.exec_req
+        if self.decode_config.top_k != NOT_PROVIDED:
+            return self._sample_logits_top_k()
+
         token = sfnp.argmax(exec_req.result_logits)
         token_int = token.items[0]
         return token_int
@@ -70,7 +85,7 @@ class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
         logger.info("Starting `greedy` decode loop...")
         config = self.token_selection_strategy_config
         config.decode_begin_callback()
-        beam = GreedyBeam(exec_req)
+        beam = GreedyBeam(exec_req, decode_config=config.decode_config)
         for _ in range(config.decode_config.max_completion_tokens):
             exec_req = beam.exec_req
             exec_req.reset(InferencePhase.DECODE)
