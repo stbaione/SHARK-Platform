@@ -6,13 +6,12 @@
 
 from dataclasses import dataclass
 
-from abc import ABC, abstractmethod
 import random
 from typing import List
 
 import shortfin.array as sfnp
 
-from shortfin_apps.utils import convert_int_to_float, convert_float_to_int
+from shortfin_apps.utils import convert_int_to_float
 
 
 @dataclass

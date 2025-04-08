@@ -44,9 +44,10 @@ def greedy_token_selection_strategy():
 
 
 @pytest.fixture(scope="function")
-def greedy_beam(exec_req):
+def greedy_beam(exec_req, decode_config):
     yield GreedyBeam(
         exec_req,
+        decode_config=decode_config,
     )
 
 
@@ -81,7 +82,7 @@ def approximately_equal(a: Any, b: Any, rel_tol=1e-2, abs_tol=0.0) -> bool:
 
 
 def test_greedy_beam_sample_logits(device, greedy_beam):
-    greedy_beam.temperature = 1.0
+    greedy_beam.decode_config.temperature = 1.0
 
     src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
     data = [float(i) for i in range(math.prod(src.shape))]

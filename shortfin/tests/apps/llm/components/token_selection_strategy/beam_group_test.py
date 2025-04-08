@@ -60,6 +60,9 @@ def approximately_equal(a: Any, b: Any, rel_tol=1e-2, abs_tol=0.0) -> bool:
 
 
 class DummyBeam(Beam):
+    def _sample_logits_top_k(self):
+        pass
+
     def sample_logits(self):
         pass
 
@@ -76,7 +79,7 @@ class DummyBeam(Beam):
         pass
 
 
-def test_beam_apply_temperature(device, exec_req):
+def test_beam_apply_temperature(device, exec_req, decode_config):
     """Test that `apply_temperature` works correctly on the `result_logits`.
 
     Args:
@@ -89,9 +92,10 @@ def test_beam_apply_temperature(device, exec_req):
     exec_req.result_logits = src
 
     temperature = 1.0
+    decode_config.temperature = temperature
     beam = DummyBeam(
         exec_req,
-        temperature,
+        decode_config=decode_config,
     )
 
     with patch.object(sfnp, "divide") as temp_mock:
@@ -102,7 +106,7 @@ def test_beam_apply_temperature(device, exec_req):
         temp_mock.assert_not_called()
 
     temperature = 0.5
-    beam.temperature = temperature
+    beam.decode_config.temperature = temperature
     expected = value / temperature
     beam.apply_temperature()
     logits = beam.exec_req.result_logits.items.tolist()
@@ -110,7 +114,7 @@ def test_beam_apply_temperature(device, exec_req):
 
     temperature = 1.5
     beam.exec_req.result_logits.items = data
-    beam.temperature = temperature
+    beam.decode_config.temperature = temperature
     expected = value / temperature
     beam.apply_temperature()
     logits = beam.exec_req.result_logits.items.tolist()
@@ -118,12 +122,14 @@ def test_beam_apply_temperature(device, exec_req):
 
 
 @pytest.mark.asyncio
-async def test_wait(exec_req_list):
+async def test_wait(exec_req_list, decode_config):
     async def set_done(exec_reqs: List[LlmInferenceExecRequest]):
         for req in exec_reqs:
             req.done.set_success()
 
-    beams = [DummyBeam(exec_req) for exec_req in exec_req_list]
+    beams = [
+        DummyBeam(exec_req, decode_config=decode_config) for exec_req in exec_req_list
+    ]
     beam_groups = BeamGroup(
         eos_token_id=-1,
         num_beams=len(exec_req_list),
@@ -135,7 +141,7 @@ async def test_wait(exec_req_list):
         assert req.done._event.is_set()
 
 
-def test_process_beams_one_req(exec_req):
+def test_process_beams_one_req(exec_req, decode_config):
     def selection_callback(active_beams: List[DummyBeam], _: List[DummyBeam]):
         selections = []
         for beam in active_beams:
@@ -145,7 +151,7 @@ def test_process_beams_one_req(exec_req):
 
         return selections
 
-    beams = [DummyBeam(exec_req)]
+    beams = [DummyBeam(exec_req, decode_config=decode_config)]
     beam_groups = BeamGroup(
         eos_token_id=-1,
         num_beams=1,
@@ -167,7 +173,7 @@ def test_process_beams_one_req(exec_req):
         free_cache_mock.assert_called_once()
 
 
-def test_process_beams_multiple_reqs(exec_req_list):
+def test_process_beams_multiple_reqs(exec_req_list, decode_config):
     def selection_callback_no_completed(active_beams, _):
         selections = []
         for beam in active_beams:
@@ -196,7 +202,7 @@ def test_process_beams_multiple_reqs(exec_req_list):
         return selections
 
     req_list = exec_req_list.copy()
-    beams = [DummyBeam(req) for req in req_list]
+    beams = [DummyBeam(req, decode_config=decode_config) for req in req_list]
     beam_group = BeamGroup(
         eos_token_id=1,
         num_beams=len(req_list),
@@ -208,7 +214,7 @@ def test_process_beams_multiple_reqs(exec_req_list):
     assert len(beam_group.completed_beams) == 0
 
     req_list = exec_req_list.copy()
-    beams = [DummyBeam(req) for req in req_list]
+    beams = [DummyBeam(req, decode_config=decode_config) for req in req_list]
     beam_group = BeamGroup(
         eos_token_id=1,
         num_beams=len(req_list),
@@ -233,7 +239,7 @@ def test_process_beams_multiple_reqs(exec_req_list):
         assert free_cache_mock.call_count == 2
 
     req_list = exec_req_list.copy()
-    beams = [DummyBeam(req) for req in req_list]
+    beams = [DummyBeam(req, decode_config=decode_config) for req in req_list]
     beam_group = BeamGroup(
         eos_token_id=1,
         num_beams=len(req_list),
@@ -249,8 +255,8 @@ def test_process_beams_multiple_reqs(exec_req_list):
 
 
 @pytest.mark.asyncio
-async def test_clean_up(exec_req_list):
-    beams = [DummyBeam(req) for req in exec_req_list]
+async def test_clean_up(exec_req_list, decode_config):
+    beams = [DummyBeam(req, decode_config=decode_config) for req in exec_req_list]
     beam_group = BeamGroup(
         eos_token_id=-1,
         num_beams=len(exec_req_list),
