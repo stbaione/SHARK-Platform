@@ -67,7 +67,7 @@ class Beam(ABC):
                 LogitsNormalization.LOG_SOFTMAX: sfnp.log,
             },
             LogitsNormalization.LOG_SOFTMAX: {
-                LogitsNormalization.SOFTMAX: sfnp.log,
+                LogitsNormalization.SOFTMAX: sfnp.exp,
             },
         }
         target_conversions = logits_conversion_map.get(current)
