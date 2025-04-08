@@ -10,7 +10,6 @@ from typing import List, Callable, Union
 
 from .config import DecodeConfig, TokenSelectionStrategy
 from ..messages import LlmInferenceExecRequest
-from ..io_struct import DEFAULT_TEMPERATURE, NOT_PROVIDED
 
 import shortfin.array as sfnp
 

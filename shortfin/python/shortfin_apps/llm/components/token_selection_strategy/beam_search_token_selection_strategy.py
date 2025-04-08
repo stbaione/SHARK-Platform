@@ -42,7 +42,7 @@ class BeamSearchBeam(Beam):
     def _sample_logits_top_k(self, k: int):
         top_k = self.decode_config.top_k
         # Apply softmax to obtain prob distribution
-        current_logits_normalization = self.logits_normalization
+        current_logits_normalization = self.decode_config.logits_normalization
         softmax_logits = self.convert_logits_normalization(
             current_logits_normalization,
             LogitsNormalization.SOFTMAX,
@@ -101,7 +101,7 @@ class BeamSearchBeam(Beam):
             return self._sample_logits_top_k(k)
 
         log_softmax_logits = self.convert_logits_normalization(
-            self.logits_normalization,
+            self.decode_config.logits_normalization,
             LogitsNormalization.LOG_SOFTMAX,
             self.exec_req.result_logits,
         )
@@ -180,7 +180,6 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
                     accumulated_normalization=beam.accumulated_normalization,
                     last_token=token,
                     decode_config=config.decode_config,
-                    logits_normalization=config.decode_config.logits_normalization,
                 )
                 new_beam.update_score(value)
                 selections.append(new_beam)

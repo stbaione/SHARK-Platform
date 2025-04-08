@@ -38,7 +38,6 @@ class Beam(ABC):
     score: float = 0.0
     accumulated_normalization: float = 0.0
     last_token: int | None = None
-    logits_normalization: LogitsNormalization = LogitsNormalization.NONE
 
     def apply_temperature(self):
         """Apply temperature to the logits of a decode invocation.

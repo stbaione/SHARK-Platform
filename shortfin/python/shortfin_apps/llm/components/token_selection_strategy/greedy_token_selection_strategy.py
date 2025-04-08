@@ -24,7 +24,7 @@ class GreedyBeam(Beam):
     def _sample_logits_top_k(self):
         top_k = self.decode_config.top_k
         softmax_logits = self.convert_logits_normalization(
-            self.logits_normalization,
+            self.decode_config.logits_normalization,
             LogitsNormalization.SOFTMAX,
             self.exec_req.result_logits,
         )
@@ -44,6 +44,7 @@ class GreedyBeam(Beam):
         self.apply_temperature()
         exec_req = self.exec_req
         if self.decode_config.top_k != NOT_PROVIDED:
+            logger.info("Using `top_k` sampling...")
             return self._sample_logits_top_k()
 
         token = sfnp.argmax(exec_req.result_logits)
