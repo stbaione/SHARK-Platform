@@ -5,14 +5,12 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import logging
-from typing import List, Set
+from typing import List
 
-from .beam_group import BeamGroup, Beam
+from .beam_group import BeamGroup
 from .greedy_token_selection_strategy import GreedyTokenSelectionStrategy, GreedyBeam
 
 from ..messages import LlmInferenceExecRequest, InferencePhase
-
-import shortfin.array as sfnp
 
 logger = logging.getLogger(__name__)
 
