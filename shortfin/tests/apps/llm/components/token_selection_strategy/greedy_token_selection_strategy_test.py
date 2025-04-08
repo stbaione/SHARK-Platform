@@ -6,8 +6,9 @@
 
 import logging
 import math
-from typing import Any
 import pytest
+
+from typing import Any
 from unittest.mock import patch
 
 import shortfin.array as sfnp
