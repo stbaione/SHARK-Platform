@@ -8,7 +8,7 @@ import logging
 
 import shortfin.array as sfnp
 
-from .beam_group import Beam, BeamGroup
+from .beam_group import Beam, LogitsNormalization
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
     TokenSelectionStrategyConfig,
@@ -22,9 +22,12 @@ logger = logging.getLogger(__name__)
 
 class GreedyBeam(Beam):
     def _sample_logits_top_k(self):
-        exec_req = self.exec_req
         top_k = self.decode_config.top_k
-        softmax_logits = sfnp.softmax(exec_req.result_logits)
+        softmax_logits = self.convert_logits_normalization(
+            self.logits_normalization,
+            LogitsNormalization.SOFTMAX,
+            self.exec_req.result_logits,
+        )
 
         # Sample one token from the `top_k` highest probability tokens
         tokens, probs = self.sampler.select_top_k(softmax_logits, -top_k)
@@ -84,7 +87,7 @@ class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
         """
         logger.info("Starting `greedy` decode loop...")
         config = self.token_selection_strategy_config
-        config.decode_begin_callback()
+        config.decode_begin_callback(1)
         beam = GreedyBeam(exec_req, decode_config=config.decode_config)
         for _ in range(config.decode_config.max_completion_tokens):
             exec_req = beam.exec_req
@@ -97,4 +100,4 @@ class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
             if token_int == config.eos_token_id:
                 break
             beam.update_exec_req()
-        config.decode_end_callback()
+        config.decode_end_callback(1)

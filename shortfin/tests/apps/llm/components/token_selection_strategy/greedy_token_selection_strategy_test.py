@@ -49,7 +49,7 @@ def greedy_beam(exec_req):
     )
 
 
-def batcher_workitem_cb():
+def batcher_workitem_cb(_: int):
     pass
 
 

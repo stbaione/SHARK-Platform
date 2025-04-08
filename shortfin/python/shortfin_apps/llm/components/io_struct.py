@@ -24,13 +24,15 @@ MAX_TEMPERATURE = 2.0
 DEFAULT_TEMPERATURE = 0.8
 MIN_TEMPERATURE = 0.1
 
+DEFAULT_MAX_COMPLETION_TOKENS = 50
+
 
 @dataclass
 class SamplingParams:
     # Number of parallel samples
     n: int = 1
     # Max tokens to generate during decode loop
-    max_completion_tokens: int = 50
+    max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS
     # Temperature to use during generation
     temperature: float = DEFAULT_TEMPERATURE
     # Use `top_k` sampling during token selection process

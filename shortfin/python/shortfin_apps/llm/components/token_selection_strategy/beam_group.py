@@ -19,6 +19,9 @@ from ..messages import LlmInferenceExecRequest
 import shortfin.array as sfnp
 
 
+from .config import LogitsNormalization
+from ..messages import LlmInferenceExecRequest
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,6 +38,7 @@ class Beam(ABC):
     score: float = 0.0
     accumulated_normalization: float = 0.0
     last_token: int | None = None
+    logits_normalization: LogitsNormalization = LogitsNormalization.NONE
 
     def apply_temperature(self):
         """Apply temperature to the logits of a decode invocation.
@@ -47,6 +51,40 @@ class Beam(ABC):
         self.exec_req.result_logits = sfnp.divide(
             self.exec_req.result_logits, self.decode_config.temperature
         )
+
+    def convert_logits_normalization(
+        self,
+        current: LogitsNormalization,
+        target: LogitsNormalization,
+        logits: sfnp.device_array,
+        **kwargs,
+    ) -> sfnp.device_array:
+        logits_conversion_map = {
+            LogitsNormalization.NONE: {
+                LogitsNormalization.LOG_SOFTMAX: sfnp.log_softmax,
+                LogitsNormalization.SOFTMAX: sfnp.softmax,
+            },
+            LogitsNormalization.SOFTMAX: {
+                LogitsNormalization.LOG_SOFTMAX: sfnp.log,
+            },
+            LogitsNormalization.LOG_SOFTMAX: {
+                LogitsNormalization.SOFTMAX: sfnp.log,
+            },
+        }
+        target_conversions = logits_conversion_map.get(current)
+        if target_conversions is None:
+            raise KeyError(f"Cannot convert current normalization: {current}")
+
+        conversion_function = target_conversions.get(target)
+        if conversion_function is None:
+            raise KeyError(f"Cannot convert {current} to {target}")
+
+        if kwargs:
+            converted_logits = conversion_function(logits, **kwargs)
+        else:
+            converted_logits = conversion_function(logits)
+
+        return converted_logits
 
     @abstractmethod
     def sample_logits(self):
@@ -104,6 +142,10 @@ class BeamGroup:
         self.active_beams = beams
         self.selection_callback = selection_callback
         self.completed_beams: List[Beam] = []
+
+    @property
+    def active_beam_count(self):
+        return len(self.active_beams)
 
     async def wait(self):
         done_signals = [beam.exec_req.done for beam in self.active_beams]
