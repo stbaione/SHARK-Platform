@@ -69,8 +69,12 @@ class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
         """
         logger.info("Starting `greedy` decode loop...")
         config = self.token_selection_strategy_config
-        config.decode_begin_callback()
-        beam = GreedyBeam(exec_req)
+        config.decode_begin_callback(1)
+        beam = GreedyBeam(
+            exec_req=exec_req,
+            temperature=config.decode_config.temperature,
+            logits_normalization=config.decode_config.logits_normalization,
+        )
         for _ in range(config.decode_config.max_completion_tokens):
             exec_req = beam.exec_req
             exec_req.reset(InferencePhase.DECODE)
@@ -82,4 +86,4 @@ class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
             if token_int == config.eos_token_id:
                 break
             beam.update_exec_req()
-        config.decode_end_callback()
+        config.decode_end_callback(1)

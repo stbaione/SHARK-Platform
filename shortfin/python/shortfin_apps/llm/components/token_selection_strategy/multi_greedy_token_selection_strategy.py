@@ -61,7 +61,14 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
             exec_req, config.decode_config.num_beams - 1
         )
 
-        beams = [GreedyBeam(exec_req) for exec_req in exec_reqs]
+        beams = [
+            GreedyBeam(
+                exec_req=exec_req,
+                temperature=config.decode_config.temperature,
+                logits_normalization=config.decode_config.logits_normalization,
+            )
+            for exec_req in exec_reqs
+        ]
         beam_group = BeamGroup(
             config.eos_token_id,
             config.decode_config.num_beams,
@@ -69,15 +76,26 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
             self.select_greedy,
         )
 
+        reservations = beam_group.active_beam_count
+        config.decode_begin_callback(reservations)
         for _ in range(config.decode_config.max_completion_tokens):
             if not beam_group.active_beams:
                 break
+
+            active_beam_count = len(beam_group.active_beams)
+            if reservations > active_beam_count:
+                config.decode_end_callback(reservations - active_beam_count)
+                reservations = active_beam_count
+
             for beam in beam_group.active_beams:
                 req = beam.exec_req
                 req.reset(InferencePhase.DECODE)
                 config.decode_callback(req)
+
             await beam_group.wait()
             beam_group.process_beams()
+
+        config.decode_end_callback(reservations)
 
         results = [
             beam.exec_req.input_token_ids[exec_req.prompt_length :]

@@ -5,71 +5,13 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, fields
-from enum import Enum, auto
+from dataclasses import dataclass
 from typing import List, Callable, Union
 
-from dataclasses_json import dataclass_json, Undefined
-
+from .config import DecodeConfig, TokenSelectionStrategy
 from ..messages import LlmInferenceExecRequest
-from ..io_struct import DEFAULT_TEMPERATURE
 
 import shortfin.array as sfnp
-
-
-class TokenSelectionStrategy(Enum):
-    """Supported token selection strategies."""
-
-    GREEDY = auto()
-    MULTI_GREEDY = auto()
-    BEAM_SEARCH = auto()
-
-
-def get_strategy_from_str(token_selection_strategy: str) -> TokenSelectionStrategy:
-    name_to_strategy = {
-        strategy.name.lower(): strategy for strategy in TokenSelectionStrategy
-    }
-    strategy = token_selection_strategy.lower()
-    if strategy not in name_to_strategy:
-        raise KeyError(f"Unknown token_selection_strategy: {token_selection_strategy}")
-
-    return name_to_strategy[strategy]
-
-
-def is_ref_counted(token_selection_strategy: TokenSelectionStrategy) -> bool:
-    return token_selection_strategy in {
-        TokenSelectionStrategy.MULTI_GREEDY,
-        TokenSelectionStrategy.BEAM_SEARCH,
-    }
-
-
-@dataclass_json(undefined=Undefined.RAISE)
-@dataclass
-class DecodeConfig:
-
-    # Number of beams to use during generation
-    num_beams: int = 1
-
-    # Strategy for selecting tokens during generation
-    token_selection_strategy: str | TokenSelectionStrategy = "greedy"
-
-    # Max number of tokens to generate in decode loop
-    max_completion_tokens: int = 50
-
-    # Flatten or stretch logits to increase variability
-    temperature: float = DEFAULT_TEMPERATURE
-
-    def __post_init__(self):
-        if isinstance(self.token_selection_strategy, str):
-            self.token_selection_strategy = get_strategy_from_str(
-                self.token_selection_strategy
-            )
-
-    def update_from_sampling_params(self, sampling_params):
-        for field in fields(self):
-            value = getattr(sampling_params, field.name, None)
-            if value is not None:
-                setattr(self, field.name, value)
 
 
 @dataclass
@@ -79,8 +21,8 @@ class TokenSelectionStrategyConfig:
     decode_config: DecodeConfig
     prefill_callback: Callable[[LlmInferenceExecRequest], None]
     decode_callback: Callable[[LlmInferenceExecRequest], None]
-    decode_begin_callback: Callable[[], None]
-    decode_end_callback: Callable[[], None]
+    decode_begin_callback: Callable[[int], None]
+    decode_end_callback: Callable[[int], None]
     results_callback: Callable[[Union[int, List[int]]], None]
     eos_token_id: int
 
