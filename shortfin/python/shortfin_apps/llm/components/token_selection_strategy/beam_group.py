@@ -54,6 +54,11 @@ class Beam(ABC):
         pass
 
     @abstractmethod
+    def _sample_logits_top_k(self):
+        """Define how to sample and select tokens with the use of `top_k` sampling"""
+        pass
+
+    @abstractmethod
     def update_score(self, value: float):
         """Update the score of a `beam`.
 
