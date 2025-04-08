@@ -14,6 +14,9 @@ from shortfin_apps.llm.components.token_selection_strategy.beam_group import (
     BeamGroup,
     Beam,
 )
+from shortfin_apps.llm.components.token_selection_strategy.config import (
+    LogitsNormalization,
+)
 
 
 import shortfin.array as sfnp
@@ -119,6 +122,96 @@ def test_beam_apply_temperature(device, exec_req, decode_config):
     beam.apply_temperature()
     logits = beam.exec_req.result_logits.items.tolist()
     assert all(approximately_equal(expected, logit) for logit in logits)
+
+
+def test_convert_logits_normalization_none(device, exec_req, decode_config):
+    src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
+    data = [float(i) for i in range(math.prod(src.shape))]
+    src.items = data
+    exec_req.result_logits = src
+
+    temperature = 1.0
+    decode_config.temperature = temperature
+    decode_config.logits_normalization = LogitsNormalization.NONE
+    beam = DummyBeam(
+        exec_req,
+        decode_config=decode_config,
+    )
+
+    # Softmax conversion
+    softmax_logits = sfnp.softmax(src)
+    expected = softmax_logits.items.tolist()
+    results = beam.convert_logits_normalization(
+        decode_config.logits_normalization,
+        LogitsNormalization.SOFTMAX,
+        src,
+    ).items.tolist()
+
+    assert approximately_equal(expected, results)
+
+    # LogSoftmax conversion
+    log_softmax_logits = sfnp.log_softmax(src)
+    expected = log_softmax_logits.items.tolist()
+    results = beam.convert_logits_normalization(
+        decode_config.logits_normalization,
+        LogitsNormalization.LOG_SOFTMAX,
+        src,
+    ).items.tolist()
+    assert approximately_equal(expected, results)
+
+
+def test_convert_logits_normalization_softmax(device, exec_req, decode_config):
+    logits = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
+    data = [float(i) for i in range(math.prod(logits.shape))]
+    logits.items = data
+    softmax_logits = sfnp.softmax(logits)
+    exec_req.result_logits = softmax_logits
+
+    temperature = 1.0
+    decode_config.temperature = temperature
+    decode_config.logits_normalization = LogitsNormalization.SOFTMAX
+    beam = DummyBeam(
+        exec_req,
+        decode_config=decode_config,
+    )
+
+    # LogSoftmax conversion
+    log_softmax_logits = sfnp.log_softmax(logits)
+    expected = log_softmax_logits.items.tolist()
+    results = beam.convert_logits_normalization(
+        decode_config.logits_normalization,
+        LogitsNormalization.LOG_SOFTMAX,
+        softmax_logits,
+    ).items.tolist()
+
+    assert approximately_equal(expected, results)
+
+
+def test_convert_logits_normalization_log_softmax(device, exec_req, decode_config):
+    logits = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
+    data = [float(i) for i in range(math.prod(logits.shape))]
+    logits.items = data
+    log_softmax_logits = sfnp.log_softmax(logits)
+    exec_req.result_logits = log_softmax_logits
+
+    temperature = 1.0
+    decode_config.temperature = temperature
+    decode_config.logits_normalization = LogitsNormalization.LOG_SOFTMAX
+    beam = DummyBeam(
+        exec_req,
+        decode_config=decode_config,
+    )
+
+    # Softmax conversions
+    softmax_logits = sfnp.softmax(logits)
+    expected = softmax_logits.items.tolist()
+    result = beam.convert_logits_normalization(
+        decode_config.logits_normalization,
+        LogitsNormalization.SOFTMAX,
+        log_softmax_logits,
+    ).items.tolist()
+
+    assert approximately_equal(expected, result)
 
 
 @pytest.mark.asyncio
