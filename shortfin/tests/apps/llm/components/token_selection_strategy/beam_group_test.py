@@ -1,8 +1,6 @@
 import asyncio
-import logging
 import math
 import pytest
-import random
 from typing import Any, List
 from unittest.mock import patch
 
@@ -138,6 +136,16 @@ def test_convert_logits_normalization_none(device, exec_req, decode_config):
         decode_config=decode_config,
     )
 
+    # No conversion
+    expected = src.items.tolist()
+    results = beam.convert_logits_normalization(
+        decode_config.logits_normalization,
+        LogitsNormalization.NONE,
+        src,
+    ).items.tolist()
+
+    assert approximately_equal(expected, results)
+
     # Softmax conversion
     softmax_logits = sfnp.softmax(src)
     expected = softmax_logits.items.tolist()
@@ -175,6 +183,16 @@ def test_convert_logits_normalization_softmax(device, exec_req, decode_config):
         decode_config=decode_config,
     )
 
+    # No conversion
+    expected = softmax_logits.items.tolist()
+    results = beam.convert_logits_normalization(
+        decode_config.logits_normalization,
+        LogitsNormalization.SOFTMAX,
+        softmax_logits,
+    ).items.tolist()
+
+    assert approximately_equal(expected, results)
+
     # LogSoftmax conversion
     log_softmax_logits = sfnp.log_softmax(logits)
     expected = log_softmax_logits.items.tolist()
@@ -201,6 +219,16 @@ def test_convert_logits_normalization_log_softmax(device, exec_req, decode_confi
         exec_req,
         decode_config=decode_config,
     )
+
+    # No conversion
+    expected = log_softmax_logits.items.tolist()
+    results = beam.convert_logits_normalization(
+        decode_config.logits_normalization,
+        LogitsNormalization.LOG_SOFTMAX,
+        log_softmax_logits,
+    ).items.tolist()
+
+    assert approximately_equal(expected, results)
 
     # Softmax conversions
     softmax_logits = sfnp.softmax(logits)

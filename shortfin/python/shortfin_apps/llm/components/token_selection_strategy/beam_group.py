@@ -70,6 +70,9 @@ class Beam(ABC):
                 LogitsNormalization.SOFTMAX: sfnp.exp,
             },
         }
+        if current == target:
+            return logits
+
         target_conversions = logits_conversion_map.get(current)
         if target_conversions is None:
             raise KeyError(f"Cannot convert current normalization: {current}")
