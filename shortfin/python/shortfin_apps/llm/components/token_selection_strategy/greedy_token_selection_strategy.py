@@ -44,7 +44,6 @@ class GreedyBeam(Beam):
         self.apply_temperature()
         exec_req = self.exec_req
         if self.decode_config.top_k != NOT_PROVIDED:
-            logger.info("Using `top_k` sampling...")
             return self._sample_logits_top_k()
 
         token = sfnp.argmax(exec_req.result_logits)
@@ -88,6 +87,12 @@ class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
         """
         logger.info("Starting `greedy` decode loop...")
         config = self.token_selection_strategy_config
+
+        if config.decode_config.top_k != NOT_PROVIDED:
+            logger.info(
+                f"Using `top_k` sampling with `top_k == {config.decode_config.top_k}"
+            )
+
         config.decode_begin_callback(1)
         beam = GreedyBeam(exec_req, decode_config=config.decode_config)
         for _ in range(config.decode_config.max_completion_tokens):

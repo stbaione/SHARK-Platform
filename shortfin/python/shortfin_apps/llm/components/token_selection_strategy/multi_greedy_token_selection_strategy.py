@@ -5,11 +5,13 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import logging
+
 from typing import List
 
 from .beam_group import BeamGroup
 from .greedy_token_selection_strategy import GreedyTokenSelectionStrategy, GreedyBeam
 
+from ..io_struct import NOT_PROVIDED
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,11 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
         """
         logger.info("Starting `multi_greedy` decode loop...")
         config = self.token_selection_strategy_config
+
+        if config.decode_config.top_k != NOT_PROVIDED:
+            logger.info(
+                f"Using `top_k` sampling with `top_k == {config.decode_config.top_k}"
+            )
 
         exec_req.reset(InferencePhase.DECODE)
 
