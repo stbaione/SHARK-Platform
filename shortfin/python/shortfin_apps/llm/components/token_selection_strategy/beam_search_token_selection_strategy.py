@@ -39,7 +39,7 @@ class BeamSearchBeam(Beam):
 
         return values_sf
 
-    def _sample_logits_top_k(self, k: int):
+    def _sample_logits_top_k(self):
         top_k = self.decode_config.top_k
         # Apply softmax to obtain prob distribution
         current_logits_normalization = self.decode_config.logits_normalization
@@ -98,7 +98,7 @@ class BeamSearchBeam(Beam):
         """
         self.apply_temperature()
         if self.decode_config.top_k != NOT_PROVIDED:
-            return self._sample_logits_top_k(k)
+            return self._sample_logits_top_k()
 
         log_softmax_logits = self.convert_logits_normalization(
             self.decode_config.logits_normalization,

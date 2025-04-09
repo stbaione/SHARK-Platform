@@ -10,7 +10,7 @@ import pytest
 import random
 import struct
 
-from typing import List
+from typing import Any, List
 from unittest.mock import patch
 
 import shortfin as sf
@@ -36,6 +36,9 @@ from shortfin_apps.llm.components.token_selection_strategy.beam_search_token_sel
 )
 from shortfin_apps.llm.components.token_selection_strategy.beam_group import (
     BeamGroup,
+)
+from shortfin_apps.llm.components.token_selection_strategy.config import (
+    LogitsNormalization,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,9 +84,107 @@ def _batcher_workitem_callback(_: int):
     pass
 
 
+def approximately_equal(a: Any, b: Any, rel_tol=1e-2, abs_tol=0.0) -> bool:
+    """
+    Recursively checks if two nested lists (or scalar values) are approximately equal.
+
+    Args:
+        a: First list or scalar.
+        b: Second list or scalar.
+        rel_tol: Relative tolerance.
+        abs_tol: Absolute tolerance.
+
+    Returns:
+        True if all corresponding elements are approximately equal.
+    """
+    # If both are lists, iterate element-wise
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            return False
+        return all(
+            approximately_equal(sub_a, sub_b, rel_tol, abs_tol)
+            for sub_a, sub_b in zip(a, b)
+        )
+
+    # Otherwise, assume they are scalars and compare
+    return math.isclose(a, b, rel_tol=rel_tol, abs_tol=abs_tol)
+
+
 def float_to_float16_int(value: float):
     packed_val = struct.pack("<e", value)
     return struct.unpack("<H", packed_val)[0]
+
+
+def test_beam_search_beam__convert_to_device_array(device, beam_search_beam):
+    src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
+    data = [float(i) for i in range(math.prod(src.shape))]
+    src.items = data
+    beam_search_beam.exec_req.result_logits = src
+
+    values = [float(random.randint(0, 10)) for _ in range(10)]
+
+    # 1-D
+    device_array = beam_search_beam._convert_to_device_array(values, [len(values)])
+    assert device_array.device == device
+    assert device_array.shape == [len(values)]
+    assert device_array.items.tolist() == values
+
+    # 2-D
+    device_array = beam_search_beam._convert_to_device_array(
+        values, [2, len(values) // 2]
+    )
+    assert device_array.device == device
+    assert device_array.shape == [2, len(values) // 2]
+    assert device_array.items.tolist() == values
+
+
+def test_beam_search_beam__sample_logits_top_k(device, beam_search_beam):
+    src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
+    data = [-10.0 for i in range(math.prod(src.shape))]
+    random_hot_tokens = random.sample(range(0, 16), 3)
+    for i in random_hot_tokens:
+        data[i] = 1.0
+    src.items = data
+
+    # Raw Logits
+    beam_search_beam.exec_req.result_logits = src
+    beam_search_beam.decode_config.top_k = len(random_hot_tokens)
+    top_tokens, top_values = beam_search_beam._sample_logits_top_k()
+
+    assert len(top_tokens) == 3
+    assert len(top_values) == 3
+
+    for token in top_tokens:
+        assert token in random_hot_tokens
+    assert approximately_equal(top_values, [math.log(0.33)] * 3)
+
+    # Softmax Logits
+    softmax_logits = sfnp.softmax(src)
+    beam_search_beam.decode_config.logits_normalization = LogitsNormalization.SOFTMAX
+    beam_search_beam.exec_req.result_logits = softmax_logits
+    top_tokens, top_values = beam_search_beam._sample_logits_top_k()
+
+    assert len(top_tokens) == 3
+    assert len(top_values) == 3
+
+    for token in top_tokens:
+        assert token in random_hot_tokens
+    assert approximately_equal(top_values, [math.log(0.33)] * 3)
+
+    # LogSoftmax Logits
+    log_softmax_logits = sfnp.log_softmax(src)
+    beam_search_beam.decode_config.logits_normalization = (
+        LogitsNormalization.LOG_SOFTMAX
+    )
+    beam_search_beam.exec_req.result_logits = log_softmax_logits
+    top_tokens, top_values = beam_search_beam._sample_logits_top_k()
+
+    assert len(top_tokens) == 3
+    assert len(top_values) == 3
+
+    for token in top_tokens:
+        assert token in random_hot_tokens
+    assert approximately_equal(top_values, [math.log(0.33)] * 3)
 
 
 def test_beam_search_beam_sample_logits(device, beam_search_beam):
@@ -97,6 +198,12 @@ def test_beam_search_beam_sample_logits(device, beam_search_beam):
     assert len(top_values) == 3
 
     assert top_tokens == [13, 14, 15]
+
+    # `top_k` is provided
+    beam_search_beam.decode_config.top_k = 42
+    with patch.object(beam_search_beam, "_sample_logits_top_k") as sample_mock:
+        beam_search_beam.sample_logits(3)
+        sample_mock.assert_called_once()
 
 
 def test_beam_search_beam_update_score(beam_search_beam):
