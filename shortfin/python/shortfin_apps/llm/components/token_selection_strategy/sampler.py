@@ -19,7 +19,24 @@ class Sampler:
     def sample_top_k(self, tokens: List[int], probs: List[float], k: int):
         choices: List[int] = random.choices(tokens, weights=probs, k=k)
         token_prob_map = dict(zip(tokens, probs))
-        return [(token, token_prob_map[token]) for token in choices]
+        return choices, [token_prob_map[token] for token in choices]
+
+    def sample_top_p(self, tokens: List[int], probs: List[float], p: float, k: int):
+        token_prob_map = dict(zip(tokens, probs))
+        sorted_probs = sorted(token_prob_map.items(), key=lambda x: x[1], reverse=True)
+
+        cumulative_prob = 0.0
+        selected_tokens = []
+        selected_probs = []
+        for token, prob in sorted_probs:
+            cumulative_prob += prob
+            selected_tokens.append(token)
+            selected_probs.append(prob)
+            if cumulative_prob > p:
+                break
+
+        choices: List[int] = random.choices(tokens, weights=probs, k=k)
+        return choices, [token_prob_map[token] for token in choices]
 
     def select_top_k(self, logits: sfnp.device_array, k: int):
         """
@@ -44,3 +61,16 @@ class Sampler:
             top_values.append(value)
 
         return top_tokens, top_values
+
+    def select_greedy(self, logits: sfnp.device_array) -> int:
+        """Greedily select a single token using `argmax`.
+
+        Args:
+            logits (sfnp.device_array): Logits from decode.
+
+        Returns:
+            int: Max token.
+        """
+        token = sfnp.argmax(logits)
+        token_int = token.items[0]
+        return token_int

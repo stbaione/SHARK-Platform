@@ -46,6 +46,9 @@ MIN_TEMPERATURE = 0.1
 
 DEFAULT_MAX_COMPLETION_TOKENS = 50
 
+MAX_TOP_P = 0.99
+MIN_TOP_P = 0.01
+
 
 @dataclass
 class SamplingParams:
@@ -57,10 +60,14 @@ class SamplingParams:
     temperature: float = DEFAULT_TEMPERATURE
     # Use `top_k` sampling during token selection process
     top_k: int | str = NOT_PROVIDED
+    # Use `top_p` sampling during token selection process
+    top_p: float | str = NOT_PROVIDED
 
     def __post_init__(self):
         # Ensure temperature is within acceptable range
         self.temperature = min(MAX_TEMPERATURE, max(self.temperature, MIN_TEMPERATURE))
+        if self.top_p != NOT_PROVIDED:
+            self.top_p = min(MAX_TOP_P, max(self.top_p, MIN_TOP_P))
 
 
 # Adapted from:

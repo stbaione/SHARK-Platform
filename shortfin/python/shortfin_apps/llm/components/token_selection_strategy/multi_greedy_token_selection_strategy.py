@@ -59,6 +59,11 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
                 f"Using `top_k` sampling with `top_k == {config.decode_config.top_k}"
             )
 
+        if config.decode_config.top_p != NOT_PROVIDED:
+            logger.info(
+                f"Using `top_p` sampling with `top_p == {config.decode_config.top_p}"
+            )
+
         exec_req.reset(InferencePhase.DECODE)
 
         # Copy `exec_req` to `num_beams` total requests

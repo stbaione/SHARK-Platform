@@ -16,24 +16,25 @@ from .base_token_selection_strategy import (
 from ..io_struct import NOT_PROVIDED
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
-
 logger = logging.getLogger(__name__)
 
 
 class GreedyBeam(Beam):
-    def _sample_logits_top_k(self):
-        top_k = self.decode_config.top_k
-        softmax_logits = self.convert_logits_normalization(
-            self.decode_config.logits_normalization,
-            LogitsNormalization.SOFTMAX,
-            self.exec_req.result_logits,
+    def _sample_logits_top_k(
+        self, softmax_logits: sfnp.device_array, top_k, num_selections
+    ):
+        return self.sampler.sample_top_k(
+            *self.sampler.select_top_k(softmax_logits, -top_k),
+            k=num_selections,
         )
 
-        # Sample one token from the `top_k` highest probability tokens
-        tokens, probs = self.sampler.select_top_k(softmax_logits, -top_k)
-        token, _ = self.sampler.sample_top_k(tokens, probs, k=1)[0]
-
-        return token
+    def _sample_logits_top_p(self, tokens, probs, top_p, num_selections):
+        return self.sampler.sample_top_p(
+            tokens,
+            probs,
+            top_p,
+            num_selections,
+        )
 
     def sample_logits(self) -> int:
         """Return the single highest scoring token of the logits.
@@ -43,12 +44,36 @@ class GreedyBeam(Beam):
         """
         self.apply_temperature()
         exec_req = self.exec_req
-        if self.decode_config.top_k != NOT_PROVIDED:
-            return self._sample_logits_top_k()
+        decode_config = self.decode_config
+        top_k = decode_config.top_k
+        top_p = decode_config.top_p
 
-        token = sfnp.argmax(exec_req.result_logits)
-        token_int = token.items[0]
-        return token_int
+        # Normal greedy selection based on max value
+        if (top_k, top_p) == (NOT_PROVIDED, NOT_PROVIDED):
+            return self.sampler.select_greedy(exec_req.result_logits)
+
+        # Convert to softmax to obtain probabilities
+        softmax_logits = self.convert_logits_normalization(
+            decode_config.logits_normalization,
+            LogitsNormalization.SOFTMAX,
+            exec_req.result_logits,
+        )
+
+        tokens, probs = softmax_logits, None
+        if top_k != NOT_PROVIDED:
+            num_selections = 1 if top_p == NOT_PROVIDED else top_k
+            tokens, probs = self._sample_logits_top_k(
+                softmax_logits,
+                top_k,
+                num_selections,
+            )
+
+        if top_p != NOT_PROVIDED:
+            if top_k == NOT_PROVIDED:
+                tokens, probs = self.sampler.select_top_k(tokens, -32)
+            tokens, _ = self._sample_logits_top_p(tokens, probs, top_p, 1)
+
+        return tokens[0]
 
     def update_exec_req(self):
         """Update the `LlmInferenceExecRequest` with the selected token."""
@@ -85,13 +110,8 @@ class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
         Args:
             exec_req (LlmInferenceExecRequest): Execution request that has had prefill invoked on it.
         """
-        logger.info("Starting `greedy` decode loop...")
+        self._log_sampling_method()
         config = self.token_selection_strategy_config
-
-        if config.decode_config.top_k != NOT_PROVIDED:
-            logger.info(
-                f"Using `top_k` sampling with `top_k == {config.decode_config.top_k}"
-            )
 
         config.decode_begin_callback(1)
         beam = GreedyBeam(exec_req, decode_config=config.decode_config)

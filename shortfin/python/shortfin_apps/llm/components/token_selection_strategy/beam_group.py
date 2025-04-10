@@ -12,14 +12,11 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Set
 from uuid import uuid4
 
-from .base_token_selection_strategy import DecodeConfig
-from .sampler import Sampler
-from ..messages import LlmInferenceExecRequest
-
 import shortfin.array as sfnp
 
-
+from .base_token_selection_strategy import DecodeConfig
 from .config import LogitsNormalization
+from .sampler import Sampler
 from ..messages import LlmInferenceExecRequest
 
 logger = logging.getLogger(__name__)
@@ -96,6 +93,11 @@ class Beam(ABC):
     @abstractmethod
     def _sample_logits_top_k(self):
         """Define how to sample and select tokens with the use of `top_k` sampling"""
+        pass
+
+    @abstractmethod
+    def _sample_logits_top_p(self):
+        """Define how to sample and select tokens with the use of `top_p` sampling"""
         pass
 
     @abstractmethod
