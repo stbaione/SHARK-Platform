@@ -13,7 +13,6 @@ from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
     TokenSelectionStrategyConfig,
 )
-from ..io_struct import NOT_PROVIDED
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
 
@@ -43,7 +42,7 @@ class GreedyBeam(Beam):
         """
         self.apply_temperature()
         exec_req = self.exec_req
-        if self.decode_config.top_k != NOT_PROVIDED:
+        if self.decode_config.top_k is not None:
             return self._sample_logits_top_k()
 
         token = sfnp.argmax(exec_req.result_logits)
@@ -88,7 +87,7 @@ class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
         logger.info("Starting `greedy` decode loop...")
         config = self.token_selection_strategy_config
 
-        if config.decode_config.top_k != NOT_PROVIDED:
+        if config.decode_config.top_k is not None:
             logger.info(
                 f"Using `top_k` sampling with `top_k == {config.decode_config.top_k}"
             )

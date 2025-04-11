@@ -8,7 +8,7 @@ from dataclasses import dataclass, fields
 from dataclasses_json import dataclass_json, Undefined
 from enum import Enum, auto
 
-from ..io_struct import DEFAULT_MAX_COMPLETION_TOKENS, DEFAULT_TEMPERATURE, NOT_PROVIDED
+from ..io_struct import DEFAULT_MAX_COMPLETION_TOKENS, DEFAULT_TEMPERATURE
 
 
 class LogitsNormalization(Enum):
@@ -81,7 +81,7 @@ class DecodeConfig:
     temperature: float = DEFAULT_TEMPERATURE
 
     # Use `top_k` sampling strategy in decode loop
-    top_k: int | str = NOT_PROVIDED
+    top_k: int | None = None
 
     def __post_init__(self):
         if isinstance(self.token_selection_strategy, str):
@@ -90,7 +90,6 @@ class DecodeConfig:
             )
 
     def update_from_sampling_params(self, sampling_params):
-        for field in fields(self):
-            value = getattr(sampling_params, field.name, None)
-            if value is not None:
-                setattr(self, field.name, value)
+        for field in fields(sampling_params):
+            if hasattr(self, field.name):
+                setattr(self, field.name, getattr(sampling_params, field.name))

@@ -12,31 +12,8 @@ sglang: Copyright 2023-2024 SGLang Team, Licensed under the Apache License, Vers
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Union
+from typing import List, Optional, Union
 import uuid
-
-# TODO: Should max, min, and default change based on the model being ran?
-MAX_TEMPERATURE = 2.0
-# Source: https://github.com/ggml-org/llama.cpp/blob/master/examples/main/README.md?#temperature
-DEFAULT_TEMPERATURE = 0.8
-MIN_TEMPERATURE = 0.1
-
-
-@dataclass
-class SamplingParams:
-    # Number of parallel samples
-    n: int = 1
-    # Max tokens to generate during decode loop
-    max_completion_tokens: int = 50
-    # Temperature to use during generation
-    temperature: float = DEFAULT_TEMPERATURE
-
-    def __post_init__(self):
-        # Ensure temperature is within acceptable range
-        self.temperature = min(MAX_TEMPERATURE, max(self.temperature, MIN_TEMPERATURE))
-
-
-NOT_PROVIDED = "NOT_PROVIDED"
 
 # TODO: Should max, min, and default change based on the model being ran?
 # Source: https://github.com/ggml-org/llama.cpp/blob/master/examples/main/README.md?#temperature
@@ -56,7 +33,7 @@ class SamplingParams:
     # Temperature to use during generation
     temperature: float = DEFAULT_TEMPERATURE
     # Use `top_k` sampling during token selection process
-    top_k: int | str = NOT_PROVIDED
+    top_k: int | None = None
 
     def __post_init__(self):
         # Ensure temperature is within acceptable range

@@ -13,7 +13,6 @@ from .base_token_selection_strategy import (
     TokenSelectionStrategyConfig,
 )
 from .beam_group import BeamGroup, Beam
-from ..io_struct import NOT_PROVIDED
 from .config import LogitsNormalization
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
@@ -97,7 +96,7 @@ class BeamSearchBeam(Beam):
             Tuple[List[int], List[float]]: Tuple containing (top_tokens, top_values)
         """
         self.apply_temperature()
-        if self.decode_config.top_k != NOT_PROVIDED:
+        if self.decode_config.top_k is not None:
             return self._sample_logits_top_k()
 
         log_softmax_logits = self.convert_logits_normalization(
@@ -243,7 +242,7 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
         logger.info("Starting `beam_search` decode loop...")
         config = self.token_selection_strategy_config
 
-        if config.decode_config.top_k != NOT_PROVIDED:
+        if config.decode_config.top_k is not None:
             logger.info(
                 f"Using `top_k` sampling with `top_k == {config.decode_config.top_k}"
             )
