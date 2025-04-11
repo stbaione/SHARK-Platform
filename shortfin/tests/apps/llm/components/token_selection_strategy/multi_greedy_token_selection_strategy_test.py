@@ -16,6 +16,9 @@ import shortfin.array as sfnp
 from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     BasePagedAttentionCacheAllocation,
 )
+from shortfin_apps.llm.components.token_selection_strategy.beam_group import (
+    BeamGroup,
+)
 from shortfin_apps.llm.components.messages import (
     LlmInferenceExecRequest,
 )
@@ -138,14 +141,19 @@ async def test_multi_greedy_decode_single(
         with patch.object(
             exec_req._cache, "fork_pages", return_value=allocation
         ) as fork_pages_mock:
-            await multi_greedy_token_selection_strategy.decode(exec_req)
-            logger.info(f"results_array: {results_array}")
-            assert len(results_array) == 2
-            for result in results_array:
-                assert len(result) == 1
-                assert result[0] == 15
+            with patch.object(
+                BeamGroup,
+                "clean_up",
+            ) as mock_clean_up:
+                await multi_greedy_token_selection_strategy.decode(exec_req)
+                logger.info(f"results_array: {results_array}")
+                assert len(results_array) == 2
+                for result in results_array:
+                    assert len(result) == 1
+                    assert result[0] == 15
 
-            fork_pages_mock.assert_called_once()
+                fork_pages_mock.assert_called_once()
+                mock_clean_up.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -213,13 +221,18 @@ async def test_multi_greedy_decode_multiple_completions(
         with patch.object(
             exec_req._cache, "fork_pages", return_value=allocation
         ) as fork_pages_mock:
-            await multi_greedy_token_selection_strategy.decode(exec_req)
-            assert len(results_array) == 2
-            for result in results_array:
-                assert len(result) == 5
-                assert result == [0, 1, 2, 3, 4]
+            with patch.object(
+                BeamGroup,
+                "clean_up",
+            ) as mock_clean_up:
+                await multi_greedy_token_selection_strategy.decode(exec_req)
+                assert len(results_array) == 2
+                for result in results_array:
+                    assert len(result) == 5
+                    assert result == [0, 1, 2, 3, 4]
 
-            fork_pages_mock.assert_called_once()
+                fork_pages_mock.assert_called_once()
+                mock_clean_up.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -287,11 +300,16 @@ async def test_multi_greedy_decode_eos_token(
         with patch.object(
             exec_req._cache, "fork_pages", return_value=allocation
         ) as fork_pages_mock:
-            await multi_greedy_token_selection_strategy.decode(exec_req)
-            logger.info(f"results_array: {results_array}")
-            assert len(results_array) == 2
-            for result in results_array:
-                assert len(result) == 5
-                assert result == [0, 1, 2, 3, 4]
+            with patch.object(
+                BeamGroup,
+                "clean_up",
+            ) as mock_clean_up:
+                await multi_greedy_token_selection_strategy.decode(exec_req)
+                logger.info(f"results_array: {results_array}")
+                assert len(results_array) == 2
+                for result in results_array:
+                    assert len(result) == 5
+                    assert result == [0, 1, 2, 3, 4]
 
-            fork_pages_mock.assert_called_once()
+                fork_pages_mock.assert_called_once()
+                mock_clean_up.assert_called_once()
