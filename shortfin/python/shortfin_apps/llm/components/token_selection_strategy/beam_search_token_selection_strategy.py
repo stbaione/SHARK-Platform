@@ -6,7 +6,7 @@
 
 import logging
 
-from typing import Any, List
+from typing import List
 
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
@@ -57,25 +57,6 @@ class BeamSearchBeam(Beam):
 
         return log_probs
 
-    def _sample_logits_top_k(self, softmax_logits: sfnp.device_array, top_k: int):
-        return self.sampler.sample_top_k(
-            *self.sampler.select_top_k(softmax_logits, -top_k), k=top_k
-        )
-
-    def _sample_logits_top_p(
-        self,
-        tokens,
-        probs,
-        top_p,
-        num_selections,
-    ):
-        return self.sampler.sample_top_p(
-            tokens=tokens,
-            probs=probs,
-            p=top_p,
-            k=num_selections,
-        )
-
     def sample_logits(self, k: int):
         """Apply `log_softmax` and take the `top_k` token and values of the logits.
 
@@ -116,6 +97,7 @@ class BeamSearchBeam(Beam):
             tokens, probs = self._sample_logits_top_k(
                 softmax_logits,
                 top_k,
+                num_selections=top_k,
             )
 
         if top_p != NOT_PROVIDED:

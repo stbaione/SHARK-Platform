@@ -20,22 +20,6 @@ logger = logging.getLogger(__name__)
 
 
 class GreedyBeam(Beam):
-    def _sample_logits_top_k(
-        self, softmax_logits: sfnp.device_array, top_k, num_selections
-    ):
-        return self.sampler.sample_top_k(
-            *self.sampler.select_top_k(softmax_logits, -top_k),
-            k=num_selections,
-        )
-
-    def _sample_logits_top_p(self, tokens, probs, top_p, num_selections):
-        return self.sampler.sample_top_p(
-            tokens,
-            probs,
-            top_p,
-            num_selections,
-        )
-
     def sample_logits(self) -> int:
         """Return the single highest scoring token of the logits.
 

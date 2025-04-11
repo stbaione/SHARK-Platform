@@ -90,15 +90,21 @@ class Beam(ABC):
         """Define how to sample and select tokens for a give `Beam`"""
         pass
 
-    @abstractmethod
-    def _sample_logits_top_k(self):
-        """Define how to sample and select tokens with the use of `top_k` sampling"""
-        pass
+    def _sample_logits_top_k(
+        self, softmax_logits: sfnp.device_array, top_k, num_selections
+    ):
+        return self.sampler.sample_top_k(
+            *self.sampler.select_top_k(softmax_logits, -top_k),
+            k=num_selections,
+        )
 
-    @abstractmethod
-    def _sample_logits_top_p(self):
-        """Define how to sample and select tokens with the use of `top_p` sampling"""
-        pass
+    def _sample_logits_top_p(self, tokens, probs, top_p, num_selections):
+        return self.sampler.sample_top_p(
+            tokens=tokens,
+            probs=probs,
+            p=top_p,
+            k=num_selections,
+        )
 
     @abstractmethod
     def update_score(self, value: float):
