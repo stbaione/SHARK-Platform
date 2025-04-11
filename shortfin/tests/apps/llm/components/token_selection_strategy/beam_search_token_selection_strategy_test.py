@@ -115,29 +115,6 @@ def float_to_float16_int(value: float):
     return struct.unpack("<H", packed_val)[0]
 
 
-def test_beam_search_beam__convert_to_device_array(device, beam_search_beam):
-    src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
-    data = [float(i) for i in range(math.prod(src.shape))]
-    src.items = data
-    beam_search_beam.exec_req.result_logits = src
-
-    values = [float(random.randint(0, 10)) for _ in range(10)]
-
-    # 1-D
-    device_array = beam_search_beam._convert_to_device_array(values, [len(values)])
-    assert device_array.device == device
-    assert device_array.shape == [len(values)]
-    assert device_array.items.tolist() == values
-
-    # 2-D
-    device_array = beam_search_beam._convert_to_device_array(
-        values, [2, len(values) // 2]
-    )
-    assert device_array.device == device
-    assert device_array.shape == [2, len(values) // 2]
-    assert device_array.items.tolist() == values
-
-
 def test_beam_search_beam__sample_logits_top_k(device, beam_search_beam):
     src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
     data = [-10.0 for i in range(math.prod(src.shape))]

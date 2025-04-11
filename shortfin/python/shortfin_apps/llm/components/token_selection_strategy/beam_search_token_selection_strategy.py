@@ -6,7 +6,7 @@
 
 import logging
 
-from typing import Any, List
+from typing import List
 
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
@@ -16,7 +16,11 @@ from .beam_group import BeamGroup, Beam
 from .config import LogitsNormalization
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
-from shortfin_apps.utils import convert_float_to_int, convert_int_to_float
+from shortfin_apps.utils import (
+    convert_float_to_int,
+    convert_int_to_float,
+    convert_list_to_device_array,
+)
 
 import shortfin.array as sfnp
 
@@ -24,56 +28,60 @@ logger = logging.getLogger(__name__)
 
 
 class BeamSearchBeam(Beam):
-    def _convert_to_device_array(
-        self, values: List[Any], shape: List[int]
-    ) -> sfnp.device_array:
-        result_logits = self.exec_req.result_logits
-        values_sf = sfnp.device_array.for_host(
-            result_logits.device,
-            shape,
-            result_logits.dtype,
-        )
-        with values_sf.map(discard=True) as m:
-            m.items = values
-
-        return values_sf
-
     def _sample_logits_top_k(self):
         top_k = self.decode_config.top_k
         # Apply softmax to obtain prob distribution
-        current_logits_normalization = self.decode_config.logits_normalization
-        softmax_logits = self.convert_logits_normalization(
-            current_logits_normalization,
-            LogitsNormalization.SOFTMAX,
-            self.exec_req.result_logits,
+        logits = self.exec_req.result_logits
+
+        tokens, probs = self.sampler.select_top_k(logits, -top_k)
+
+        if logits.dtype in [sfnp.float16]:
+            probs = [convert_float_to_int(prob, logits.dtype) for prob in probs]
+
+        probs_sf = convert_list_to_device_array(
+            probs,
+            [len(probs)],
+            logits.device,
+            logits.dtype,
         )
-        current_logits_normalization = LogitsNormalization.SOFTMAX
+        probs = self.convert_logits_normalization(
+            self.decode_config.logits_normalization,
+            LogitsNormalization.SOFTMAX,
+            probs_sf,
+            **{"device_visible": True},
+        ).items.tolist()
 
         # Sample from `top_k` tokens
         choices = self.sampler.sample_top_k(
-            *self.sampler.select_top_k(softmax_logits, -top_k), k=top_k
+            tokens,
+            probs,
+            k=top_k,
         )
 
-        probs = []
-        top_tokens = []
+        tokens, probs = [], []
         for token, prob in choices:
-            if softmax_logits.dtype in [sfnp.float16]:
+            if logits.dtype in [sfnp.float16]:
                 # Convert prob to int representation, so that we can
                 # set the items of the `device_array`
-                prob = convert_float_to_int(prob, softmax_logits.dtype)
-            probs.append(
-                prob,
-            )
-            top_tokens.append(token)
+                prob = convert_float_to_int(prob, logits.dtype)
+
+            tokens.append(token)
+            probs.append(prob)
 
         # Convert probs to log probabilities
-        probs_sf = self._convert_to_device_array(probs, [len(probs)])
+        probs_sf = convert_list_to_device_array(
+            probs,
+            [len(probs)],
+            logits.device,
+            logits.dtype,
+        )
         log_probs = self.convert_logits_normalization(
-            current_logits_normalization,
+            LogitsNormalization.SOFTMAX,
             LogitsNormalization.LOG_SOFTMAX,
             probs_sf,
             **{"device_visible": True},
         )
+
         log_probs_dtype = log_probs.dtype
 
         if log_probs_dtype in [sfnp.float16]:
@@ -84,7 +92,7 @@ class BeamSearchBeam(Beam):
         else:
             log_probs = log_probs.items.tolist()
 
-        return top_tokens, log_probs
+        return tokens, log_probs
 
     def sample_logits(self, k: int):
         """Apply `log_softmax` and take the `top_k` token and values of the logits.

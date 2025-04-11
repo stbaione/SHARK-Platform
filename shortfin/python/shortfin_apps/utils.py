@@ -1,16 +1,18 @@
-from iree.build.executor import FileNamespace, BuildAction, BuildContext, BuildFile
 import os
 import re
 import urllib
 import logging
 import asyncio
-from pathlib import Path
 import struct
 import threading
-from typing import Optional, Union
+
+from iree.build.executor import FileNamespace, BuildAction, BuildContext, BuildFile
+from pathlib import Path
+from typing import Any, List, Optional, Union
 
 import shortfin.array as sfnp
 import shortfin as sf
+
 from shortfin.interop.support.device_setup import get_selected_devices
 
 
@@ -155,6 +157,20 @@ def convert_float_to_int(value: float, dtype: sfnp.DType) -> int:
     # Convert float value to bytes
     packed_val = struct.pack("<e", value)
     return struct.unpack(format_spec, packed_val)[0]
+
+
+def convert_list_to_device_array(
+    values: List[Any], shape: List[int], device: sf.ScopedDevice, dtype: sfnp.DType
+) -> sfnp.device_array:
+    values_sf = sfnp.device_array.for_host(
+        device,
+        shape,
+        dtype,
+    )
+    with values_sf.map(discard=True) as m:
+        m.items = values
+
+    return values_sf
 
 
 dtype_to_filetag = {

@@ -15,6 +15,11 @@ from .base_token_selection_strategy import (
 )
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
+from shortfin_apps.utils import (
+    convert_list_to_device_array,
+    convert_float_to_int,
+    convert_int_to_float,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +27,30 @@ logger = logging.getLogger(__name__)
 class GreedyBeam(Beam):
     def _sample_logits_top_k(self):
         top_k = self.decode_config.top_k
-        softmax_logits = self.convert_logits_normalization(
-            self.decode_config.logits_normalization,
-            LogitsNormalization.SOFTMAX,
-            self.exec_req.result_logits,
-        )
+        logits = self.exec_req.result_logits
 
         # Sample one token from the `top_k` highest probability tokens
-        tokens, probs = self.sampler.select_top_k(softmax_logits, -top_k)
+        tokens, probs = self.sampler.select_top_k(logits, -top_k)
+
+        if logits.dtype in [sfnp.float16]:
+            probs = [convert_float_to_int(prob, logits.dtype) for prob in probs]
+
+        probs_sf = convert_list_to_device_array(
+            probs,
+            [len(probs)],
+            logits.device,
+            logits.dtype,
+        )
+        probs = self.convert_logits_normalization(
+            self.decode_config.logits_normalization,
+            LogitsNormalization.SOFTMAX,
+            probs_sf,
+            **{"device_visible": True},
+        ).items.tolist()
+
+        if logits.dtype in [sfnp.float16]:
+            probs = [convert_int_to_float(prob, logits.dtype) for prob in probs]
+
         token, _ = self.sampler.sample_top_k(tokens, probs, k=1)[0]
 
         return token
