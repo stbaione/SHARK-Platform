@@ -10,7 +10,6 @@ import logging
 from typing import List, Callable, Union
 
 from .config import DecodeConfig, TokenSelectionStrategy
-from ..io_struct import NOT_PROVIDED
 from ..messages import LlmInferenceExecRequest
 
 import shortfin.array as sfnp
@@ -43,10 +42,10 @@ class BaseTokenSelectionStrategy(ABC):
             strategy = strategy.name
         logger.info(f"Using {strategy.lower()} selection method...")
 
-        if decode_config.top_k != NOT_PROVIDED:
+        if decode_config.top_k is not None:
             logger.info(f"Using `top_k` sampling with `top_k == {decode_config.top_k}`")
 
-        if decode_config.top_p != NOT_PROVIDED:
+        if decode_config.top_p is not None:
             logger.info(f"Using `top_p` sampling with `top_p == {decode_config.top_p}`")
 
     def replicate_inference_exec_requests(

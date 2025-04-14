@@ -1,16 +1,18 @@
-from iree.build.executor import FileNamespace, BuildAction, BuildContext, BuildFile
 import os
 import re
 import urllib
 import logging
 import asyncio
-from pathlib import Path
 import struct
 import threading
+
+from iree.build.executor import FileNamespace, BuildAction, BuildContext, BuildFile
+from pathlib import Path
 from typing import Any, List, Optional, Union
 
 import shortfin.array as sfnp
 import shortfin as sf
+
 from shortfin.interop.support.device_setup import get_selected_devices
 
 

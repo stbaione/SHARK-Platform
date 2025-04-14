@@ -12,12 +12,19 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Set
 from uuid import uuid4
 
+import shortfin as sf
 import shortfin.array as sfnp
 
 from .base_token_selection_strategy import DecodeConfig
 from .config import LogitsNormalization
 from .sampler import Sampler
 from ..messages import LlmInferenceExecRequest
+
+from shortfin_apps.utils import (
+    convert_int_to_float,
+    convert_float_to_int,
+    convert_list_to_device_array,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +97,47 @@ class Beam(ABC):
         """Define how to sample and select tokens for a give `Beam`"""
         pass
 
-    def _sample_logits_top_k(
-        self, softmax_logits: sfnp.device_array, top_k, num_selections
+    def _to_softmax(
+        self,
+        values: List,
+        dtype: sfnp.DType,
+        device: sf.ScopedDevice,
+        logits_normalization: LogitsNormalization,
     ):
+        if dtype in [sfnp.float16]:
+            values = [convert_float_to_int(value, dtype) for value in values]
+
+        probs_sf = convert_list_to_device_array(
+            values,
+            [len(values)],
+            device,
+            dtype,
+        )
+        probs = self.convert_logits_normalization(
+            logits_normalization,
+            LogitsNormalization.SOFTMAX,
+            probs_sf,
+            **{"device_visible": True},
+        ).items.tolist()
+
+        if dtype in [sfnp.float16]:
+            probs = [convert_int_to_float(prob, dtype) for prob in probs]
+
+        return probs
+
+    def _sample_logits_top_k(self, logits: sfnp.device_array, top_k, num_selections):
+        tokens, values = self.sampler.select_top_k(logits, -top_k)
+
+        probs = self._to_softmax(
+            values,
+            logits.dtype,
+            logits.device,
+            self.decode_config.logits_normalization,
+        )
+
         return self.sampler.sample_top_k(
-            *self.sampler.select_top_k(softmax_logits, -top_k),
+            tokens,
+            probs,
             k=num_selections,
         )
 

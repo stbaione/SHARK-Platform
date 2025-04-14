@@ -115,29 +115,6 @@ def float_to_float16_int(value: float):
     return struct.unpack("<H", packed_val)[0]
 
 
-def test_beam_search_beam__convert_to_device_array(device, beam_search_beam):
-    src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
-    data = [float(i) for i in range(math.prod(src.shape))]
-    src.items = data
-    beam_search_beam.exec_req.result_logits = src
-
-    values = [float(random.randint(0, 10)) for _ in range(10)]
-
-    # 1-D
-    device_array = beam_search_beam._convert_to_device_array(values, [len(values)])
-    assert device_array.device == device
-    assert device_array.shape == [len(values)]
-    assert device_array.items.tolist() == values
-
-    # 2-D
-    device_array = beam_search_beam._convert_to_device_array(
-        values, [2, len(values) // 2]
-    )
-    assert device_array.device == device
-    assert device_array.shape == [2, len(values) // 2]
-    assert device_array.items.tolist() == values
-
-
 def test_beam_search_beam__sample_logits_top_k(device, beam_search_beam):
     src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
     data = [-10.0 for i in range(math.prod(src.shape))]
@@ -546,16 +523,21 @@ async def test_beam_search_decode_single(
         with patch.object(
             exec_req._cache, "fork_pages", return_value=allocation
         ) as fork_pages_mock:
-            await beam_search_token_selection_strategy.decode(exec_req)
-            assert len(results_array) == num_beams
-            logger.info(f"Results: {results_array}")
-            expected_value = 15
-            for result in results_array:
-                assert len(result) == 1
-                assert result[0] == expected_value
-                expected_value -= 1.0
+            with patch.object(
+                BeamGroup,
+                "clean_up",
+            ) as mock_clean_up:
+                await beam_search_token_selection_strategy.decode(exec_req)
+                assert len(results_array) == num_beams
+                logger.info(f"Results: {results_array}")
+                expected_value = 15
+                for result in results_array:
+                    assert len(result) == 1
+                    assert result[0] == expected_value
+                    expected_value -= 1.0
 
-            fork_pages_mock.call_count == num_beams - 1
+                fork_pages_mock.call_count == num_beams - 1
+                mock_clean_up.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -625,18 +607,23 @@ async def test_beam_search_decode_multiple_completions(
         with patch.object(
             exec_req._cache, "fork_pages", return_value=allocation
         ) as fork_pages_mock:
-            await beam_search_token_selection_strategy.decode(exec_req)
-            assert len(results_array) == num_beams
-            expected_tokens = set([0, 1, 2])
-            expected_tail = 0
-            results_array = sorted(results_array)
-            for result in results_array:
-                assert len(result) == config.decode_config.max_completion_tokens
-                assert all(val in expected_tokens for val in result)
-                assert result[-1] == expected_tail
-                expected_tail += 1
+            with patch.object(
+                BeamGroup,
+                "clean_up",
+            ) as mock_clean_up:
+                await beam_search_token_selection_strategy.decode(exec_req)
+                assert len(results_array) == num_beams
+                expected_tokens = set([0, 1, 2])
+                expected_tail = 0
+                results_array = sorted(results_array)
+                for result in results_array:
+                    assert len(result) == config.decode_config.max_completion_tokens
+                    assert all(val in expected_tokens for val in result)
+                    assert result[-1] == expected_tail
+                    expected_tail += 1
 
-            fork_pages_mock.call_count == num_beams - 1
+                fork_pages_mock.call_count == num_beams - 1
+                mock_clean_up.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -713,15 +700,20 @@ async def test_beam_search_decode_eos_token(
         with patch.object(
             exec_req._cache, "fork_pages", return_value=allocation
         ) as fork_pages_mock:
-            await beam_search_token_selection_strategy.decode(exec_req)
-            assert len(results_array) == num_beams
-            expected_tokens = set([0, 1, 2])
-            expected_tail = 3
-            results_array = sorted(results_array)
-            assert len(results_array) == num_beams
-            for result in results_array:
-                assert len(result) == 5
-                assert all(val in expected_tokens for val in result[:-1])
-                assert result[-1] == expected_tail
+            with patch.object(
+                BeamGroup,
+                "clean_up",
+            ) as mock_clean_up:
+                await beam_search_token_selection_strategy.decode(exec_req)
+                assert len(results_array) == num_beams
+                expected_tokens = set([0, 1, 2])
+                expected_tail = 3
+                results_array = sorted(results_array)
+                assert len(results_array) == num_beams
+                for result in results_array:
+                    assert len(result) == 5
+                    assert all(val in expected_tokens for val in result[:-1])
+                    assert result[-1] == expected_tail
 
-            fork_pages_mock.call_count == num_beams - 1
+                fork_pages_mock.call_count == num_beams - 1
+                mock_clean_up.assert_called_once()

@@ -6,14 +6,11 @@
 
 import logging
 
-import shortfin.array as sfnp
-
-from .beam_group import Beam, LogitsNormalization
+from .beam_group import Beam
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
     TokenSelectionStrategyConfig,
 )
-from ..io_struct import NOT_PROVIDED
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
 logger = logging.getLogger(__name__)
@@ -33,28 +30,28 @@ class GreedyBeam(Beam):
         top_p = decode_config.top_p
 
         # Normal greedy selection based on max value
-        if (top_k, top_p) == (NOT_PROVIDED, NOT_PROVIDED):
+        if (top_k, top_p) == (None, None):
             return self.sampler.select_greedy(exec_req.result_logits)
 
-        # Convert to softmax to obtain probabilities
-        softmax_logits = self.convert_logits_normalization(
-            decode_config.logits_normalization,
-            LogitsNormalization.SOFTMAX,
-            exec_req.result_logits,
-        )
+        logits = self.exec_req.result_logits
 
-        tokens, probs = softmax_logits, None
-        if top_k != NOT_PROVIDED:
-            num_selections = 1 if top_p == NOT_PROVIDED else top_k
+        if top_k is not None:
+            num_selections = 1 if top_p is None else top_k
             tokens, probs = self._sample_logits_top_k(
-                softmax_logits,
+                logits,
                 top_k,
                 num_selections,
             )
 
-        if top_p != NOT_PROVIDED:
-            if top_k == NOT_PROVIDED:
-                tokens, probs = self.sampler.select_top_k(tokens, -32)
+        if top_p is not None:
+            if top_k is None:
+                tokens, values = self.sampler.select_top_k(logits, -32)
+                probs = self._to_softmax(
+                    values,
+                    exec_req.result_logits.dtype,
+                    exec_req.result_logits.device,
+                    self.decode_config.logits_normalization,
+                )
             tokens, _ = self._sample_logits_top_p(tokens, probs, top_p, 1)
 
         return tokens[0]
@@ -111,3 +108,4 @@ class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
                 break
             beam.update_exec_req()
         config.decode_end_callback(1)
+        beam.exec_req.free_cache_pages()

@@ -14,7 +14,6 @@ from .base_token_selection_strategy import (
 )
 from .beam_group import BeamGroup, Beam
 from .config import LogitsNormalization
-from ..io_struct import NOT_PROVIDED
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
 import shortfin.array as sfnp
@@ -45,6 +44,7 @@ class BeamSearchBeam(Beam):
             probs_sf,
             **{"device_visible": True},
         )
+
         log_probs_dtype = log_probs.dtype
 
         if log_probs_dtype in [sfnp.float16]:
@@ -58,7 +58,7 @@ class BeamSearchBeam(Beam):
         return log_probs
 
     def sample_logits(self, k: int):
-        """Apply `log_softmax` and take the `top_k` token and values of the logits.
+        """Obtain tokens and log_probs from beam_search or beam_search with sampling.
 
         Args:
             k (int): Number of max elements to return.
@@ -72,7 +72,7 @@ class BeamSearchBeam(Beam):
         top_k = decode_config.top_k
         top_p = decode_config.top_p
 
-        if (top_k, top_p) == (NOT_PROVIDED, NOT_PROVIDED):
+        if (top_k, top_p) == (None, None):
             log_softmax_logits = self.convert_logits_normalization(
                 self.decode_config.logits_normalization,
                 LogitsNormalization.LOG_SOFTMAX,
@@ -81,35 +81,30 @@ class BeamSearchBeam(Beam):
 
             return self.sampler.select_top_k(log_softmax_logits, -k)
 
-        # Apply softmax to obtain prob distribution
-        current_logits_normalization = self.decode_config.logits_normalization
-        softmax_logits = self.convert_logits_normalization(
-            current_logits_normalization,
-            LogitsNormalization.SOFTMAX,
-            self.exec_req.result_logits,
-        )
-        current_logits_normalization = LogitsNormalization.SOFTMAX
+        logits = self.exec_req.result_logits
 
-        tokens, probs = [], None
-
-        if top_k != NOT_PROVIDED:
+        if top_k is not None:
             # Sample from `top_k` tokens
             tokens, probs = self._sample_logits_top_k(
-                softmax_logits,
+                logits,
                 top_k,
                 num_selections=top_k,
             )
 
-        if top_p != NOT_PROVIDED:
-            if top_k == NOT_PROVIDED:
-                tokens, probs = self.sampler.select_top_k(softmax_logits, -32)
+        if top_p is not None:
+            if top_k is None:
+                tokens, values = self.sampler.select_top_k(logits, -32)
+                probs = self._to_softmax(
+                    values,
+                    logits.dtype,
+                    logits.device,
+                    self.decode_config.logits_normalization,
+                )
 
             tokens, probs = self._sample_logits_top_p(tokens, probs, top_p, num_beams)
 
-        if softmax_logits.dtype in [sfnp.float16]:
-            probs_int = [
-                convert_float_to_int(prob, softmax_logits.dtype) for prob in probs
-            ]
+        if logits.dtype in [sfnp.float16]:
+            probs_int = [convert_float_to_int(prob, logits.dtype) for prob in probs]
 
         log_probs = self._convert_results_to_log_probs(probs_int)
 
@@ -280,6 +275,7 @@ class BeamSearchTokenSelectionStrategy(BaseTokenSelectionStrategy):
             beam_group.process_beams()
 
         config.decode_end_callback(reservations)
+        beam_group.clean_up()
         self.get_results(beam_group)
 
     def get_results(self, beam_group: BeamGroup):

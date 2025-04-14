@@ -11,7 +11,6 @@ from typing import List
 from .beam_group import BeamGroup
 from .greedy_token_selection_strategy import GreedyTokenSelectionStrategy, GreedyBeam
 
-from ..io_struct import NOT_PROVIDED
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
 logger = logging.getLogger(__name__)
@@ -54,12 +53,12 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
         logger.info("Starting `multi_greedy` decode loop...")
         config = self.token_selection_strategy_config
 
-        if config.decode_config.top_k != NOT_PROVIDED:
+        if config.decode_config.top_k is not None:
             logger.info(
                 f"Using `top_k` sampling with `top_k == {config.decode_config.top_k}"
             )
 
-        if config.decode_config.top_p != NOT_PROVIDED:
+        if config.decode_config.top_p is not None:
             logger.info(
                 f"Using `top_p` sampling with `top_p == {config.decode_config.top_p}"
             )
@@ -102,6 +101,7 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
             beam_group.process_beams()
 
         config.decode_end_callback(reservations)
+        beam_group.clean_up()
 
         results = [
             beam.exec_req.input_token_ids[exec_req.prompt_length :]
