@@ -66,16 +66,17 @@ class Beam(ABC):
             LogitsNormalization.NONE: {
                 LogitsNormalization.LOG_SOFTMAX: sfnp.log_softmax,
                 LogitsNormalization.SOFTMAX: sfnp.softmax,
+                LogitsNormalization.NONE: lambda logits: logits,
             },
             LogitsNormalization.SOFTMAX: {
                 LogitsNormalization.LOG_SOFTMAX: sfnp.log,
+                LogitsNormalization.SOFTMAX: lambda logits: logits,
             },
             LogitsNormalization.LOG_SOFTMAX: {
                 LogitsNormalization.SOFTMAX: sfnp.exp,
+                LogitsNormalization.LOG_SOFTMAX: lambda logits: logits,
             },
         }
-        if current == target:
-            return logits
 
         target_conversions = logits_conversion_map.get(current)
         if target_conversions is None:
