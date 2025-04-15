@@ -16,7 +16,7 @@ from unittest.mock import patch
 import shortfin as sf
 import shortfin.array as sfnp
 
-from shortfin_apps.utils import convert_float_to_int
+from shortfin_apps.utils import approximately_equal, convert_float_to_int
 from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     BasePagedAttentionCacheAllocation,
 )
@@ -36,9 +36,6 @@ from shortfin_apps.llm.components.token_selection_strategy.beam_search_token_sel
 )
 from shortfin_apps.llm.components.token_selection_strategy.beam_group import (
     BeamGroup,
-)
-from shortfin_apps.llm.components.token_selection_strategy.config import (
-    LogitsNormalization,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,32 +79,6 @@ class FakeBatcher:
 
 def _batcher_workitem_callback(_: int):
     pass
-
-
-def approximately_equal(a: Any, b: Any, rel_tol=1e-2, abs_tol=0.0) -> bool:
-    """
-    Recursively checks if two nested lists (or scalar values) are approximately equal.
-
-    Args:
-        a: First list or scalar.
-        b: Second list or scalar.
-        rel_tol: Relative tolerance.
-        abs_tol: Absolute tolerance.
-
-    Returns:
-        True if all corresponding elements are approximately equal.
-    """
-    # If both are lists, iterate element-wise
-    if isinstance(a, list) and isinstance(b, list):
-        if len(a) != len(b):
-            return False
-        return all(
-            approximately_equal(sub_a, sub_b, rel_tol, abs_tol)
-            for sub_a, sub_b in zip(a, b)
-        )
-
-    # Otherwise, assume they are scalars and compare
-    return math.isclose(a, b, rel_tol=rel_tol, abs_tol=abs_tol)
 
 
 def float_to_float16_int(value: float):

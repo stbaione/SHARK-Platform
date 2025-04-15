@@ -16,7 +16,8 @@ from shortfin_apps.llm.components.token_selection_strategy.beam_group import (
 from shortfin_apps.llm.components.token_selection_strategy.config import (
     LogitsNormalization,
 )
-from shortfin_apps.utils import convert_float_to_int
+
+from shortfin_apps.utils import approximately_equal
 
 
 import shortfin.array as sfnp
@@ -34,32 +35,6 @@ def exec_req_list(exec_req, cache, dummy_pages):
             exec_reqs.append(LlmInferenceExecRequest.copy_exec_request(exec_req))
 
     yield exec_reqs
-
-
-def approximately_equal(a: Any, b: Any, rel_tol=1e-1, abs_tol=0.0) -> bool:
-    """
-    Recursively checks if two nested lists (or scalar values) are approximately equal.
-
-    Args:
-        a: First list or scalar.
-        b: Second list or scalar.
-        rel_tol: Relative tolerance.
-        abs_tol: Absolute tolerance.
-
-    Returns:
-        True if all corresponding elements are approximately equal.
-    """
-    # If both are lists, iterate element-wise
-    if isinstance(a, list) and isinstance(b, list):
-        if len(a) != len(b):
-            return False
-        return all(
-            approximately_equal(sub_a, sub_b, rel_tol, abs_tol)
-            for sub_a, sub_b in zip(a, b)
-        )
-
-    # Otherwise, assume they are scalars and compare
-    return math.isclose(a, b, rel_tol=rel_tol, abs_tol=abs_tol)
 
 
 class DummyBeam(Beam):
@@ -257,7 +232,7 @@ def test__sample_logits_top_k(decode_config, device, exec_req):
     assert [token in random_hot_tokens for token in tokens]
 
     expected = [0.33] * 3
-    assert approximately_equal(probs, expected)
+    assert approximately_equal(probs, expected, rel_tol=1e-1)
 
 
 def test__sample_logits_top_p(decode_config, exec_req):

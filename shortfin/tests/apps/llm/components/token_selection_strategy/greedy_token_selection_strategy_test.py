@@ -59,32 +59,6 @@ def batcher_workitem_cb(_: int):
     pass
 
 
-def approximately_equal(a: Any, b: Any, rel_tol=1e-2, abs_tol=0.0) -> bool:
-    """
-    Recursively checks if two nested lists (or scalar values) are approximately equal.
-
-    Args:
-        a: First list or scalar.
-        b: Second list or scalar.
-        rel_tol: Relative tolerance.
-        abs_tol: Absolute tolerance.
-
-    Returns:
-        True if all corresponding elements are approximately equal.
-    """
-    # If both are lists, iterate element-wise
-    if isinstance(a, list) and isinstance(b, list):
-        if len(a) != len(b):
-            return False
-        return all(
-            approximately_equal(sub_a, sub_b, rel_tol, abs_tol)
-            for sub_a, sub_b in zip(a, b)
-        )
-
-    # Otherwise, assume they are scalars and compare
-    return math.isclose(a, b, rel_tol=rel_tol, abs_tol=abs_tol)
-
-
 def test_greedy_beam_sample_logits(device, greedy_beam):
     greedy_beam.decode_config.temperature = 1.0
 
