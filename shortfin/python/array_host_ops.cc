@@ -849,6 +849,7 @@ device_array ElementwiseOperation(py::handle lhs, py::handle rhs,
 
 void BindArrayHostOps(py::module_ &m) {
   // Simple op definitions.
+  // TODO (@stbaione:#1266) Add support for `fp8` model in `array_host_ops`
   m.def(
       "argmax",
       [](device_array &input, int axis, std::optional<device_array> out,
