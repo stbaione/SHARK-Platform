@@ -28,6 +28,9 @@ from shortfin_apps.utils import (
 logger = logging.getLogger(__name__)
 
 
+TOP_P_DEFAULT_SELECTION = 32
+
+
 class BeamSearchBeam(Beam):
     def _convert_results_to_log_probs(self, probs: List):
         device = self.exec_req.result_logits.device
@@ -93,7 +96,8 @@ class BeamSearchBeam(Beam):
 
         if top_p is not None:
             if top_k is None:
-                tokens, values = self.sampler.select_top_k(logits, -32)
+                top_p_selection = min(logits.shape[-1], TOP_P_DEFAULT_SELECTION)
+                tokens, values = self.sampler.select_top_k(logits, -top_p_selection)
                 probs = self._to_softmax(
                     values,
                     logits.dtype,
@@ -104,9 +108,9 @@ class BeamSearchBeam(Beam):
             tokens, probs = self._sample_logits_top_p(tokens, probs, top_p, num_beams)
 
         if logits.dtype in [sfnp.float16]:
-            probs_int = [convert_float_to_int(prob, logits.dtype) for prob in probs]
+            probs = [convert_float_to_int(prob, logits.dtype) for prob in probs]
 
-        log_probs = self._convert_results_to_log_probs(probs_int)
+        log_probs = self._convert_results_to_log_probs(probs)
 
         return tokens, log_probs
 

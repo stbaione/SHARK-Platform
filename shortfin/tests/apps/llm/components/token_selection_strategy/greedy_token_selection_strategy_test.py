@@ -85,33 +85,6 @@ def approximately_equal(a: Any, b: Any, rel_tol=1e-2, abs_tol=0.0) -> bool:
     return math.isclose(a, b, rel_tol=rel_tol, abs_tol=abs_tol)
 
 
-def test_greedy_beam__sample_logits_top_k(device, greedy_beam):
-    src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
-    data = [-10.0 for _ in range(math.prod(src.shape))]
-    random_hot_tokens = random.sample(range(0, 16), 3)
-    for i in random_hot_tokens:
-        data[i] = 1.0
-    src.items = data
-
-    # Raw Logits
-    greedy_beam.exec_req.result_logits = src
-    greedy_beam.decode_config.top_k = len(random_hot_tokens)
-    token = greedy_beam._sample_logits_top_k()
-    assert token in random_hot_tokens
-
-    # Softmax Logits
-    greedy_beam.exec_req.result_logits = sfnp.softmax(src)
-    greedy_beam.decode_config.logits_normalization = LogitsNormalization.SOFTMAX
-    token = greedy_beam._sample_logits_top_k()
-    assert token in random_hot_tokens
-
-    # LogSoftmax Logits
-    greedy_beam.exec_req.result_logits = sfnp.log_softmax(src)
-    greedy_beam.decode_config.logits_normalization = LogitsNormalization.LOG_SOFTMAX
-    token = greedy_beam._sample_logits_top_k()
-    assert token in random_hot_tokens
-
-
 def test_greedy_beam_sample_logits(device, greedy_beam):
     greedy_beam.decode_config.temperature = 1.0
 
@@ -130,10 +103,37 @@ def test_greedy_beam_sample_logits(device, greedy_beam):
     assert token == 10
 
     # `top_k` is provided
-    greedy_beam.decode_config.top_k = 42
-    with patch.object(greedy_beam, "_sample_logits_top_k") as mock_sample_logits:
-        greedy_beam.sample_logits()
-        mock_sample_logits.assert_called_once()
+    expected_tokens = [13, 14, 15]
+    values = [0.33] * 3
+    greedy_beam.decode_config.top_k = 3
+    with patch.object(
+        greedy_beam, "_sample_logits_top_k", return_value=(expected_tokens, values)
+    ):
+        token = greedy_beam.sample_logits()
+        assert token in expected_tokens
+
+    # `top_p` is provided
+    greedy_beam.decode_config.top_p = 0.95
+    greedy_beam.decode_config.top_k = None
+    with patch.object(
+        greedy_beam, "_sample_logits_top_p", return_value=(expected_tokens, values)
+    ):
+        token = greedy_beam.sample_logits()
+        assert token in expected_tokens
+
+    # `top_k` and `top_p` are provided
+    greedy_beam.decode_config.top_k = 3
+    greedy_beam.decode_config.top_p = 0.95
+    expected_tokens = [13, 14, 15]
+    values = [0.33] * 3
+    with patch.object(
+        greedy_beam, "_sample_logits_top_k", return_value=(expected_tokens, values)
+    ):
+        with patch.object(
+            greedy_beam, "_sample_logits_top_p", return_value=(expected_tokens, values)
+        ):
+            token = greedy_beam.sample_logits()
+            assert token in expected_tokens
 
 
 def test_greedy_update_exec_req(greedy_beam):

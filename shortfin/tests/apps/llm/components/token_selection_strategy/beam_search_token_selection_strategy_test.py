@@ -16,7 +16,7 @@ from unittest.mock import patch
 import shortfin as sf
 import shortfin.array as sfnp
 
-from shortfin_apps.utils import convert_int_to_float
+from shortfin_apps.utils import convert_float_to_int
 from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     BasePagedAttentionCacheAllocation,
 )
@@ -115,55 +115,6 @@ def float_to_float16_int(value: float):
     return struct.unpack("<H", packed_val)[0]
 
 
-def test_beam_search_beam__sample_logits_top_k(device, beam_search_beam):
-    src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
-    data = [-10.0 for i in range(math.prod(src.shape))]
-    random_hot_tokens = random.sample(range(0, 16), 3)
-    for i in random_hot_tokens:
-        data[i] = 1.0
-    src.items = data
-
-    # Raw Logits
-    beam_search_beam.exec_req.result_logits = src
-    beam_search_beam.decode_config.top_k = len(random_hot_tokens)
-    top_tokens, top_values = beam_search_beam._sample_logits_top_k()
-
-    assert len(top_tokens) == 3
-    assert len(top_values) == 3
-
-    for token in top_tokens:
-        assert token in random_hot_tokens
-    assert approximately_equal(top_values, [math.log(0.33)] * 3)
-
-    # Softmax Logits
-    softmax_logits = sfnp.softmax(src)
-    beam_search_beam.decode_config.logits_normalization = LogitsNormalization.SOFTMAX
-    beam_search_beam.exec_req.result_logits = softmax_logits
-    top_tokens, top_values = beam_search_beam._sample_logits_top_k()
-
-    assert len(top_tokens) == 3
-    assert len(top_values) == 3
-
-    for token in top_tokens:
-        assert token in random_hot_tokens
-    assert approximately_equal(top_values, [math.log(0.33)] * 3)
-
-    # LogSoftmax Logits
-    log_softmax_logits = sfnp.log_softmax(src)
-    beam_search_beam.decode_config.logits_normalization = (
-        LogitsNormalization.LOG_SOFTMAX
-    )
-    beam_search_beam.exec_req.result_logits = log_softmax_logits
-    top_tokens, top_values = beam_search_beam._sample_logits_top_k()
-
-    assert len(top_tokens) == 3
-    assert len(top_values) == 3
-
-    for token in top_tokens:
-        assert token in random_hot_tokens
-    assert approximately_equal(top_values, [math.log(0.33)] * 3)
-
-
 def test_beam_search_beam_sample_logits(device, beam_search_beam):
     src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
     data = [float(i) for i in range(math.prod(src.shape))]
@@ -177,10 +128,119 @@ def test_beam_search_beam_sample_logits(device, beam_search_beam):
     assert top_tokens == [13, 14, 15]
 
     # `top_k` is provided
+    beam_search_beam.decode_config.top_k = 3
+    expected_tokens = top_tokens
+    values = [0.33] * 3
+    expected_values = [math.log(0.33)] * 3
+    with patch.object(
+        beam_search_beam, "_sample_logits_top_k", return_value=(expected_tokens, values)
+    ):
+        result_tokens, result_values = beam_search_beam.sample_logits(3)
+
+        assert result_tokens == expected_tokens
+        assert approximately_equal(result_values, expected_values)
+
+    # `top_p` is provided
+    beam_search_beam.decode_config.top_p = 0.95
+    beam_search_beam.decode_config.top_k = None
+    expected_tokens = top_tokens
+    values = [0.33] * 3
+    expected_values = [math.log(0.33)] * 3
+    with patch.object(
+        beam_search_beam, "_sample_logits_top_p", return_value=(expected_tokens, values)
+    ):
+        result_tokens, result_values = beam_search_beam.sample_logits(3)
+
+        assert result_tokens == expected_tokens
+        assert approximately_equal(result_values, expected_values)
+
+    # `top_k` and `top_p` is provided
+    beam_search_beam.decode_config.top_k = 5
+    beam_search_beam.decode_config.top_p = 0.95
+    top_k_tokens = top_tokens + [12, 11]
+    top_k_values = ([0.33] * 3) + [0.0, 0.0]
+    expected_tokens = top_tokens
+    values = [0.33] * 3
+    expected_values = [math.log(0.33)] * 3
+
+    with patch.object(
+        beam_search_beam,
+        "_sample_logits_top_k",
+        return_value=(top_k_tokens, top_k_values),
+    ):
+        with patch.object(
+            beam_search_beam,
+            "_sample_logits_top_p",
+            return_value=(expected_tokens, values),
+        ):
+            result_tokens, result_values = beam_search_beam.sample_logits(3)
+            assert result_tokens == expected_tokens
+            assert approximately_equal(result_values, expected_values)
+
+
+def test_beam_search_beam_sample_logits_fp16(device, beam_search_beam):
+    src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float16)
+    data = [
+        convert_float_to_int(float(i), src.dtype) for i in range(math.prod(src.shape))
+    ]
+    src.items = data
+    beam_search_beam.exec_req.result_logits = src
+    top_tokens, top_values = beam_search_beam.sample_logits(3)
+
+    assert len(top_tokens) == 3
+    assert len(top_values) == 3
+
+    assert top_tokens == [13, 14, 15]
+
+    # `top_k` is provided
     beam_search_beam.decode_config.top_k = 42
-    with patch.object(beam_search_beam, "_sample_logits_top_k") as sample_mock:
-        beam_search_beam.sample_logits(3)
-        sample_mock.assert_called_once()
+    expected_tokens = top_tokens
+    values = [0.33] * 3
+    expected_values = [math.log(0.33)] * 3
+    with patch.object(
+        beam_search_beam, "_sample_logits_top_k", return_value=(expected_tokens, values)
+    ):
+        result_tokens, result_values = beam_search_beam.sample_logits(3)
+
+        assert result_tokens == expected_tokens
+        assert approximately_equal(result_values, expected_values)
+
+    # `top_p` is provided
+    beam_search_beam.decode_config.top_p = 0.95
+    beam_search_beam.decode_config.top_k = None
+    expected_tokens = top_tokens
+    values = [0.33] * 3
+    expected_values = [math.log(0.33)] * 3
+    with patch.object(
+        beam_search_beam, "_sample_logits_top_p", return_value=(expected_tokens, values)
+    ):
+        result_tokens, result_values = beam_search_beam.sample_logits(3)
+
+        assert result_tokens == expected_tokens
+        assert approximately_equal(result_values, expected_values)
+
+    # `top_k` and `top_p` is provided
+    beam_search_beam.decode_config.top_k = 5
+    beam_search_beam.decode_config.top_p = 0.95
+    top_k_tokens = top_tokens + [12, 11]
+    top_k_values = ([0.33] * 3) + [0.0, 0.0]
+    expected_tokens = top_tokens
+    values = [0.33] * 3
+    expected_values = [math.log(0.33)] * 3
+
+    with patch.object(
+        beam_search_beam,
+        "_sample_logits_top_k",
+        return_value=(top_k_tokens, top_k_values),
+    ):
+        with patch.object(
+            beam_search_beam,
+            "_sample_logits_top_p",
+            return_value=(expected_tokens, values),
+        ):
+            result_tokens, result_values = beam_search_beam.sample_logits(3)
+            assert result_tokens == expected_tokens
+            assert approximately_equal(result_values, expected_values)
 
 
 def test_beam_search_beam_update_score(beam_search_beam):

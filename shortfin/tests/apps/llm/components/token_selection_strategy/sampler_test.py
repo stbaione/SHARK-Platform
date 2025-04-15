@@ -118,26 +118,30 @@ def test_sampler_sample_top_k(device):
     hot_token = random.randint(0, 10)
     probs[hot_token] = 1.0
 
-    expected_choices = {(hot_token, 1.0)}
+    expected_tokens = {hot_token}
+    expected_probs = {1.0}
 
     for k in range(1, 10):
-        choices = sampler.sample_top_k(tokens, probs, k)
-        assert len(choices) == k
-
-        assert all(choice in expected_choices for choice in choices)
+        result_tokens, result_probs = sampler.sample_top_k(tokens, probs, k)
+        assert len(result_tokens) == k
+        assert len(result_probs) == k
+        assert all(token in expected_tokens for token in result_tokens)
+        assert all(prob in expected_probs for prob in result_probs)
 
     # Two hot
     second_hot_token = hot_token
     while second_hot_token == hot_token:
         second_hot_token = random.randint(0, 10)
 
-    expected_choices = {(hot_token, 0.75), (second_hot_token, 0.25)}
+    expected_tokens = {hot_token, second_hot_token}
+    expected_probs = {0.75, 0.25}
 
     probs[hot_token] = 0.75
     probs[second_hot_token] = 0.25
 
     for k in range(1, 10):
-        choices = sampler.sample_top_k(tokens, probs, k)
-        assert len(choices) == k
-
-        assert all(choice in expected_choices for choice in choices)
+        result_tokens, result_probs = sampler.sample_top_k(tokens, probs, k)
+        assert len(result_tokens) == k
+        assert len(result_probs) == k
+        assert all(token in expected_tokens for token in result_tokens)
+        assert all(prob in expected_probs for prob in result_probs)

@@ -16,6 +16,9 @@ from ..messages import LlmInferenceExecRequest, InferencePhase
 logger = logging.getLogger(__name__)
 
 
+TOP_P_DEFAULT_SELECTION = 32
+
+
 class GreedyBeam(Beam):
     def sample_logits(self) -> int:
         """Return the single highest scoring token of the logits.
@@ -45,7 +48,8 @@ class GreedyBeam(Beam):
 
         if top_p is not None:
             if top_k is None:
-                tokens, values = self.sampler.select_top_k(logits, -32)
+                top_p_selection = min(logits.shape[-1], TOP_P_DEFAULT_SELECTION)
+                tokens, values = self.sampler.select_top_k(logits, -top_p_selection)
                 probs = self._to_softmax(
                     values,
                     exec_req.result_logits.dtype,
