@@ -931,7 +931,7 @@ void BindArrayHostOps(py::module_ &m) {
           SF_UNARY_FUNCTION_CASE(float32, float);
           default:
             throw std::invalid_argument(
-                fmt::format("Unsupported dtype({}) for operator argmax",
+                fmt::format("Unsupported dtype({}) for operator argpartition",
                             input.dtype().name()));
         }
       },
@@ -950,7 +950,7 @@ void BindArrayHostOps(py::module_ &m) {
                           input.dtype().name(), out->dtype().name()));
         }
         auto compute = [&]<typename EltTy>() {
-          auto input_t = input.map_xtensor_rw<EltTy>();
+          auto input_t = input.map_xtensor<EltTy>();
           auto result = xt::exp(*input_t);
 
           if (!out) {
@@ -970,7 +970,7 @@ void BindArrayHostOps(py::module_ &m) {
           SF_UNARY_FUNCTION_CASE(float32, float);
           default:
             throw std::invalid_argument(
-                fmt::format("Unsupported dtype({}) for operator argmax",
+                fmt::format("Unsupported dtype({}) for operator exp",
                             input.dtype().name()));
         }
       },
@@ -988,7 +988,7 @@ void BindArrayHostOps(py::module_ &m) {
                           input.dtype().name(), out->dtype().name()));
         }
         auto compute = [&]<typename EltTy>() {
-          auto input_t = input.map_xtensor_rw<EltTy>();
+          auto input_t = input.map_xtensor<EltTy>();
           auto result = xt::log(*input_t);
 
           if (!out) {
@@ -1008,7 +1008,7 @@ void BindArrayHostOps(py::module_ &m) {
           SF_UNARY_FUNCTION_CASE(float32, float);
           default:
             throw std::invalid_argument(
-                fmt::format("Unsupported dtype({}) for operator argmax",
+                fmt::format("Unsupported dtype({}) for operator log",
                             input.dtype().name()));
         }
       },
@@ -1061,7 +1061,7 @@ void BindArrayHostOps(py::module_ &m) {
           SF_UNARY_FUNCTION_CASE(float32, float);
           default:
             throw std::invalid_argument(
-                fmt::format("Unsupported dtype({}) for operator argmax",
+                fmt::format("Unsupported dtype({}) for operator log_softmax",
                             input.dtype().name()));
         }
       },
@@ -1085,7 +1085,7 @@ void BindArrayHostOps(py::module_ &m) {
                           input.dtype().name(), out->dtype().name()));
         }
         auto compute = [&]<typename EltTy>() {
-          auto input_t = input.map_xtensor_rw<EltTy>();
+          auto input_t = input.map_xtensor<EltTy>();
 
           auto max_vals = xt::amax(*input_t, {axis});
           xt::xarray<EltTy> max_vals_keep_dim = xt::expand_dims(max_vals, axis);
@@ -1114,7 +1114,7 @@ void BindArrayHostOps(py::module_ &m) {
           SF_UNARY_FUNCTION_CASE(float32, float);
           default:
             throw std::invalid_argument(
-                fmt::format("Unsupported dtype({}) for operator argmax",
+                fmt::format("Unsupported dtype({}) for operator softmax",
                             input.dtype().name()));
         }
       },
