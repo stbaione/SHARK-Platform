@@ -160,9 +160,9 @@ class ClientGenerateBatchProcess(sf.Process):
         self.service = service
         self.decode_config = service.server_params.decode_config
         self.decode_config.token_selection_strategy = (
-            TokenSelectionStrategy.MULTI_GREEDY
-            if self.gen_req.sampling_params.b_of_n > 1
-            else TokenSelectionStrategy.GREEDY
+            # TokenSelectionStrategy.MULTI_GREEDY
+            # if self.gen_req.sampling_params.b_of_n > 1
+            TokenSelectionStrategy.GREEDY
         )
 
     async def run(self):

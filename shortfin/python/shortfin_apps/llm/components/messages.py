@@ -54,6 +54,8 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         # sl is either 1 (not return_all_logits) or >=1 (return_all_logits).
         self.result_logits: sfnp.device_array | None = None
 
+        self.computed_argmax: sfnp.device_array | None = None
+
         self.decode_batch_size = decode_bs
 
         # Cache pages that have been locked for this request.

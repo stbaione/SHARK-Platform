@@ -33,7 +33,7 @@ class GreedyBeam(Beam):
 
         # Normal greedy selection based on max value
         if (top_k, top_p) == (None, None):
-            return self.sampler.select_greedy(exec_req.result_logits)
+            return self.sampler.select_greedy(exec_req.computed_argmax)
 
         logits = self.exec_req.result_logits
 

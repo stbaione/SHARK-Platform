@@ -538,6 +538,10 @@ class PrefillExecutorProcess(LlmExecutorProcess):
 
     async def get_results(self, logits, req_count, device0):
         # Return results.
+        for bs, fn in self.functions.items():
+            if bs == 1:
+                print("Found argmax\n")
+                break
         for i in range(req_count):
             req = self.exec_requests[i]
             sl = len(req.input_token_ids)
@@ -546,13 +550,17 @@ class PrefillExecutorProcess(LlmExecutorProcess):
                 logits_item = logits.view(i, slice(0, sl))
             else:
                 logits_item = logits.view(i, sl - 1)
-            if req.return_host_array:
+            if False:
                 req.result_logits = logits_item.for_transfer()
                 req.result_logits.copy_from(logits_item)
             else:
                 req.result_logits = logits_item
+                (argmax_arr,) = await fn(logits_item, fiber=self.fiber)
+                req.computed_argmax = argmax_arr.for_transfer()
+                req.computed_argmax.copy_from(argmax_arr)
+                await device0
             assert req.result_logits is not None
-        await device0
+            assert req.computed_argmax is not None
         for i in range(req_count):
             req = self.exec_requests[i]
             req.done.set_success()
@@ -679,30 +687,27 @@ class DecodeExecutorProcess(LlmExecutorProcess):
 
     async def get_results(self, logits, req_count, device0):
         # Return results.
-
-        self.meta_request.bo.arrs["decode_logits"] = logits.view(slice(0, req_count))
-
-        decode_logits = self.meta_request.bo.arrs["decode_logits"]
-        decode_logits_host = self.meta_request.bo.arrs["decode_logits_host"]
-
-        decode_logits_host.copy_from(decode_logits)
-
+        for bs, fn in self.functions.items():
+            if bs == 1:
+                print("Found argmax\n")
+                break
         for i in range(req_count):
             req = self.exec_requests[i]
             sl = 1
             if req.return_all_logits:
-                logits_item = decode_logits_host.view(i, slice(0, sl))
+                logits_item = logits.view(i, slice(0, sl))
             else:
-                logits_item = decode_logits_host.view(i, sl - 1)
-            if req.return_host_array:
-                req.result_logits = logits_item
-                # req.result_logits.copy_from(logits_item)
+                logits_item = logits.view(i, sl - 1)
+            if False:
+                req.result_logits = logits_item.for_transfer()
+                req.result_logits.copy_from(logits_item)
             else:
                 req.result_logits = logits_item
-        await device0
-        for i in range(req_count):
-            req = self.exec_requests[i]
+                (argmax_arr,) = await fn(logits_item, fiber=self.fiber)
+                req.computed_argmax = argmax_arr.for_transfer()
+                req.computed_argmax.copy_from(argmax_arr)
+                await device0
             req.done.set_success()
 
         if self.program_isolation == sf.ProgramIsolation.PER_FIBER:
-            self.fiber_pool.return_fiber_to_pool(self.fiber)
+            self.fiber_pool.return_fiber(self.fiber)

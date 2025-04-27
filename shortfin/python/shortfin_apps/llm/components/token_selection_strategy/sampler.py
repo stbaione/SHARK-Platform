@@ -73,6 +73,5 @@ class Sampler:
             int: Max token.
         """
         # token_int = np.argmax(np.frombuffer(logits.items, dtype=np.float32))
-        token_int = sfnp.argmax(logits).items[0]
-
+        token_int = np.frombuffer(logits.items, dtype=np.int64)[-1]
         return token_int

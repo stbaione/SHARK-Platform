@@ -176,12 +176,18 @@ class LlmGenerateService(GenerateService):
             self.prefill_functions[bs] = self.inference_program[
                 f"{self.model_params.module_name}.prefill_bs{bs}"
             ]
+        self.prefill_functions[1] = self.inference_program[
+            f"{self.model_params.module_name}.argmax"
+        ]
         # Resolve decode entrypoints.
         self.decode_functions = {}
         for bs in self.model_params.decode_batch_sizes:
             self.decode_functions[bs] = self.inference_program[
                 f"{self.model_params.module_name}.decode_bs{bs}"
             ]
+        self.decode_functions[1] = self.inference_program[
+            f"{self.model_params.module_name}.argmax"
+        ]
 
     def __repr__(self):
         return (

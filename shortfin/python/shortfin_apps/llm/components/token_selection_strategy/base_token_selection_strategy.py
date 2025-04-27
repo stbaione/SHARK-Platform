@@ -91,9 +91,7 @@ class BaseTokenSelectionStrategy(ABC):
         await exec_req.done
         assert exec_req.result_logits is not None
 
-        token_int = np.argmax(
-            np.frombuffer(exec_req.result_logits.items, dtype=np.float16)
-        )
+        token_int = np.frombuffer(exec_req.computed_argmax.items, dtype=np.int64)[-1]
         decode_config = token_selection_strategy_config.decode_config
         # TODO: This is only temporary until streaming is enabled for `MultiGreedy`
         if decode_config.token_selection_strategy == TokenSelectionStrategy.GREEDY:
