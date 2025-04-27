@@ -318,12 +318,38 @@ def main():
 
             return logits
 
+    def generate_argmax(bs):
+        # dynamic_shapes = {
+        #     "result_logits" : []
+        # }
+        result_logits: torch.Tensor = torch.empty(
+            bs, 1, hp.context_length, dtype=torch.bfloat16
+        )
+        arg_affinities = [DeviceAffinity("0")]
+
+        @fxb.export_program(
+            name=f"argmax_bs{bs}",
+            args=(result_logits,),
+            dynamic_shapes={},
+            strict=args.strict,
+            arg_device=arg_affinities,
+        )
+        def _(
+            model,
+            result_logits=result_logits,
+        ):
+            argmax = model.argmax(result_logits)
+            return argmax
+
     if not args.skip_prefill:
         for bs in args.bs_prefill:
             generate_batch_prefill(bs)
     if not args.skip_decode:
         for bs in args.bs_decode:
             generate_batch_decode(bs)
+
+    generate_argmax(args.bs_prefill[0])
+    generate_argmax(args.bs_decode[0])
 
     config = generate_params_json(
         hp, args.bs_prefill, args.bs_decode, args.logits_normalization
