@@ -550,19 +550,10 @@ class PrefillExecutorProcess(LlmExecutorProcess):
                 logits_item = logits.view(i, slice(0, sl))
             else:
                 logits_item = logits.view(i, sl - 1)
-            if False:
-                req.result_logits = logits_item.for_transfer()
-                req.result_logits.copy_from(logits_item)
-            else:
-                req.result_logits = logits_item
-                (argmax_arr,) = await fn(logits_item, fiber=self.fiber)
-                req.computed_argmax = argmax_arr.for_transfer()
-                req.computed_argmax.copy_from(argmax_arr)
-                await device0
+
+            req.result_logits = logits_item
+            req.inference_fiber = self.fiber
             assert req.result_logits is not None
-            assert req.computed_argmax is not None
-        for i in range(req_count):
-            req = self.exec_requests[i]
             req.done.set_success()
 
         if self.program_isolation == sf.ProgramIsolation.PER_FIBER:
@@ -698,15 +689,9 @@ class DecodeExecutorProcess(LlmExecutorProcess):
                 logits_item = logits.view(i, slice(0, sl))
             else:
                 logits_item = logits.view(i, sl - 1)
-            if False:
-                req.result_logits = logits_item.for_transfer()
-                req.result_logits.copy_from(logits_item)
-            else:
-                req.result_logits = logits_item
-                (argmax_arr,) = await fn(logits_item, fiber=self.fiber)
-                req.computed_argmax = argmax_arr.for_transfer()
-                req.computed_argmax.copy_from(argmax_arr)
-                await device0
+
+            req.result_logits = logits_item
+            req.inference_fiber = self.fiber
             req.done.set_success()
 
         if self.program_isolation == sf.ProgramIsolation.PER_FIBER:
