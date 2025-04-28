@@ -325,7 +325,7 @@ def main():
         arg_affinities = [DeviceAffinity("0")]
 
         @fxb.export_program(
-            name=f"argmax",
+            name="argmax",
             args=(result_logits,),
             dynamic_shapes={},
             strict=args.strict,
