@@ -538,10 +538,6 @@ class PrefillExecutorProcess(LlmExecutorProcess):
 
     async def get_results(self, logits, req_count, device0):
         # Return results.
-        for bs, fn in self.functions.items():
-            if bs == 1:
-                print("Found argmax\n")
-                break
         for i in range(req_count):
             req = self.exec_requests[i]
             sl = len(req.input_token_ids)
@@ -678,10 +674,6 @@ class DecodeExecutorProcess(LlmExecutorProcess):
 
     async def get_results(self, logits, req_count, device0):
         # Return results.
-        for bs, fn in self.functions.items():
-            if bs == 1:
-                print("Found argmax\n")
-                break
         for i in range(req_count):
             req = self.exec_requests[i]
             sl = 1
