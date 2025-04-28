@@ -320,7 +320,10 @@ def main():
 
     def generate_argmax():
         result_logits: torch.Tensor = torch.empty(
-            1, 1, hp.context_length, dtype=torch.bfloat16
+            1,
+            1,
+            hp.context_length,
+            dtype=args.activation_dtype,
         )
         arg_affinities = [DeviceAffinity("0")]
 
