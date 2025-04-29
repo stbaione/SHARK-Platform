@@ -14,7 +14,7 @@ When in question, we draw from the vocabulary and normalization they have done
 (and indeed, can bootstrap these off of GGUF files).
 """
 
-from typing import TYPE_CHECKING, ClassVar, Any, Optional
+from typing import TYPE_CHECKING, ClassVar, Any, Optional, List
 from os import PathLike
 from dataclasses import asdict, dataclass, field, fields
 import torch
@@ -209,6 +209,8 @@ class LlamaModelConfig:
     # be the difference of many gigabytes of static data being embedded in
     # the program and not.
     static_tables: bool = True
+
+    post_processing_ops: Optional[List[str]] = None
 
     def __post_init__(self):
         if not self.block_to_device_lookup:

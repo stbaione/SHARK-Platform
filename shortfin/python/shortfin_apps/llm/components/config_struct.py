@@ -12,17 +12,18 @@ Classes:
 - ServerParams: for specifying config keys needed by `python -m shortfin_apps.llm.server`
 """
 
+import dataclasses_json
+
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
-import dataclasses_json
 from dataclasses_json import dataclass_json, Undefined
-
-import shortfin.array as sfnp
 
 from .token_selection_strategy.config import DecodeConfig
 from .token_selection_strategy.config import LogitsNormalization
+
+import shortfin.array as sfnp
 
 
 def _decode_dtype(name: str) -> sfnp.DType:
@@ -148,6 +149,8 @@ class ModelParams:
 
     # Cache parameters.
     paged_kv_cache: PagedKVCacheParams | None = None
+
+    post_processing_ops: List[str] | None = None
 
     # Size in bytes of the KV cache dtype.
     @property
