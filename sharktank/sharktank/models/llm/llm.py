@@ -144,6 +144,7 @@ class PagedLlmModelV1(BaseCausalLMModel):
         # [bs, batch_seq_len // block_seq_stride]
         seq_block_ids: list[Union[torch.Tensor, ReplicatedTensor]],
         cache_state: list[Union[torch.Tensor, SplitPrimitiveTensor]],
+        to_fp16: bool = False,
     ):
         self._assert_device(tokens)
         self._assert_device(*attention_mask, dtype=self.activation_dtype)
@@ -183,7 +184,7 @@ class PagedLlmModelV1(BaseCausalLMModel):
 
         if self.inference_norm:
             logits = logits / math.sqrt(3.0)
-        return logits
+        return logits if not to_fp16 else logits.to(dtype=torch.float16)
 
     def decode(
         self,
@@ -197,6 +198,7 @@ class PagedLlmModelV1(BaseCausalLMModel):
         # [bs, batch_seq_len // block_seq_stride]
         seq_block_ids: list[Union[torch.Tensor, ReplicatedTensor]],
         cache_state: list[Union[torch.Tensor, SplitPrimitiveTensor]],
+        to_fp16: bool = False,
     ):
         assert len(tokens.shape) == 2
         assert all(len(mask.shape) == 4 for mask in attention_mask)
@@ -274,7 +276,7 @@ class PagedLlmModelV1(BaseCausalLMModel):
 
         if self.inference_norm:
             logits = logits / math.sqrt(3.0)
-        return logits
+        return logits if not to_fp16 else logits.to(dtype=torch.float16)
 
 
 ################################################################################

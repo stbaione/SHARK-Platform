@@ -136,6 +136,11 @@ def add_model_options(parser: argparse.ArgumentParser):
         help="Generates attention mask during export",
         action="store_true",
     )
+    parser.add_argument(
+        "--to-fp16",
+        help="Convert logits from `prefill` and `decode` to fp16 before returning.",
+        action="store_true",
+    )
 
 
 def add_model_input_options(parser: argparse.ArgumentParser):

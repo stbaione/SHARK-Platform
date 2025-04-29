@@ -117,6 +117,7 @@ def main():
                 "attention_head_count_kv": hp.attention_head_count_kv,
                 "block_seq_stride": llama_config.block_seq_stride,
                 "device_block_count": args.device_block_count,  # so that this makes its way into the config file & can be edited.
+                "kv_cache_dtype": str(llama_config.kv_cache_dtype).split(".")[-1],
             },
         }
 
@@ -279,6 +280,7 @@ def main():
                 attention_mask=attention_mask,
                 seq_block_ids=seq_block_ids,
                 cache_state=cache_tensors,
+                to_fp16=args.to_fp16,
             )
 
             if llama_config.tensor_parallelism_size != 1:
@@ -407,6 +409,7 @@ def main():
                 start_positions=start_positions,
                 seq_block_ids=seq_block_ids,
                 cache_state=cache_state,
+                to_fp16=args.to_fp16,
             )
 
             if llama_config.tensor_parallelism_size != 1:
