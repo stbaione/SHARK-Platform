@@ -137,11 +137,6 @@ def add_model_options(parser: argparse.ArgumentParser):
         action="store_true",
     )
     parser.add_argument(
-        "--to-fp16",
-        help="Convert logits from `prefill` and `decode` to fp16 before returning.",
-        action="store_true",
-    )
-    parser.add_argument(
         "--use-post-processing-ops",
         help="Include post-processing ops, like argmax, in the export",
         action="store_true",
