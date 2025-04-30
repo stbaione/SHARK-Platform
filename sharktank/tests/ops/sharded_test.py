@@ -8,7 +8,6 @@ from collections.abc import Iterable
 from typing import Callable
 import unittest
 import itertools
-import math
 from parameterized import parameterized, parameterized_class
 
 import torch
@@ -892,6 +891,37 @@ class AttentionTest(unittest.TestCase):
         torch.testing.assert_close(unsharded_result, expected_result)
 
 
+class MaskedFillTest(unittest.TestCase):
+    def setUp(self):
+        torch.random.manual_seed(0)
+
+    @parameterized.expand((([3, 4, 5],), ([1, 4, 5],), ([1, 1, 5],), ([1, 1, 1],)))
+    def testMaskedFillReplicatedReplicated(self, mask_shape: list[int]):
+        tensor = torch.zeros(3, 4, 5, dtype=torch.float32)
+        mask = torch.rand(mask_shape) > 0.5
+        value = 1
+        expected_result = tensor.masked_fill(mask, value)
+
+        sharded_tensor = ops.replicate(tensor, count=2)
+        sharded_mask = ops.replicate(mask, count=2)
+        actual_result = ops.masked_fill(sharded_tensor, sharded_mask, value)
+
+        assert ops.equal(expected_result, actual_result)
+
+    @parameterized.expand((([3, 4, 5],), ([1, 4, 5],)))
+    def testMaskedFillSplitSplit(self, mask_shape: list[int]):
+        tensor = torch.zeros(3, 4, 5, dtype=torch.float32)
+        mask = torch.rand(mask_shape) > 0.5
+        value = 1
+        expected_result = tensor.masked_fill(mask, value)
+
+        sharded_tensor = SplitPrimitiveTensor(ts=tensor.split(2, dim=1), shard_dim=1)
+        sharded_mask = SplitPrimitiveTensor(ts=mask.split(2, dim=1), shard_dim=1)
+        actual_result = ops.masked_fill(sharded_tensor, sharded_mask, value)
+
+        assert ops.equal(expected_result, actual_result)
+
+
 class MatmulTest(unittest.TestCase):
     def testTorchRHSColumnShardedTransposed(self):
         t1 = torch.rand(4, 32, 16, dtype=torch.float32)
@@ -1546,6 +1576,72 @@ class SumTest(unittest.TestCase):
         expected_result = __builtins__["sum"](values)
         actual_result = ops.sum(iterable_transform(values))
         assert expected_result == actual_result
+
+
+class ToTest(unittest.TestCase):
+    def skipIfNeeded(self):
+        if not torch.cuda.is_available():
+            self.skipTest("Pytorch not build with GPU support.")
+
+    @parameterized.expand(
+        (
+            ("device",),
+            ("other",),
+            ("dtype",),
+        )
+    )
+    def testToReplicated(self, mode: str):
+        kwargs = {}
+        if mode == "device":
+            self.skipIfNeeded()
+            args = ("cuda:0", torch.float64)
+        elif mode == "other":
+            self.skipIfNeeded()
+            args = torch.tensor([1], dtype=torch.int, device="cuda:0")
+        elif mode == "dtype":
+            args, kwargs = (torch.int64,), {}
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+
+        tensor = torch.ones(3, 2, dtype=torch.int32)
+        expected_result = tensor.to(*args, **kwargs)
+        actual_result = ReplicatedTensor(ts=tensor, shard_count=2).to(*args, **kwargs)
+        actual_result = unbox_tensor(actual_result)
+
+        assert ops.equal(expected_result, actual_result)
+        assert actual_result.dtype == expected_result.dtype
+        assert actual_result.device == expected_result.device
+
+    @parameterized.expand(
+        (
+            ("device",),
+            ("other",),
+            ("dtype",),
+        )
+    )
+    def testToSplit(self, mode: str):
+        kwargs = {}
+        if mode == "device":
+            if not torch.cuda.is_available():
+                self.skipTest("Pytorch not build with GPU support.")
+            args = ("cuda:0", torch.float64)
+        elif mode == "other":
+            if not torch.cuda.is_available():
+                self.skipTest("Pytorch not build with GPU support.")
+            args = torch.tensor([1], dtype=torch.int, device="cuda:0")
+        elif mode == "dtype":
+            args, kwargs = (torch.int64,), {}
+        args, kwargs = (torch.int64,), {}
+        tensor = torch.ones(3, 2, dtype=torch.int32)
+        expected_result = tensor.to(*args, **kwargs)
+        actual_result = SplitPrimitiveTensor(ts=tensor, shard_count=2, shard_dim=1).to(
+            *args, **kwargs
+        )
+        actual_result = unbox_tensor(actual_result)
+
+        assert ops.equal(expected_result, actual_result)
+        assert actual_result.dtype == expected_result.dtype
+        assert actual_result.device == expected_result.device
 
 
 class TopKTest(unittest.TestCase):

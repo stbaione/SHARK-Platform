@@ -341,6 +341,17 @@ linear.override(Tensor, Tensor, auto_dequant=True)(linear_default)
 linear.override(Tensor, Tensor, Tensor, auto_dequant=True)(linear_default)
 
 
+@masked_fill.override(AllOfType(Tensor, PrimitiveTensor))
+def masked_fill_default(
+    tensor: Tensor | PrimitiveTensor,
+    mask: Tensor | PrimitiveTensor,
+    value: Number,
+) -> Union[Tensor, PrimitiveTensor]:
+    tensor = unbox_tensor(tensor)
+    mask = unbox_tensor(mask)
+    return tensor.masked_fill(mask, value)
+
+
 # Matmul
 @matmul.override(Tensor, Tensor, auto_dequant=True)
 def matmul_default(lhs, rhs, *, transpose_rhs: bool) -> Tensor:
@@ -478,7 +489,7 @@ def softmax_default(
 
 
 @to.override(Tensor)
-def to_default(tensor: Tensor, *args, **kwargs):
+def to_default(tensor: Tensor, *args, **kwargs) -> Tensor:
     return unbox_tensor(tensor).to(*args, **kwargs)
 
 
@@ -543,7 +554,7 @@ def unflatten_default(
 
 @unsqueeze.override(Tensor)
 def unsqueeze_default(tensor: Union[Tensor, PrimitiveTensor], dim: int) -> Tensor:
-    return torch.unsqueeze(tensor, dim)
+    return torch.unsqueeze(unbox_tensor(tensor), dim)
 
 
 @squeeze.override(AllOfType(AnyTensor, PrimitiveTensor))

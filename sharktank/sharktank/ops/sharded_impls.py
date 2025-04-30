@@ -433,6 +433,18 @@ def split_elementwise_binary(
     )
 
 
+@einsum_2args.override(AllOfType(ReplicatedTensor))
+def einsum_2args_replicated(
+    input0: ReplicatedTensor, input1: ReplicatedTensor, einsum_str: str
+) -> ReplicatedTensor:
+    assert input0.shard_count == input1.shard_count
+    shards = [
+        einsum_2args(input0_shard, input1_shard, einsum_str)
+        for input0_shard, input1_shard in zip(input0.shards, input1.shards)
+    ]
+    return ReplicatedTensor(ts=shards)
+
+
 @elementwise.override(SplitPrimitiveTensor, Number)
 def elementwise_binary_split_lhs_scalar_rhs(
     operator, x: SplitPrimitiveTensor, y: Number, *args, **kwargs
@@ -833,6 +845,34 @@ for types in itertools.product([Tensor, ShardedTensor], repeat=2):
         linear.override(*types, auto_dequant=True)(linear_sharded)
 
 
+@masked_fill.override(AllOfType(ReplicatedTensor))
+def masked_fill_replicated(
+    tensor: ReplicatedTensor,
+    mask: ReplicatedTensor,
+    value: Number,
+) -> ReplicatedTensor:
+    assert tensor.shard_count == mask.shard_count
+    shards = [
+        shard.masked_fill(mask_shard, value)
+        for shard, mask_shard in zip(tensor.shards, mask.shards)
+    ]
+    return ReplicatedTensor(ts=shards)
+
+
+@masked_fill.override(AllOfType(SplitPrimitiveTensor))
+def masked_fill_split(
+    tensor: SplitPrimitiveTensor,
+    mask: SplitPrimitiveTensor,
+    value: Number,
+) -> SplitPrimitiveTensor:
+    assert tensor.shard_count == mask.shard_count
+    shards = [
+        shard.masked_fill(mask_shard, value)
+        for shard, mask_shard in zip(tensor.shards, mask.shards)
+    ]
+    return SplitPrimitiveTensor(ts=shards, shard_dim=tensor.shard_dim)
+
+
 # Sharded matmuls.
 
 
@@ -1212,6 +1252,11 @@ def replicate_unsharded(input, *, count: int, devices: Tuple[int]) -> Replicated
     torch_input = unbox_tensor(input)
     assert count == len(devices)
     return ReplicatedTensor(ts=torch_input, shard_count=count, devices=devices)
+
+
+@reshape.override(ReplicatedTensor)
+def reshape_replicated(tensor: ReplicatedTensor, shape: List[int]) -> ReplicatedTensor:
+    return ReplicatedTensor(ts=[reshape(shard, shape) for shard in tensor.shards])
 
 
 @reshape.override(SplitPrimitiveTensor)
@@ -1608,16 +1653,10 @@ def sum_split(
         return ReplicatedTensor(ts=summed, shard_count=input.shard_count)
 
 
-@to.override(ReplicatedTensor)
-def to_replicated(tensor: ReplicatedTensor, *args, **kwargs):
+@to.override(ShardedTensor)
+def to_sharded(tensor: ShardedTensor, *args, **kwargs):
     shards = [to(shard, *args, **kwargs) for shard in tensor.shards]
-    return ReplicatedTensor(ts=shards)
-
-
-@to.override(SplitPrimitiveTensor)
-def to_split(tensor: SplitPrimitiveTensor, *args, **kwargs):
-    shards = [to(shard, *args, **kwargs) for shard in tensor.shards]
-    return SplitPrimitiveTensor(ts=shards, shard_dim=tensor.shard_dim)
+    return tensor.clone(ts=shards)
 
 
 @topk.override(ReplicatedTensor)
