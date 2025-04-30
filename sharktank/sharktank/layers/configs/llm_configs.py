@@ -210,8 +210,6 @@ class LlamaModelConfig:
     # the program and not.
     static_tables: bool = True
 
-    post_processing_ops: Optional[List[str]] = None
-
     def __post_init__(self):
         if not self.block_to_device_lookup:
             assert (

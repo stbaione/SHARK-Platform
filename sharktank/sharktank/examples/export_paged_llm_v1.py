@@ -86,7 +86,6 @@ def main():
         activation_dtype=args.activation_dtype,
         attention_dtype=args.attention_dtype,
         kv_cache_dtype=args.kv_cache_dtype,
-        post_processing_ops=[] if args.use_post_processing_ops else None,
     )
     llama_config.fake_quant = args.fake_quant
 
@@ -120,7 +119,7 @@ def main():
             "decode_batch_sizes": decode_bs,
             "transformer_block_count": hp.block_count,
             "logits_normalization": logits_normalization,
-            "post_processing_ops": llama_config.post_processing_ops,
+            "top_k": args.top_k,
             "paged_kv_cache": {
                 "attention_head_count_kv": hp.attention_head_count_kv,
                 "block_seq_stride": llama_config.block_seq_stride,
@@ -429,10 +428,7 @@ def main():
 
             return logits
 
-    def generate_post_processing_ops():
-        name = "argmax"
-        llama_config.post_processing_ops.append(name)
-
+    def generate_argmax():
         logits: torch.Tensor = torch.empty(
             1,
             1,
@@ -443,7 +439,7 @@ def main():
         arg_affinities = [DeviceAffinity("0")]
 
         @fxb.export_program(
-            name=name,
+            name="argmax",
             args=(logits,),
             dynamic_shapes={},
             strict=args.strict,
@@ -463,8 +459,9 @@ def main():
         for bs in args.bs_decode:
             generate_batch_decode(bs)
 
-    if args.use_post_processing_ops:
-        generate_post_processing_ops()
+    if args.top_k is not None:
+        if args.top_k == 1:
+            generate_argmax()
 
     config = generate_params_json(
         hp, args.bs_prefill, args.bs_decode, args.logits_normalization
