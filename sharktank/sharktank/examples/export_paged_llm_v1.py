@@ -450,7 +450,8 @@ def main():
             logits=logits,
             axis=-1,
         ):
-            return ops.argmax(logits, axis)
+            # Allowed 16 maximum binding flags when compiling
+            return ops.custom_impls.split_argmax(logits, axis, hp.context_length // 16)
 
     if not args.skip_prefill:
         for bs in args.bs_prefill:

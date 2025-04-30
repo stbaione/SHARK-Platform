@@ -42,6 +42,39 @@ class ArgmaxTest(unittest.TestCase):
             result = ops.argmax(a, 0)
             assert result[0][42] == 1
 
+    def testArgmaxKeepdim(self):
+        for dtype in [torch.float16, torch.float32]:
+            a = torch.zeros(2, 4, dtype=dtype)
+            a[1][0] = 42
+            a[1][2] = 99
+            a[0][1] = 1
+            a[0][3] = 1
+            result = ops.argmax(a, dim=0, keepdim=True)
+            expected = torch.tensor([[1, 0, 1, 0]], dtype=torch.int64)
+            assert result.shape == (1, 4)
+            assert torch.equal(result, expected)
+
+
+class SplitArgmaxTest(unittest.TestCase):
+    def testSplitArgmax(self):
+        for dtype in [torch.float16, torch.float32]:
+            a = torch.zeros(1, 1, 256, dtype=dtype)
+            a[0][0][42] = 42
+            assert ops.custom_impls.split_argmax(a, -1, 16) == 42
+
+    def testSplitArgmaxLarge(self):
+        a = torch.zeros(1, 1, 131072, dtype=torch.float16)
+        a[0][0][42] = 42
+        result = ops.custom_impls.split_argmax(a, -1, 16)
+        assert result == 42
+
+    def testArgmaxDim0(self):
+        for dtype in [torch.float16, torch.float32]:
+            a = torch.zeros(3, 1, 256, dtype=dtype)
+            a[1][0][42] = 42
+            result = ops.custom_impls.split_argmax(a, 0, 16)
+            assert result[0][42] == 1
+
 
 class BroadcastDimsTest(unittest.TestCase):
     def testBroadcastDimForSmallerRankTensor(self):
@@ -235,6 +268,29 @@ class MatmulTest(unittest.TestCase):
     # TODO: mmt_super_block_scaled_offset_q4_unsigned
 
 
+class MaxTest(unittest.TestCase):
+    def testMaxNoDim(self):
+        for dtype in [torch.float16, torch.float32]:
+            a = torch.zeros(1, 1, 256, dtype=dtype)
+            a[0][0][42] = 42
+            val = ops.max(a)
+            self.assertEqual(val.item(), 42)
+
+    def testMaxWithDim(self):
+        for dtype in [torch.float16, torch.float32]:
+            a = torch.tensor([[1, 2, 3], [4, 9, 0], [7, 5, 6]], dtype=dtype)
+
+            # Column-wise max
+            val, idx = ops.max(a, dim=0)
+            self.assertTrue(torch.equal(val, torch.tensor([7, 9, 6], dtype=dtype)))
+            self.assertTrue(torch.equal(idx, torch.tensor([2, 1, 2])))
+
+            # Row-wise max
+            val, idx = ops.max(a, dim=-1)
+            self.assertTrue(torch.equal(val, torch.tensor([3, 9, 7], dtype=dtype)))
+            self.assertTrue(torch.equal(idx, torch.tensor([2, 1, 0])))
+
+
 class PermuteTest(unittest.TestCase):
     def testPermute(self):
         torch_tensor = torch.rand(3, 4, 5, dtype=torch.float32)
@@ -277,6 +333,42 @@ class RmsNormTest(unittest.TestCase):
         torch.testing.assert_close(actual, result)
 
     # TODO: Quantized tensor
+
+
+class SplitTest(unittest.TestCase):
+    def testSplitEqualChunks(self):
+        for dtype in [torch.float16, torch.float32]:
+            a = torch.tensor([10, 20, 30, 40, 50, 60], dtype=dtype)
+            splits = ops.split(a, 2)
+            self.assertEqual(len(splits), 3)
+            self.assertTrue(torch.equal(splits[0], torch.tensor([10, 20], dtype=dtype)))
+            self.assertTrue(torch.equal(splits[1], torch.tensor([30, 40], dtype=dtype)))
+            self.assertTrue(torch.equal(splits[2], torch.tensor([50, 60], dtype=dtype)))
+
+    def testSplitExplicitSizes(self):
+        for dtype in [torch.float16, torch.float32]:
+            a = torch.tensor([1, 2, 3, 4, 5], dtype=dtype)
+            splits = ops.split(a, [2, 1, 2])
+            self.assertEqual(len(splits), 3)
+            self.assertTrue(torch.equal(splits[0], torch.tensor([1, 2], dtype=dtype)))
+            self.assertTrue(torch.equal(splits[1], torch.tensor([3], dtype=dtype)))
+            self.assertTrue(torch.equal(splits[2], torch.tensor([4, 5], dtype=dtype)))
+
+    def testSplitDim(self):
+        for dtype in [torch.float16, torch.float32]:
+            a = torch.tensor([[1, 2, 3, 4], [5, 6, 7, 8]], dtype=dtype)
+            splits = ops.split(a, 2, dim=1)
+            self.assertEqual(len(splits), 2)
+            self.assertTrue(
+                torch.equal(splits[0], torch.tensor([[1, 2], [5, 6]], dtype=dtype))
+            )
+            self.assertTrue(
+                torch.equal(splits[1], torch.tensor([[3, 4], [7, 8]], dtype=dtype))
+            )
+
+    def testSplitLarge(self):
+        a = torch.empty([1, 1, 131072], dtype=torch.float16)
+        ops.split(a, 1024, -1)
 
 
 class TestOpExport(unittest.TestCase):

@@ -48,6 +48,39 @@ from ._registry import NotOfType
 #     return mmtfp(lhs, rhs)
 
 
+# Argmax
+
+
+@argmax.override(Tensor, QuantizedTensor)
+def split_argmax(input_tensor, dim, chunk_size: int = 1024):
+    input_tensor = unbox_tensor(input_tensor)
+    dim = dim if dim >= 0 else input_tensor.dim() + dim
+
+    chunks = split(input_tensor, chunk_size, dim)
+
+    max_values = []
+    max_indices = []
+
+    offset = 0
+    for chunk in chunks:
+        chunk_max_values, chunk_max_indices = max(chunk, dim=dim, keepdim=True)
+
+        adjusted_indices = chunk_max_indices + offset
+
+        max_values.append(chunk_max_values)
+        max_indices.append(adjusted_indices)
+
+        offset += chunk.size(dim)
+
+    combined_max_values = cat(max_values, dim=dim)
+    combined_max_indices = cat(max_indices, dim=dim)
+
+    final_indices = argmax(combined_max_values, dim=dim, keepdim=True)
+    final_max_indices = gather(combined_max_indices, dim, final_indices)
+
+    return squeeze(final_max_indices, dim)
+
+
 # Einsum
 
 

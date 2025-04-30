@@ -27,6 +27,15 @@ from .signatures import *
 import iree.turbine.ops.iree
 
 
+@argmax.override(Tensor)
+def argmax_default(
+    x: Tensor,
+    dim: Optional[int] = None,
+    keepdim: bool = False,
+) -> None:
+    return torch.argmax(unbox_tensor(x), dim=dim, keepdim=keepdim)
+
+
 @cat.override(AllOfType(Tensor, PrimitiveTensor))
 def cat_default(tensors: Sequence[Tensor | PrimitiveTensor], dim: int):
     return torch.cat([unbox_tensor(t) for t in tensors], dim)
@@ -385,12 +394,16 @@ def scaled_dot_product_attention_torch(q, k, v, a, is_causal, scale) -> Tensor:
     )
 
 
-@argmax.override(Tensor)
-def argmax_default(
+@max.override(Tensor)
+def max_default(
     x: Tensor,
-    axis: int,
-) -> None:
-    return torch.argmax(unbox_tensor(x), dim=axis)
+    dim: Optional[Union[int, Tuple[int]]] = None,
+    keepdim: Optional[bool] = False,
+):
+    if dim is None:
+        return torch.max(unbox_tensor(x))
+
+    return torch.max(unbox_tensor(x), dim=dim, keepdim=keepdim)
 
 
 @mean.override(Tensor)
@@ -486,6 +499,19 @@ def softmax_default(
     dtype: Optional[torch.dtype],
 ) -> Tensor:
     return F.softmax(unbox_tensor(tensor), dim=dim, dtype=dtype)
+
+
+@split.override(Tensor)
+def split_default(
+    tensor: Union[Tensor, PrimitiveTensor],
+    split_size_or_sections: Union[int, List[int]],
+    dim: int = 0,
+) -> Tuple[Tensor]:
+    return torch.split(
+        unbox_tensor(tensor),
+        split_size_or_sections=split_size_or_sections,
+        dim=dim,
+    )
 
 
 @to.override(Tensor)
