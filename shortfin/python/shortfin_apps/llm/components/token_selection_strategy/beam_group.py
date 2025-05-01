@@ -17,7 +17,7 @@ import shortfin.array as sfnp
 
 from .base_token_selection_strategy import DecodeConfig
 from .config import LogitsNormalization
-from .sampler import Sampler
+from .sampler import GPUSampler, CPUSampler
 from ..messages import LlmInferenceExecRequest
 
 from shortfin_apps.utils import (
@@ -37,7 +37,7 @@ class Beam(ABC):
 
     decode_config: DecodeConfig
 
-    sampler: Sampler = field(default_factory=Sampler)
+    sampler: CPUSampler | GPUSampler
 
     score: float = 0.0
     accumulated_normalization: float = 0.0

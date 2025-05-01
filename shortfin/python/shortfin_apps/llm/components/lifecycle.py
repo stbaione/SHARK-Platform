@@ -48,6 +48,8 @@ class ShortfinLlmLifecycleManager:
     """
 
     def __init__(self, args):
+        test = args
+
         # Load server configuration with priority: command line > config file > defaults
         model_params = ModelParams.load_json(args.model_config)
         server_params = ServerParams.load(
