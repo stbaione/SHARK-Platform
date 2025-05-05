@@ -439,7 +439,7 @@ def main():
             1,
             1,
             hp.context_length,
-            dtype=llama_config.activation_dtype,
+            dtype=torch.float16,
         )
 
         arg_affinities = [DeviceAffinity("0")]

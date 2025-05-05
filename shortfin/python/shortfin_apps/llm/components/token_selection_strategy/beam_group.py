@@ -207,8 +207,8 @@ class BeamGroup:
         done_signals = [beam.exec_req.done for beam in self.active_beams]
         return await gather(*done_signals)
 
-    def process_beams(self):
-        beam_selections = self.selection_callback(
+    async def process_beams(self):
+        beam_selections = await self.selection_callback(
             self.active_beams, self.completed_beams
         )
         visited_reqs: Dict[str, LlmInferenceExecRequest] = {}
