@@ -27,6 +27,15 @@ from .signatures import *
 import iree.turbine.ops.iree
 
 
+@argmax.override(Tensor)
+def argmax_default(
+    x: Tensor,
+    dim: Optional[int] = None,
+    keepdim: bool = False,
+) -> None:
+    return torch.argmax(unbox_tensor(x), dim=dim, keepdim=keepdim)
+
+
 @cat.override(AllOfType(Tensor, PrimitiveTensor))
 def cat_default(tensors: Sequence[Tensor | PrimitiveTensor], dim: int):
     return torch.cat([unbox_tensor(t) for t in tensors], dim)
@@ -383,14 +392,6 @@ def scaled_dot_product_attention_torch(q, k, v, a, is_causal, scale) -> Tensor:
     return torch.nn.functional.scaled_dot_product_attention(
         q, k, v, attn_mask=a, dropout_p=0.0, is_causal=is_causal, scale=scale
     )
-
-
-@argmax.override(Tensor)
-def argmax_default(
-    x: Tensor,
-    axis: int,
-) -> None:
-    return torch.argmax(unbox_tensor(x), dim=axis)
 
 
 @mean.override(Tensor)
