@@ -145,13 +145,7 @@ def _argmax_trampoline(
 ):
     tensors = (tensor,)
     for override in d.find_overrides(tensors):
-        if chunk_size is not None:
-            result = override(tensor, dim, chunk_size=chunk_size)
-        else:
-            if override.__name__ == "split_argmax":
-                continue
-
-            result = override(tensor, dim, keepdim=keepdim)
+        result = override(tensor, dim, chunk_size=chunk_size, keepdim=keepdim)
         if result is not NotImplemented:
             return override, result
     else:
