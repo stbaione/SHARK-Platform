@@ -37,10 +37,12 @@ def argmax_default(
     if chunk_size is None:
         return torch.argmax(unbox_tensor(x), dim=dim, keepdim=keepdim)
 
-    return _split_argmax(unbox_tensor(x), dim=dim, chunk_size=chunk_size)
+    return _split_argmax(
+        unbox_tensor(x), dim=dim, chunk_size=chunk_size, keepdim=keepdim
+    )
 
 
-def _split_argmax(input_tensor, dim, chunk_size: int = 128):
+def _split_argmax(input_tensor, dim, chunk_size: int = 128, keepdim: bool = False):
     input_tensor = unbox_tensor(input_tensor)
     dim = dim if dim >= 0 else input_tensor.dim() + dim
 
@@ -59,6 +61,9 @@ def _split_argmax(input_tensor, dim, chunk_size: int = 128):
     final_index = argmax_2 * tensor_split.shape[dim + 1] + final_index_in_chunk
 
     final_index = squeeze(final_index, 0)
+
+    if keepdim:
+        final_index = unsqueeze(final_index, dim)
 
     return final_index
 

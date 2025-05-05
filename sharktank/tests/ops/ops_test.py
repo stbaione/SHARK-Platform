@@ -73,6 +73,18 @@ class ArgmaxTest(unittest.TestCase):
             result = ops.argmax(a, 0, 1)
             assert result[0][42] == 1
 
+    def testSplitArgmaxKeepdim(self):
+        for dtype in [torch.float16, torch.float32]:
+            a = torch.zeros(2, 4, dtype=dtype)
+            a[1][0] = 42
+            a[1][2] = 99
+            a[0][1] = 1
+            a[0][3] = 1
+            result = ops.argmax(a, dim=0, chunk_size=1, keepdim=True)
+            expected = torch.tensor([[1, 0, 1, 0]], dtype=torch.int64)
+            assert result.shape == (1, 4)
+            assert torch.equal(result, expected)
+
 
 class BroadcastDimsTest(unittest.TestCase):
     def testBroadcastDimForSmallerRankTensor(self):
