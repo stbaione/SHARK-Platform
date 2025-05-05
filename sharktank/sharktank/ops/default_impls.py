@@ -31,9 +31,41 @@ import iree.turbine.ops.iree
 def argmax_default(
     x: Tensor,
     dim: Optional[int] = None,
+    chunk_size: Optional[int] = None,
     keepdim: bool = False,
 ) -> None:
-    return torch.argmax(unbox_tensor(x), dim=dim, keepdim=keepdim)
+    if chunk_size is None:
+        return torch.argmax(unbox_tensor(x), dim=dim, keepdim=keepdim)
+
+    return _split_argmax(
+        unbox_tensor(x), dim=dim, chunk_size=chunk_size, keepdim=keepdim
+    )
+
+
+def _split_argmax(input_tensor, dim, chunk_size: int = 128, keepdim: bool = False):
+    input_tensor = unbox_tensor(input_tensor)
+    dim = dim if dim >= 0 else input_tensor.dim() + dim
+
+    tensor_split = unflatten(input_tensor, dim, (chunk_size, -1))
+
+    argmax_1 = argmax(tensor_split, dim + 1)
+    argmax_expanded = unsqueeze(argmax_1, dim + 1)
+
+    max_vals = gather(tensor_split, dim + 1, argmax_expanded)
+    max_vals = squeeze(max_vals, dim + 1)
+
+    argmax_2 = argmax(max_vals, dim)
+    argmax_2_expanded = unsqueeze(argmax_2, 0)
+
+    final_index_in_chunk = gather(argmax_1, dim, argmax_2_expanded)
+    final_index = argmax_2 * tensor_split.shape[dim + 1] + final_index_in_chunk
+
+    final_index = squeeze(final_index, 0)
+
+    if keepdim:
+        final_index = unsqueeze(final_index, dim)
+
+    return final_index
 
 
 @cat.override(AllOfType(Tensor, PrimitiveTensor))
