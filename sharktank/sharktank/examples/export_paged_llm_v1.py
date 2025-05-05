@@ -450,8 +450,10 @@ def main():
             logits=logits,
             axis=-1,
         ):
-            # Allowed 16 maximum binding flags when compiling
-            return ops.custom_impls.split_argmax(logits, axis, hp.context_length // 16)
+            # Split into 1024 chunks
+            return ops.custom_impls.split_argmax(
+                logits, axis, hp.context_length // 1024
+            )
 
     if not args.skip_prefill:
         for bs in args.bs_prefill:

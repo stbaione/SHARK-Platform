@@ -52,33 +52,27 @@ from ._registry import NotOfType
 
 
 @argmax.override(Tensor, QuantizedTensor)
-def split_argmax(input_tensor, dim, chunk_size: int = 1024):
+def split_argmax(input_tensor, dim, chunk_size: int = 128):
     input_tensor = unbox_tensor(input_tensor)
     dim = dim if dim >= 0 else input_tensor.dim() + dim
 
-    chunks = split(input_tensor, chunk_size, dim)
+    tensor_split = unflatten(input_tensor, dim, (chunk_size, -1))
 
-    max_values = []
-    max_indices = []
+    argmax_1 = argmax(tensor_split, dim + 1)
+    argmax_expanded = unsqueeze(argmax_1, dim + 1)
 
-    offset = 0
-    for chunk in chunks:
-        chunk_max_values, chunk_max_indices = max(chunk, dim=dim, keepdim=True)
+    max_vals = gather(tensor_split, dim + 1, argmax_expanded)
+    max_vals = squeeze(max_vals, dim + 1)
 
-        adjusted_indices = chunk_max_indices + offset
+    argmax_2 = argmax(max_vals, dim)
+    argmax_2_expanded = unsqueeze(argmax_2, 0)
 
-        max_values.append(chunk_max_values)
-        max_indices.append(adjusted_indices)
+    final_index_in_chunk = gather(argmax_1, dim, argmax_2_expanded)
+    final_index = argmax_2 * tensor_split.shape[dim + 1] + final_index_in_chunk
 
-        offset += chunk.size(dim)
+    final_index = squeeze(final_index, 0)
 
-    combined_max_values = cat(max_values, dim=dim)
-    combined_max_indices = cat(max_indices, dim=dim)
-
-    final_indices = argmax(combined_max_values, dim=dim, keepdim=True)
-    final_max_indices = gather(combined_max_indices, dim, final_indices)
-
-    return squeeze(final_max_indices, dim)
+    return final_index
 
 
 # Einsum
