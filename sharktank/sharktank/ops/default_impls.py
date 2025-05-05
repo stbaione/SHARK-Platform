@@ -394,18 +394,6 @@ def scaled_dot_product_attention_torch(q, k, v, a, is_causal, scale) -> Tensor:
     )
 
 
-@max.override(Tensor)
-def max_default(
-    x: Tensor,
-    dim: Optional[Union[int, Tuple[int]]] = None,
-    keepdim: Optional[bool] = False,
-):
-    if dim is None:
-        return torch.max(unbox_tensor(x))
-
-    return torch.max(unbox_tensor(x), dim=dim, keepdim=keepdim)
-
-
 @mean.override(Tensor)
 def mean_default(
     x: Tensor, dim: Union[int, List[int]], keepdim: bool, *, dtype: torch.dtype
@@ -499,19 +487,6 @@ def softmax_default(
     dtype: Optional[torch.dtype],
 ) -> Tensor:
     return F.softmax(unbox_tensor(tensor), dim=dim, dtype=dtype)
-
-
-@split.override(Tensor)
-def split_default(
-    tensor: Union[Tensor, PrimitiveTensor],
-    split_size_or_sections: Union[int, List[int]],
-    dim: int = 0,
-) -> Tuple[Tensor]:
-    return torch.split(
-        unbox_tensor(tensor),
-        split_size_or_sections=split_size_or_sections,
-        dim=dim,
-    )
 
 
 @to.override(Tensor)
