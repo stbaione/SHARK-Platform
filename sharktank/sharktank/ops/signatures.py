@@ -52,7 +52,6 @@ __all__ = [
     "linear",
     "masked_fill",
     "matmul",
-    "max",
     "mean",
     "module_register_buffer",
     "pad",
@@ -70,7 +69,6 @@ __all__ = [
     "sharded_sum",
     "sigmoid",
     "softmax",
-    "split",
     "squeeze",
     "sum",
     "to",
@@ -759,32 +757,6 @@ def _matmul_trampoline(
 
 
 @overridable
-def max(
-    tensor: AnyTensor,
-    dim: Optional[Union[int, Tuple[int]]] = None,
-    keepdim: Optional[bool] = False,
-):
-    """Obtain max values and indices along a dimension."""
-    ...
-
-
-@max.trampoline
-def _max_trampoline(
-    d: SignatureDispatcher,
-    tensor: AnyTensor,
-    dim: Optional[Union[int, Tuple[int]]] = None,
-    keepdim: Optional[bool] = False,
-):
-    tensors = (tensor,)
-    for override in d.find_overrides(tensors):
-        result = override(tensor, dim=dim, keepdim=keepdim)
-        if result is not NotImplemented:
-            return override, result
-    else:
-        d.fail(tensors)
-
-
-@overridable
 def pad(
     input: AnyTensor, _pad: Sequence[int], mode: str, value: Optional[float]
 ) -> AnyTensor:
@@ -1193,34 +1165,6 @@ def _softmax_trampoline(
     dispatch_args = [tensor]
     for override in d.find_overrides(dispatch_args):
         result = override(tensor, dim=dim, dtype=dtype)
-        if result is not NotImplemented:
-            return override, result
-    else:
-        d.fail(dispatch_args)
-
-
-@overridable
-def split(
-    input: AnyTensor,
-    split_size_or_sections: Union[int, List[int]],
-    dim: Optional[int] = 0,
-) -> Tuple[AnyTensor]:
-    """Split `input` along `dim` into chunks."""
-    ...
-
-
-@split.trampoline
-def _split_trampoline(
-    d: SignatureDispatcher,
-    tensor: AnyTensor,
-    split_size_or_sections: Union[int, List[int]],
-    dim: Optional[int] = 0,
-):
-    dispatch_args = [tensor]
-    for override in d.find_overrides(dispatch_args):
-        result = override(
-            tensor, split_size_or_sections=split_size_or_sections, dim=dim
-        )
         if result is not NotImplemented:
             return override, result
     else:
