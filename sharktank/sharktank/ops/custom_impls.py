@@ -51,7 +51,7 @@ from ._registry import NotOfType
 # Argmax
 
 
-@argmax.override(Tensor, QuantizedTensor)
+@argmax.override(Tensor)
 def split_argmax(input_tensor, dim, chunk_size: int = 128):
     input_tensor = unbox_tensor(input_tensor)
     dim = dim if dim >= 0 else input_tensor.dim() + dim

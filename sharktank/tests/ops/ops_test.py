@@ -54,8 +54,6 @@ class ArgmaxTest(unittest.TestCase):
             assert result.shape == (1, 4)
             assert torch.equal(result, expected)
 
-
-class SplitArgmaxTest(unittest.TestCase):
     def testSplitArgmax(self):
         for dtype in [torch.float16, torch.float32]:
             a = torch.zeros(1, 1, 256, dtype=dtype)
@@ -68,7 +66,7 @@ class SplitArgmaxTest(unittest.TestCase):
         result = ops.custom_impls.split_argmax(a, -1, 128)
         assert result == 42
 
-    def testArgmaxDim0(self):
+    def testSplitArgmaxDim0(self):
         for dtype in [torch.float16, torch.float32]:
             a = torch.zeros(3, 1, 256, dtype=dtype)
             a[1][0][42] = 42
