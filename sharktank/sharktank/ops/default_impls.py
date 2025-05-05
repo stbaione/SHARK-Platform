@@ -31,18 +31,21 @@ import iree.turbine.ops.iree
 def argmax_default(
     x: Tensor,
     dim: Optional[int] = None,
-    chunk_size: Optional[int] = None,
     keepdim: bool = False,
+    chunk_size: Optional[int] = None,
 ) -> None:
     if chunk_size is None:
         return torch.argmax(unbox_tensor(x), dim=dim, keepdim=keepdim)
 
     return _split_argmax(
-        unbox_tensor(x), dim=dim, chunk_size=chunk_size, keepdim=keepdim
+        unbox_tensor(x),
+        dim=dim,
+        keepdim=keepdim,
+        chunk_size=chunk_size,
     )
 
 
-def _split_argmax(input_tensor, dim, chunk_size: int = 128, keepdim: bool = False):
+def _split_argmax(input_tensor, dim, keepdim: bool = False, chunk_size: int = 128):
     input_tensor = unbox_tensor(input_tensor)
     dim = dim if dim >= 0 else input_tensor.dim() + dim
 
