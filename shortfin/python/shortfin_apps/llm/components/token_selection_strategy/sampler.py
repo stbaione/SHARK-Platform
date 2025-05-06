@@ -21,7 +21,6 @@ from .config import SamplingKernels
 class GPUSampler:
 
     sampling_kernels: Dict[str, sf.ProgramFunction]
-    is_gpu_sampler: bool = True
 
     async def select_greedy(self, logits: sfnp.device_array, fiber: sf.Fiber) -> int:
         """Greedily select a single token using `argmax`.
@@ -45,9 +44,6 @@ class GPUSampler:
 
 @dataclass
 class CPUSampler:
-
-    is_gpu_sampler: bool = False
-
     def sample_top_k(self, tokens: List[int], probs: List[float], k: int):
         choices: List[int] = random.choices(tokens, weights=probs, k=k)
         token_prob_map = dict(zip(tokens, probs))

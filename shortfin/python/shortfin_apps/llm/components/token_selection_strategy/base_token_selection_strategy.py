@@ -39,7 +39,8 @@ class TokenSelectionStrategyConfig:
 class BaseTokenSelectionStrategy(ABC):
     """Abstract class for implementing token selection strategies."""
 
-    sampler: CPUSampler | GPUSampler
+    cpu_sampler: CPUSampler
+    gpu_sampler: GPUSampler | None
 
     def _log_sampling_method(self):
         """Log the sampling method used for token selection."""
@@ -97,8 +98,8 @@ class BaseTokenSelectionStrategy(ABC):
         token_selection_strategy_config.prefill_callback(exec_req)
         await exec_req.done
 
-        if self.sampler.is_gpu_sampler:
-            token_int = await self.sampler.select_greedy(
+        if self.gpu_sampler is not None:
+            token_int = await self.gpu_sampler.select_greedy(
                 exec_req.result_logits, exec_req.invocation_fiber
             )
 
@@ -106,7 +107,7 @@ class BaseTokenSelectionStrategy(ABC):
             logits = exec_req.result_logits.for_transfer()
             logits.copy_from(exec_req.result_logits)
             await logits.device
-            token_int = self.sampler.select_greedy(logits)
+            token_int = self.cpu_sampler.select_greedy(logits)
 
         decode_config = token_selection_strategy_config.decode_config
         # TODO: This is only temporary until streaming is enabled for `MultiGreedy`

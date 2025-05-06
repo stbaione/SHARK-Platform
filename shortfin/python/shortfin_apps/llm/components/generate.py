@@ -72,7 +72,7 @@ class GenerateItemProcess(sf.Process):
 
         sampling_kernels = (
             self.client.service.sampling_kernels
-            if not self.client.service.server_params.disable_gpu_sampling
+            if self.client.service.server_params.enable_gpu_sampling
             else None
         )
         self.token_selector_config: TokenSelectionStrategyConfig = (

@@ -72,7 +72,10 @@ class MultiGreedyTokenSelectionStrategy(GreedyTokenSelectionStrategy):
 
         beams = [
             GreedyBeam(
-                exec_req, decode_config=config.decode_config, sampler=self.sampler
+                exec_req,
+                decode_config=config.decode_config,
+                cpu_sampler=self.cpu_sampler,
+                gpu_sampler=self.gpu_sampler,
             )
             for exec_req in exec_reqs
         ]

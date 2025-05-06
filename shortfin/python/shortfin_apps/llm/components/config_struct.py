@@ -232,8 +232,8 @@ class ServerParams:
 
     decode_config: DecodeConfig | None = None
 
-    # Disable using GPU kernels for sampling, if they are available.
-    disable_gpu_sampling: bool = False
+    # Enable using GPU kernels for sampling, if they are available.
+    enable_gpu_sampling: bool = False
 
     # Device configuration
     device_ids: list[str] = field(default_factory=list)

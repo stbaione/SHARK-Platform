@@ -132,7 +132,7 @@ def add_service_args(parser: argparse.ArgumentParser):
         help="Number of fibers to use per worker.",
     )
     parser.add_argument(
-        "--disable_gpu_sampling",
+        "--enable_gpu_sampling",
         action="store_true",
         help="Disable using GPU kernels for sampling, if they are available.",
         default=False,

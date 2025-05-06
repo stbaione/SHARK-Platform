@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Callable, Dict, List, Union
+from typing import Callable, Dict, List, Tuple, Union
 
 import shortfin as sf
 
@@ -69,13 +69,13 @@ def build_token_selector_config(
     )
 
 
-def _get_sampler(
+def _get_samplers(
     config: TokenSelectionStrategyConfig,
-) -> CPUSampler | GPUSampler:
+) -> Tuple[CPUSampler, GPUSampler | None]:
     if config.sampling_kernels is None:
-        return CPUSampler()
+        return CPUSampler(), None
 
-    return GPUSampler(config.sampling_kernels)
+    return CPUSampler(), GPUSampler(config.sampling_kernels)
 
 
 def build_token_selector(
@@ -104,10 +104,12 @@ def build_token_selector(
             f"Supported strategies: {','.join([strategy.name for strategy in TokenSelectionStrategy])}"
         )
 
-    sampler = _get_sampler(config)
+    cpu_sampler, gpu_sampler = _get_samplers(config)
 
     return strategy_map[config.decode_config.token_selection_strategy](
-        config, sampler=sampler
+        config,
+        cpu_sampler=cpu_sampler,
+        gpu_sampler=gpu_sampler,
     )
 
 
@@ -125,6 +127,7 @@ __all__ = [
     "TokenSelectionStrategyConfig",
     "TokenSelectionStrategy",
     "CPUSampler",
+    "GPUSampler",
     "SamplingKernels",
     "BeamSearchTokenSelectionStrategy",
     "GreedyTokenSelectionStrategy",

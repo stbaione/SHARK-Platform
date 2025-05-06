@@ -37,7 +37,8 @@ class Beam(ABC):
 
     decode_config: DecodeConfig
 
-    sampler: CPUSampler | GPUSampler
+    cpu_sampler: CPUSampler
+    gpu_sampler: GPUSampler | None
 
     score: float = 0.0
     accumulated_normalization: float = 0.0
@@ -129,7 +130,7 @@ class Beam(ABC):
         return probs
 
     def _sample_logits_top_k(self, logits: sfnp.device_array, top_k, num_selections):
-        tokens, values = self.sampler.select_top_k(logits, -top_k)
+        tokens, values = self.cpu_sampler.select_top_k(logits, -top_k)
 
         probs = self._to_softmax(
             values,
@@ -138,19 +139,25 @@ class Beam(ABC):
             self.decode_config.logits_normalization,
         )
 
-        return self.sampler.sample_top_k(
+        return self.cpu_sampler.sample_top_k(
             tokens,
             probs,
             k=num_selections,
         )
 
     def _sample_logits_top_p(self, tokens, probs, top_p, num_selections):
-        return self.sampler.sample_top_p(
+        return self.cpu_sampler.sample_top_p(
             tokens=tokens,
             probs=probs,
             p=top_p,
             k=num_selections,
         )
+
+    async def _transfer_logits_to_host(self, logits: sfnp.device_array):
+        logits_host = logits.for_transfer()
+        logits_host.copy_from(logits)
+        await logits.device
+        return logits_host
 
     @abstractmethod
     def update_score(self, value: float):
@@ -211,6 +218,7 @@ class BeamGroup:
         beam_selections = await self.selection_callback(
             self.active_beams, self.completed_beams
         )
+
         visited_reqs: Dict[str, LlmInferenceExecRequest] = {}
         active_beams: List[Beam] = []
         active_reqs: Set[LlmInferenceExecRequest] = set()
