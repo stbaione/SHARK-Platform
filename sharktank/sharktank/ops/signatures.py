@@ -128,8 +128,8 @@ def _all_reduce_trampoline(d: SignatureDispatcher, tensor: AnyTensor):
 def argmax(
     tensor: AnyTensor,
     dim: Optional[int] = None,
-    chunk_size: Optional[int] = None,
     keepdim: bool = False,
+    chunk_size: Optional[int] = None,
 ) -> AnyTensor:
     "Take argmax of the tensor"
     ...
@@ -140,12 +140,12 @@ def _argmax_trampoline(
     d: SignatureDispatcher,
     tensor: AnyTensor,
     dim: Optional[int] = None,
-    chunk_size: Optional[int] = None,
     keepdim: bool = False,
+    chunk_size: Optional[int] = None,
 ):
     tensors = (tensor,)
     for override in d.find_overrides(tensors):
-        result = override(tensor, dim, chunk_size=chunk_size, keepdim=keepdim)
+        result = override(tensor, dim, keepdim=keepdim, chunk_size=chunk_size)
         if result is not NotImplemented:
             return override, result
     else:
