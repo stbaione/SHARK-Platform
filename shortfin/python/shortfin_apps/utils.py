@@ -40,7 +40,7 @@ def get_system_args(parser):
     parser.add_argument(
         "--amdgpu_async_caching",
         action="store_true",
-        help="Enable asynchronous caching for amdgpu device contexts."
+        help="Enable asynchronous caching for amdgpu device contexts.",
     )
     parser.add_argument(
         "--amdgpu_allow_device_reuse",
