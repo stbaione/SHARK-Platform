@@ -1523,9 +1523,24 @@ def _topk_trampoline(
 ) -> AnyTensor:
     tensors = (tensor,)
     for override in d.find_overrides(tensors):
-        result = override(
-            tensor, k=k, dim=dim, largest=largest, sorted=sorted, chunk_size=chunk_size
-        )
+        if isinstance(tensor, SplitPrimitiveTensor):
+            result = override(
+                tensor,
+                k=k,
+                dim=dim,
+                largest=largest,
+                sorted=sorted,
+            )
+
+        else:
+            result = override(
+                tensor,
+                k=k,
+                dim=dim,
+                largest=largest,
+                sorted=sorted,
+                chunk_size=chunk_size,
+            )
         if result is not NotImplemented:
             return override, result
     else:
