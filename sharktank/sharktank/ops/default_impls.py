@@ -688,7 +688,6 @@ def _split_topk(
 
     vals_out, flat_idx = topk(vals_flat, k, dim=dim, largest=largest, sorted=sorted)
 
-    # chunk_idx = flat_idx.remainder(n_chunks)
     chunk_idx = flat_idx // k
 
     local_pos = gather(idx_flat, dim, flat_idx)
