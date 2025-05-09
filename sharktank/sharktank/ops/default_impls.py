@@ -656,10 +656,10 @@ def _split_topk(
     if tensor.shape[dim] % chunk_size:
         raise ValueError("dim length must be a multiple of chunk_size")
     n_chunks = tensor.shape[dim] // chunk_size
-    tensor_unflattened = unflatten(tensor, dim, (chunk_size, n_chunks))
+    tensor_unflattened = unflatten(tensor, dim, (n_chunks, chunk_size))
 
     vals_local, idx_local = topk(
-        tensor_unflattened, k, dim=dim, largest=largest, sorted=sorted
+        tensor_unflattened, k, dim=dim + 1, largest=largest, sorted=sorted
     )
 
     vals_flat = flatten(vals_local, start_dim=dim, end_dim=dim + 1)
@@ -667,10 +667,12 @@ def _split_topk(
 
     vals_out, flat_idx = topk(vals_flat, k, dim=dim, largest=largest, sorted=sorted)
 
-    chunk_idx = flat_idx.remainder(n_chunks)
+    # chunk_idx = flat_idx.remainder(n_chunks)
+    chunk_idx = flat_idx // k
 
     local_pos = gather(idx_flat, dim, flat_idx)
-    idx_out = local_pos * n_chunks + chunk_idx
+    print(local_pos)
+    idx_out = local_pos + chunk_idx * chunk_size
 
     return vals_out, idx_out
 
