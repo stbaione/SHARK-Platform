@@ -6,7 +6,7 @@
 
 
 from collections.abc import Iterable
-from typing import Union
+from typing import Optional, Tuple, Union
 from torch import Tensor
 
 
@@ -46,6 +46,11 @@ from ._registry import AllNotOfType
 #         # Only 2d or 3d batch matmuls currently supported.
 #         return NotImplemented
 #     return mmtfp(lhs, rhs)
+
+
+# @topk.override(Tensor)
+# def split_topk(_input, dim: int, keepdim: bool = False, chunk_size: float = 128):
+#     tensor_unflattened = unflatten(_input, dim, (chunk_size, -1))
 
 
 # Einsum

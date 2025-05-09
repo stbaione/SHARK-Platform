@@ -397,6 +397,31 @@ class TestScatterAdd(unittest.TestCase):
         assert ops.equal(actual, expected)
 
 
+class TestTopK(unittest.TestCase):
+    def testSplitTopKSmall(self):
+        dim, k, largest, _sorted = -1, 4, True, True
+
+        tensor = torch.rand((1, 1, 256), dtype=torch.float16)
+        values_expected, index_expected = torch.topk(tensor, k, dim, largest, _sorted)
+
+        values, index = ops.topk(tensor, k, dim, largest, _sorted, 16)
+
+        torch.testing.assert_close(values, values_expected)
+        torch.testing.assert_close(index, index_expected)
+
+    def testSplitTopKLarge(self):
+        dim, k, largest, _sorted = -1, 4, True, True
+
+        tensor = torch.rand((1, 1, 131072), dtype=torch.float16)
+        values_expected, index_expected = torch.topk(tensor, k, dim, largest, _sorted)
+
+        values, index = ops.topk(tensor, k, dim, largest, _sorted, 1024)
+
+        print(index, index_expected)
+        torch.testing.assert_close(values, values_expected)
+        torch.testing.assert_close(index, index_expected)
+
+
 class TestTraceTensors(TempDirTestBase):
     def setUp(self):
         super().setUp()

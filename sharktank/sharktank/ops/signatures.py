@@ -52,6 +52,7 @@ __all__ = [
     "linear",
     "masked_fill",
     "matmul",
+    "max",
     "mean",
     "module_register_buffer",
     "pad",
@@ -801,6 +802,39 @@ def _matmul_trampoline(
 
 
 @overridable
+def max(
+    _input: AnyTensor,
+    dim: Optional[Union[Tuple[int], int]] = None,
+    keepdim: bool = False,
+):
+    """Returns the maximum values and indices of a tensor.
+
+    Args:
+        _input (AnyTensor): Tensor to take max of.
+        dim (Optional[Union[Tuple[int], int]], optional): Dimension or dimensions to reduce. Defaults to None.
+        keepdim (bool, optional): Retain `dim` in the output tensor. Defaults to False.
+    """
+
+
+@max.trampoline
+def _max_trampoline(
+    d: SignatureDispatcher,
+    _input: AnyTensor,
+    dim: Optional[Union[Tuple[int], int]] = None,
+    keepdim: bool = False,
+):
+    tensors = (_input,)
+
+    for override in d.find_overrides(tensors):
+        result = override(_input, dim, keepdim)
+        if result is not NotImplemented:
+            return override, result
+
+    else:
+        d.fail(tensors)
+
+
+@overridable
 def pad(
     input: AnyTensor, _pad: Sequence[int], mode: str, value: Optional[float]
 ) -> AnyTensor:
@@ -1445,7 +1479,14 @@ def _sum_trampoline(
 
 
 @overridable
-def topk(tensor, k: int, dim: int, largest: bool, sorted: bool) -> AnyTensor:
+def topk(
+    tensor,
+    k: int,
+    dim: int,
+    largest: bool,
+    sorted: bool,
+    chunk_size: Optional[int] = None,
+) -> AnyTensor:
     """See torch.topk"""
     ...
 
@@ -1458,10 +1499,13 @@ def _topk_trampoline(
     dim: int,
     largest: bool = True,
     sorted: bool = True,
+    chunk_size: Optional[int] = None,
 ) -> AnyTensor:
     tensors = (tensor,)
     for override in d.find_overrides(tensors):
-        result = override(tensor, k=k, dim=dim, largest=largest, sorted=sorted)
+        result = override(
+            tensor, k=k, dim=dim, largest=largest, sorted=sorted, chunk_size=chunk_size
+        )
         if result is not NotImplemented:
             return override, result
     else:
