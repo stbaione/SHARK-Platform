@@ -671,7 +671,6 @@ def _split_topk(
     chunk_idx = flat_idx // k
 
     local_pos = gather(idx_flat, dim, flat_idx)
-    print(local_pos)
     idx_out = local_pos + chunk_idx * chunk_size
 
     return vals_out, idx_out
