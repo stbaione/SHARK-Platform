@@ -19,18 +19,6 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Sampler:
     def sample_top_k(self, tokens: np.array, probs: np.array, k: int):
-        """
-        Sample k tokens from `tokens` with weights `probs`.
-
-        Args:
-            tokens: 1-D array of token IDs (shape (n_tokens,))
-            probs:  1-D array of non-negative weights (shape (n_tokens,))
-            k:      number of samples to draw (with replacement)
-
-        Returns:
-            choices:       1-D array of sampled tokens (shape (k,))
-            chosen_probs:  1-D array of the corresponding probabilities (shape (k,))
-        """
         p = probs / probs.sum()
 
         choices = np.random.choice(tokens, size=k, replace=True, p=p)
