@@ -61,7 +61,7 @@ class Sampler:
 
         # Obtain tokens & values from partition
         top_tokens = partitioned_tokens[zero_indices + (slice(k, None),)]
-        top_values = np.take(logits, top_tokens, axis=-1)[*zero_indices]
+        top_values = np.take(logits, top_tokens, axis=-1)[zero_indices]
 
         return top_tokens, top_values
 
