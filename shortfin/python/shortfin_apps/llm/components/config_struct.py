@@ -147,7 +147,6 @@ class ModelParams:
     # The element type of the attention caches.
     attn_dtype: sfnp.DType = sfnp.float16
 
-    # TODO(stbaione): Update comment when export with `top_k > 1` is enabled.
     # Define the `top_k` kernel that model was exported with.
     # If `top_k` is None, no `top_k` kernels were exported.
     # If `top_k == 1`, `argmax` is exported.
