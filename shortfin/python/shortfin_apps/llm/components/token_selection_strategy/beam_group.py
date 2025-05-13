@@ -6,6 +6,7 @@
 
 import logging
 import numpy as np
+from typing import Union
 
 import shortfin.array as sfnp
 
@@ -47,7 +48,7 @@ class Beam(ABC):
             return logits
         return np.divide(logits, self.decode_config.temperature)
 
-    def _softmax(self, logits: np.array | sfnp.device_array) -> np.array:
+    def _softmax(self, logits: Union[np.array, sfnp.device_array]) -> np.array:
         if isinstance(logits, sfnp.device_array):
             logits = np.array(logits)
 
@@ -55,7 +56,7 @@ class Beam(ABC):
         e_x = np.exp(logits - x_max)
         return e_x / np.sum(e_x)
 
-    def _log_softmax(self, logits: np.array | sfnp.device_array) -> np.array:
+    def _log_softmax(self, logits: Union[np.array, sfnp.device_array]) -> np.array:
         if isinstance(logits, sfnp.device_array):
             logits = np.array(logits)
 
