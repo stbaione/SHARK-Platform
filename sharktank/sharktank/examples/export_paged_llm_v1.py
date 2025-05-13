@@ -473,7 +473,7 @@ def main():
         logits: torch.Tensor = torch.empty(
             1,
             1,
-            131072,
+            hp.context_length,
             dtype=dtype,
         )
 
