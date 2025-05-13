@@ -143,6 +143,12 @@ def add_model_options(parser: argparse.ArgumentParser):
         type=lambda arg: [int(k) for k in arg.split(",")],
         default="1",
     )
+    parser.add_argument(
+        "--top-k-chunk-size",
+        help="Size of chunks to split into when exporting `top_k`.",
+        type=int,
+        default=1024,
+    )
 
 
 def add_model_input_options(parser: argparse.ArgumentParser):

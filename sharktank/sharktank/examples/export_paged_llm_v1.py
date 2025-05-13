@@ -465,7 +465,7 @@ def main():
         ):
             return ops.argmax(logits, axis, chunk_size=hp.context_length // 1024)
 
-    def generate_top_k(k: int):
+    def generate_top_k(k: int, chunk_size: int = 1024):
         dtype = llama_config.activation_dtype
         if "float8" in str(dtype) or dtype == torch.bfloat16:
             dtype = torch.float16
@@ -492,7 +492,7 @@ def main():
             largest=True,
             _sorted=True,
         ):
-            return ops.topk(logits, k, dim, largest, _sorted, chunk_size=1024)
+            return ops.topk(logits, k, dim, largest, _sorted, chunk_size=chunk_size)
 
     if not args.skip_prefill:
         for bs in args.bs_prefill:
@@ -508,7 +508,7 @@ def main():
                 generate_argmax()
 
             elif k > 1:
-                generate_top_k(k)
+                generate_top_k(k, args.top_k_chunk_size)
 
     config = generate_params_json(
         hp, args.bs_prefill, args.bs_decode, args.logits_normalization
