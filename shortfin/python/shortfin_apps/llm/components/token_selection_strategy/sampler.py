@@ -30,8 +30,8 @@ class Sampler:
 
     def sample_top_p(
         self,
-        tokens: np.ndarray,
-        probs: np.ndarray,
+        tokens: np.array,
+        probs: np.array,
         p: float,
         k: int,
         return_probs=False,
@@ -51,7 +51,7 @@ class Sampler:
 
         return choices, chosen_probs
 
-    def select_top_k(self, logits: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
+    def select_top_k(self, logits: np.array, k: int) -> Tuple[np.array, np.array]:
         """
         This function is used to get the top k tokens and their cumulative probabilities.
         """

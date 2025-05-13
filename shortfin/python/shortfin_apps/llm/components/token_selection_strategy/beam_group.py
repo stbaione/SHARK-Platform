@@ -7,6 +7,8 @@
 import logging
 import numpy as np
 
+import shortfin.array as sfnp
+
 from abc import ABC, abstractmethod
 from asyncio import gather
 from dataclasses import dataclass, field
@@ -45,12 +47,18 @@ class Beam(ABC):
             return logits
         return np.divide(logits, self.decode_config.temperature)
 
-    def _softmax(self, logits: np.array) -> np.array:
+    def _softmax(self, logits: np.array | sfnp.device_array) -> np.array:
+        if isinstance(logits, sfnp.device_array):
+            logits = np.array(logits)
+
         x_max = np.max(logits)
         e_x = np.exp(logits - x_max)
         return e_x / np.sum(e_x)
 
-    def _log_softmax(self, logits: np.array) -> np.array:
+    def _log_softmax(self, logits: np.array | sfnp.device_array) -> np.array:
+        if isinstance(logits, sfnp.device_array):
+            logits = np.array(logits)
+
         c = logits.max()
         shifted_logits = logits - c
         sumexp = np.log(np.exp(shifted_logits).sum())
@@ -62,7 +70,7 @@ class Beam(ABC):
         target: LogitsNormalization,
         logits: np.array,
         **kwargs,
-    ) -> np.ndarray:
+    ) -> np.array:
         logits_conversion_map = {
             LogitsNormalization.NONE: {
                 LogitsNormalization.LOG_SOFTMAX: self._log_softmax,
@@ -112,7 +120,7 @@ class Beam(ABC):
 
         return probs
 
-    def _sample_logits_top_k(self, logits: np.ndarray, top_k, num_selections):
+    def _sample_logits_top_k(self, logits: np.array, top_k: int, num_selections: int):
         tokens, values = self.sampler.select_top_k(logits, -top_k)
 
         probs = self._to_softmax(
