@@ -451,7 +451,8 @@ class PrefillExecutorProcess(LlmExecutorProcess):
                 if index_item is not None:
                     req.result_indices = index_item.for_transfer()
                     req.result_indices.copy_from(index_item)
-                    await_device = True
+
+                await_device = True
             else:
                 req.result_logits = logits_item
 
