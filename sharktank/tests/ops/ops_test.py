@@ -30,6 +30,7 @@ from sharktank.utils.iree import (
 
 
 class ArgmaxTest(unittest.TestCase):
+    # TODO: Clean these up
     def testArgmax(self):
         for dtype in [torch.float16, torch.float32]:
             a = torch.zeros(1, 1, 256, dtype=dtype)
@@ -61,11 +62,34 @@ class ArgmaxTest(unittest.TestCase):
             a[0][0][42] = 42
             assert ops.argmax(a, -1, chunk_size=16) == 42
 
+    def testSplitArgmaxRandom(self):
+        # Prefill
+        a = torch.rand(4, 32, 131072, dtype=torch.float16)
+        expected = torch.argmax(a, -1)
+        result = ops.argmax(a, -1, chunk_size=128)
+        assert torch.equal(expected, result)
+
+    def testSplitArgmaxRandom2(self):
+        # Decode
+        a = torch.rand(32, 1, 131072, dtype=torch.float16)
+        expected = torch.argmax(a, -1)
+        result = ops.argmax(a, -1, chunk_size=128)
+        assert torch.equal(expected, result)
+
+    def testSplitArgmaxRandomDim0(self):
+        a = torch.rand(4, 32, 131072, dtype=torch.float16)
+        expected = torch.argmax(a, 0)
+        result = ops.argmax(a, 0, chunk_size=2)
+        assert torch.equal(expected, result)
+
     def testSplitArgmaxLarge(self):
-        a = torch.zeros(1, 1, 131072, dtype=torch.float16)
+        a = torch.zeros(4, 32, 131072, dtype=torch.float16)
         a[0][0][42] = 42
         result = ops.argmax(a, -1, chunk_size=128)
-        assert result == 42
+        expected = torch.argmax(a, -1)
+        print(f"Result: {result}")
+        print(f"Expected: {expected}")
+        torch.testing.assert_close(result, expected)
 
     def testSplitArgmaxDim0(self):
         for dtype in [torch.float16, torch.float32]:

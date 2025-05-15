@@ -90,8 +90,12 @@ class BaseTokenSelectionStrategy(ABC):
         token_selection_strategy_config.prefill_callback(exec_req)
         await exec_req.done
 
-        token = sfnp.argmax(exec_req.result_logits)
-        token_int = token.items[0]
+        if exec_req.result_indices is not None:
+            token_int = exec_req.result_indices.items[0]
+        else:
+            token = sfnp.argmax(exec_req.result_logits)
+            token_int = token.items[0]
+
         decode_config = token_selection_strategy_config.decode_config
         # TODO: This is only temporary until streaming is enabled for `MultiGreedy`
         if decode_config.token_selection_strategy == TokenSelectionStrategy.GREEDY:
