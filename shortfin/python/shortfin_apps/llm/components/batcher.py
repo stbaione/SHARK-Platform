@@ -324,6 +324,7 @@ class LlmExecutorProcess(sf.Process):
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
             result = await fn(*args, fiber=self.fiber)
 
+            logits, indices = None, None
             if len(result) == 2:
                 (logits, indices) = result
             else:
@@ -578,8 +579,9 @@ class DecodeExecutorProcess(LlmExecutorProcess):
                 req.result_logits = logits_item.for_transfer()
                 req.result_logits.copy_from(logits_item)
 
-                req.result_indices = index_item.for_transfer()
-                req.result_indices.copy_from(index_item)
+                if index_item is not None:
+                    req.result_indices = index_item.for_transfer()
+                    req.result_indices.copy_from(index_item)
 
                 await_device = True
             else:

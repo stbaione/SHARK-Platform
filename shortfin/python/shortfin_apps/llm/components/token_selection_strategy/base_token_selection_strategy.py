@@ -90,6 +90,9 @@ class BaseTokenSelectionStrategy(ABC):
         token_selection_strategy_config.prefill_callback(exec_req)
         await exec_req.done
 
+        assert_message = f"{exec_req.instance_id}'s result_logits are None. This typically indicates an error during prefill invocation."
+        assert exec_req.result_logits is not None, assert_message
+
         if exec_req.result_indices is not None:
             token_int = exec_req.result_indices.items[0]
         else:
