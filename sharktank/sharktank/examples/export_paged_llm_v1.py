@@ -51,6 +51,9 @@ def main():
                 f"Parent directory for output MLIR file does not exist: {mlir_dir}"
             )
 
+    if args.top_k is not None and args.top_k > 1:
+        raise NotImplementedError(f"Currently only `top-k === 1` is supported.")
+
     if args.attention_kernel == "sharktank":
         ops.attention_impls.register_attention_override_by_name(
             "masked_flash_attention"
