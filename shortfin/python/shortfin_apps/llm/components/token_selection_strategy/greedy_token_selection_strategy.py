@@ -21,6 +21,7 @@ TOP_P_DEFAULT_SELECTION = 32
 
 
 class GreedyBeam(Beam):
+    # TODO(stbaione): Combine this and `BeamSearchBeam` into a single class
     def sample_logits(self) -> int:
         """Return the single highest scoring token of the logits.
 
@@ -88,6 +89,8 @@ class GreedyBeam(Beam):
 
 
 class GreedyTokenSelectionStrategy(BaseTokenSelectionStrategy):
+    # TODO(stbaione): Combine this class, `MultiGreedy` and `BeamSearch`
+    # strategies into a single class with more clear interface.
     def __init__(
         self,
         token_selection_strategy_config: TokenSelectionStrategyConfig,

@@ -52,11 +52,20 @@ class Sampler:
         return choices, chosen_probs
 
     def select_top_k(
-        self, logits: np.array, indices: Union[np.array, None], k: int
+        self,
+        logits: Union[np.array, sfnp.device_array],
+        indices: Union[np.array, sfnp.device_array, None],
+        k: int,
     ) -> Tuple[np.array, np.array]:
         """
         This function is used to get the top k tokens and their cumulative probabilities.
         """
+        if isinstance(logits, sfnp.device_array):
+            logits = np.array(logits)
+
+        if isinstance(indices, sfnp.device_array):
+            indices = np.array(indices)
+
         # Slice off all axes except the last one
         zero_indices = (0,) * (logits.ndim - 1)
 
