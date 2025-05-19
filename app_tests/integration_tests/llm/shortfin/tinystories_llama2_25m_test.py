@@ -119,7 +119,7 @@ class TestLLMServer:
 
         def _generate_task(prompt: str, port: int):
             try:
-                self._generate(prompt, port)
+                return self._generate(prompt, port)
             except Exception as e:
                 if "gpu_topk_k4" in test_id:
                     pytest.xfail(

@@ -157,10 +157,10 @@ class ModelParams:
     paged_kv_cache: PagedKVCacheParams | None = None
 
     def __post_init__(self):
-        if self.top_k is None or self.top_k == 1:
+        if self.top_k is None or self.top_k >= 1:
             return
 
-        raise ValueError(f"Currently, only `top_k == 1` is supported.")
+        raise ValueError(f"Currently, only `top_k >= 1` is supported.")
 
     # Size in bytes of the KV cache dtype.
     @property
