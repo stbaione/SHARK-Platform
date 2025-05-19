@@ -317,7 +317,7 @@ def main():
                     logits, chunk_size=hp.context_length // 128
                 )
 
-            if top_k > 1:
+            else:
                 max_logits, indices = model.topk(
                     logits, k=args.top_k, chunk_size=hp.context_length // 128
                 )
@@ -459,7 +459,7 @@ def main():
                     logits, chunk_size=hp.context_length // 128
                 )
 
-            elif top_k > 1:
+            else:
                 max_logits, indices = model.topk(
                     logits, k=top_k, chunk_size=hp.context_length // 128
                 )
