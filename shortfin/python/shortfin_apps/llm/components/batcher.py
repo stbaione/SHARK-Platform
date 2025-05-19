@@ -324,11 +324,10 @@ class LlmExecutorProcess(sf.Process):
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
             result = await fn(*args, fiber=self.fiber)
 
-            logits, indices = None, None
-            if len(result) == 2:
-                (logits, indices) = result
-            else:
-                (logits,) = result
+            indices = None
+            logits = result[0]
+            if len(result) > 1:
+                indices = result[1]
 
             # publish cache pages
             for r in self.exec_requests:
