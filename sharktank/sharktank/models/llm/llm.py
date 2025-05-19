@@ -333,6 +333,13 @@ class AttentionFFNBlock(ThetaLayer):
             ),
         )
 
+        # Add FFN norm
+        self.ffn_norm = torch.nn.Identity()
+        if theta.optional_tensor("ffn_norm") is not None:
+            self.ffn_norm = RMSNormLayer(
+                theta("ffn_norm"), epsilon=config.hp.attention_layer_norm_rms_epsilon
+            )
+
         moe_func_map = {
             "llama": (
                 torch.nn.functional.softmax,
@@ -354,22 +361,24 @@ class AttentionFFNBlock(ThetaLayer):
             ),
         }
 
+        (
+            score_experts,
+            moe_activation,
+            self.add_residual,
+            normalize_experts,
+        ) = moe_func_map[config.hp.model_arch]
+
         if config.hp.expert_count:
-            (
-                score_experts,
-                moe_activation,
-                add_residual,
-                normalize_experts,
-            ) = moe_func_map[config.hp.model_arch]
 
             self.add_module(
                 "ffn",
                 MoeBlock(
                     theta=theta,
+                    expert_count=config.hp.expert_count,
                     expert_used_count=config.hp.expert_used_count,
+                    expert_shared_count=config.hp.expert_shared_count,
                     rms_epsilon=config.hp.attention_layer_norm_rms_epsilon,
                     moe_activation=moe_activation,
-                    add_residual=add_residual,
                     score_experts=score_experts,
                     normalize_experts=normalize_experts,
                 ),
@@ -379,7 +388,6 @@ class AttentionFFNBlock(ThetaLayer):
                 "ffn",
                 FFN(
                     theta=theta,
-                    rms_epsilon=config.hp.attention_layer_norm_rms_epsilon,
                     fake_quant=fake_quant,
                 ),
             )
@@ -409,6 +417,9 @@ class AttentionFFNBlock(ThetaLayer):
         )
 
         # Feed forward network.
-        final_output = self.ffn(h)
+        final_output = self.ffn(self.ffn_norm(h))
+
+        if self.add_residual:
+            final_output = h + final_output
 
         return final_output

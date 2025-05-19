@@ -7,6 +7,7 @@
 import unittest
 
 import numpy as np
+import pytest
 import torch
 import torch.nn.functional as F
 import iree.turbine.aot as aot
@@ -105,6 +106,12 @@ class ArgmaxTest(unittest.TestCase):
         expected = torch.argmax(a, 0)
         result = ops.argmax(a, 0, chunk_size=2)
         assert torch.equal(expected, result)
+
+    def testSplitArgmaxInvalidChunkSize(self):
+        a = torch.rand(4, 32, 100, dtype=torch.float32)
+
+        with pytest.raises(ValueError):
+            ops.argmax(a, 0, chunk_size=42)
 
 
 class BroadcastDimsTest(unittest.TestCase):
