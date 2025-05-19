@@ -683,6 +683,24 @@ def _split_topk(
     sorted: bool,
     chunk_size: int,
 ) -> Tuple[Tensor, Tensor]:
+    """Find the `topk` of a tensor using `split_k` strategy for better perf.
+
+    Args:
+        tensor (Tensor): Tensor to take `topk` of.
+        k (int): Number of max tokens to select.
+        dim (int): Dim to take along.
+        largest (bool): Return largest or smallest indices.
+        sorted (bool): Return results in sorted order or not.
+        chunk_size (int): Size to split groups into.
+
+    Raises:
+        ValueError: k must be positive
+        ValueError: dim length must be a multiple of chunk_size
+
+    Returns:
+        Tuple[Tensor, Tensor]: Selected values and indices.
+    """
+    # TODO(stbaione): Explore more algorithms, like `grouped_argmax` for better perf.
     tensor = unbox_tensor(tensor)
 
     if k <= 0:
