@@ -42,10 +42,12 @@ class GreedyBeam(Beam):
 
             return self.sampler.select_greedy(logits)
 
+        indices = np.array(indices) if indices is not None else None
         if top_k is not None:
             num_selections = 1 if top_p is None else top_k
             tokens, probs = self._sample_logits_top_k(
                 logits,
+                indices,
                 top_k,
                 num_selections,
             )
@@ -53,15 +55,18 @@ class GreedyBeam(Beam):
         if top_p is not None:
             if top_k is None:
                 top_p_selection = min(logits.shape[-1], TOP_P_DEFAULT_SELECTION)
-                tokens, values = self.sampler.select_top_k(logits, -top_p_selection)
+                tokens, values = self.sampler.select_top_k(
+                    logits, indices, -top_p_selection
+                )
                 probs = self._to_softmax(
                     values,
                     self.decode_config.logits_normalization,
                 )
 
-                sorted_order = np.argsort(probs)[::-1]
-                tokens = tokens[sorted_order]
-                probs = probs[sorted_order]
+                if indices is None:
+                    sorted_order = np.argsort(probs)[::-1]
+                    tokens = tokens[sorted_order]
+                    probs = probs[sorted_order]
 
             tokens, _ = self._sample_logits_top_p(tokens, probs, top_p, 1)
 
