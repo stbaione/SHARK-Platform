@@ -49,6 +49,13 @@ def _split_argmax(input_tensor, dim, keepdim: bool = False, chunk_size: int = 12
     input_tensor = unbox_tensor(input_tensor)
     dim = dim if dim >= 0 else input_tensor.dim() + dim
 
+    if input_tensor.shape[dim] % chunk_size != 0:
+        raise ValueError(
+            "dim's size must be a multiple of chunk_size.\n"
+            f"Dim Size: {dim}\n"
+            f"Chunk Size: {chunk_size}\n"
+        )
+
     n_chunks = input_tensor.shape[dim] // chunk_size
     tensor_split = unflatten(input_tensor, dim, (n_chunks, chunk_size))
 
