@@ -308,15 +308,15 @@ def main():
             if args.logits_normalization == "log_softmax":
                 logits = ops.elementwise(torch.log, ops.softmax(logits, dim=-1))
 
-            if args.top_k is not None:
-                if args.top_k == 1:
-                    max_logits, indices = model.argmax(
-                        logits, chunk_size=hp.context_length // 128
-                    )
+            if args.top_k is None:
+                return logits
 
-                return max_logits, indices
+            if args.top_k == 1:
+                max_logits, indices = model.argmax(
+                    logits, chunk_size=hp.context_length // 128
+                )
 
-            return logits
+            return max_logits, indices
 
     def generate_batch_decode(bs: int):
         # torch.export.Dim would make min at least 2
@@ -444,15 +444,15 @@ def main():
             if args.logits_normalization == "log_softmax":
                 logits = ops.elementwise(torch.log, ops.softmax(logits, dim=-1))
 
-            if args.top_k is not None:
-                if args.top_k == 1:
-                    max_logits, indices = model.argmax(
-                        logits, chunk_size=hp.context_length // 128
-                    )
+            if args.top_k is None:
+                return logits
 
-                return max_logits, indices
+            if args.top_k == 1:
+                max_logits, indices = model.argmax(
+                    logits, chunk_size=hp.context_length // 128
+                )
 
-            return logits
+            return max_logits, indices
 
     def generate_argmax():
         # TODO: Remove this when the corresponding `dtype` conversion is
