@@ -691,6 +691,7 @@ def _split_topk(
 
     if tensor.shape[dim] % chunk_size:
         raise ValueError("dim length must be a multiple of chunk_size")
+
     n_chunks = tensor.shape[dim] // chunk_size
     tensor_unflattened = unflatten(tensor, dim, (n_chunks, chunk_size))
 

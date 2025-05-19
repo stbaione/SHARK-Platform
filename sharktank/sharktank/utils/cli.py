@@ -140,8 +140,8 @@ def add_model_options(parser: argparse.ArgumentParser):
         "--top-k",
         help="Export with a `top_k` kernel. If `top_k` == 1, argmax is exported."
         "Otherwise, `topk_k{k} is exported.",
-        type=lambda arg: [int(k) for k in arg.split(",")],
-        default="1",
+        type=int,
+        default=1,
     )
     parser.add_argument(
         "--top-k-chunk-size",

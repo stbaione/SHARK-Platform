@@ -151,7 +151,7 @@ class ModelParams:
     # If `top_k` is None, no `top_k` kernels were exported.
     # If `top_k == 1`, `argmax` is exported.
     # If `top_k` > 1, `topk_k{k}` is exported.
-    top_k: List[int] | None = None
+    top_k: int | None = None
 
     # Cache parameters.
     paged_kv_cache: PagedKVCacheParams | None = None

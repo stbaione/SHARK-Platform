@@ -453,6 +453,10 @@ class TestTopK(unittest.TestCase):
             (-1, 4, False, True, (1, 1, 256), 16),
             (-1, 4, False, False, (1, 1, 256), 16),
             (-1, 4, True, True, (1, 1, 131072), 1024),
+            (-1, 2, True, True, (2, 1, 6), 3),
+            (-1, 4, True, True, (1, 32, 131072), 1024),
+            (-1, 4, True, True, (4, 32, 131072), 1024),
+            (-1, 4, True, True, (32, 1, 131072), 1024),
         ]
     )
     def testSplitTopKLastDim(self, dim, k, largest, _sorted, shape, chunk_size):
@@ -469,11 +473,8 @@ class TestTopK(unittest.TestCase):
 
         torch.testing.assert_close(values, values_expected)
 
-        # Duplicate values may cause differences in indices
-        values_from_indices = torch.index_select(tensor, -1, index[0][0])
-        values_from_indices_expected = torch.index_select(
-            tensor, -1, index_expected[0][0]
-        )
+        values_from_indices = torch.gather(tensor, -1, index=index)
+        values_from_indices_expected = torch.gather(tensor, -1, index=index_expected)
 
         if _sorted is False:
             values_from_indices = torch.sort(values_from_indices).values
