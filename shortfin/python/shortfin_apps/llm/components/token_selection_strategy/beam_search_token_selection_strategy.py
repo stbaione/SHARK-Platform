@@ -48,7 +48,6 @@ class BeamSearchBeam(Beam):
         """
         exec_req = self.exec_req
         decode_config = self.decode_config
-        num_beams = decode_config.num_beams
         top_k = decode_config.top_k
         top_p = decode_config.top_p
 
@@ -96,7 +95,7 @@ class BeamSearchBeam(Beam):
                     probs = probs[sorted_order]
 
             tokens, probs = self._sample_logits_top_p(
-                tokens, probs, top_p, num_beams, return_probs=True
+                tokens, probs, top_p, k, return_probs=True
             )
 
         log_probs = self._convert_results_to_log_probs(
