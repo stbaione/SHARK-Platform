@@ -71,7 +71,7 @@ class GreedyBeam(Beam):
 
             tokens, _ = self._sample_logits_top_p(tokens, probs, top_p, 1)
 
-        return tokens[0]
+        return int(tokens[0])
 
     def update_exec_req(self):
         """Update the `LlmInferenceExecRequest` with the selected token."""
