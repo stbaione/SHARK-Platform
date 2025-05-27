@@ -35,8 +35,6 @@ class TokenSelectionStrategyConfig:
 class BaseTokenSelectionStrategy(ABC):
     """Abstract class for implementing token selection strategies."""
 
-    # asnyc_thread_pool = AsyncThreadPool(max_workers=196)
-    # thread_pool_executor = ThreadPoolExecutor(max_workers=196)
     thread_pool_executor: SamplerThreadPool | None = None
     executor_initialized = False
 
