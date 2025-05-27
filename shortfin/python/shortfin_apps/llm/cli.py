@@ -142,6 +142,12 @@ def add_service_args(parser: argparse.ArgumentParser):
         default=None,
         help="Workload size to benchmark with",
     )
+    parser.add_argument(
+        "--max_sampling_threads",
+        type=int,
+        default=196,
+        help="Maximum number of threads to use for sampling. Defaults to 196.",
+    )
 
 
 def parse_args(argv):
