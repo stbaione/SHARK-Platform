@@ -17,7 +17,8 @@ import shortfin as sf
 import shortfin.array as sfnp
 
 # TODO: Have a generic "Responder" interface vs just the concrete impl.
-from shortfin.interop.fastapi import FastAPIResponder, RequestStatusTracker
+from shortfin.interop.fastapi import RequestStatusTracker
+from shortfin.support.responder import AbstractResponder
 from fastapi.responses import JSONResponse
 from fastapi import status
 
@@ -144,7 +145,7 @@ class ClientGenerateBatchProcess(sf.Process):
         self,
         service: LlmGenerateService,
         gen_req: GenerateReqInput,
-        responder: FastAPIResponder,
+        responder: AbstractResponder,
         fiber: sf.Fiber,
     ):
         super().__init__(fiber=fiber)
@@ -207,7 +208,7 @@ class ClientGenerateBatchProcess(sf.Process):
             )
             return
 
-        fibers = []
+        indices = []
         try:
             streaming = self.gen_req.stream
             self.responder.start_response()
@@ -255,12 +256,7 @@ class ClientGenerateBatchProcess(sf.Process):
                     return
 
                 idx, fiber = await self.service.main_fiber_pool.get()
-                fibers.append(
-                    (
-                        idx,
-                        fiber,
-                    )
-                )
+                indices.append(idx)
                 gen_process = GenerateItemProcess(
                     self,
                     self.gen_req,
@@ -285,7 +281,7 @@ class ClientGenerateBatchProcess(sf.Process):
         finally:
             # Remove request from queue when done
             self.service.remove_from_queue(self.decode_config.num_beams)
-            self.service.main_fiber_pool.return_fiber(fibers)
+            self.service.main_fiber_pool.return_fiber(indices)
             self.responder.ensure_response()
 
         # Remove request from queue when done
