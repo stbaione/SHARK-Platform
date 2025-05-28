@@ -37,6 +37,14 @@ pytestmark = pytest.mark.parametrize(
             },
         ),
         (
+            ModelConfig.get(name="tinystories_llama2_25m"),
+            {
+                "prefix_sharing": "none",
+                "token_selection_strategy": "beam_search",
+                "num_beams": 2,
+            },
+        ),
+        (
             ModelConfig.get(name="tinystories_llama2_25m_gpu_argmax"),
             {"prefix_sharing": "none"},
         ),
@@ -48,6 +56,7 @@ pytestmark = pytest.mark.parametrize(
     ids=[
         "tinystories_llama2_25m_none",
         "tinystories_llama2_25m_none_independent_2_beams",
+        "tinystories_llama2_25m_none_beam_search_2_beams",
         "tinystories_llama2_25m_gpu_argmax_none",
         "tinystories_llama2_25m_gpu_topk_k4_none",
     ],
@@ -57,7 +66,14 @@ pytestmark = pytest.mark.parametrize(
 
 # goldens are generated in: https://colab.research.google.com/drive/1pFiyvyIxk1RsHnw5gTk_gu9QiQNy9gfW?usp=sharing
 GOLDEN_PROMPT = "Once upon a time"
-GOLDEN_RESPONSE = ", there was a little girl named Lily. She loved to play with her"  # this assumes purely deterministic greedy search
+GOLDEN_RESPONSE = {
+    ", there was a little girl named Lily. She loved to play with her"
+}  # this assumes purely deterministic greedy search
+
+GOLDEN_BEAM_SEARCH_RESPONSE = {
+    ", there was a little girl named Lily. She loved to play with her",
+    ", there was a little girl named Lily. She had a big, red",
+}  # this assumes purely deterministic beam search with 2 beams
 
 
 class TestLLMServer:
@@ -76,7 +92,11 @@ class TestLLMServer:
         process, port, config = server
         assert process.poll() is None, "Server process terminated unexpectedly"
         prompt = GOLDEN_PROMPT
-        expected_prefix = GOLDEN_RESPONSE
+        expected_response = (
+            GOLDEN_RESPONSE
+            if config.token_selection_strategy != "beam_search"
+            else GOLDEN_BEAM_SEARCH_RESPONSE
+        )
 
         try:
             response = self._generate(prompt, port)
@@ -96,11 +116,11 @@ class TestLLMServer:
             for generated_response in prompt_response.responses:
                 generated_response = GeneratedResponse(**generated_response)
                 response_text = generated_response.text
-                if response_text != expected_prefix:
+                if response_text not in expected_response:
                     raise AccuracyValidationException(
-                        expected=f"{expected_prefix}...",
+                        expected=f"{expected_response}...",
                         actual=response_text,
-                        message=f"Generation did not match expected pattern.\nExpected to start with: {expected_prefix}\nActual response: {response_text}",
+                        message=f"Generation did not match expected pattern.\nExpected to be one of: {expected_response}\nActual response: {response_text}",
                     )
 
     @pytest.mark.parametrize(
@@ -128,7 +148,11 @@ class TestLLMServer:
         assert process.poll() is None, "Server process terminated unexpectedly"
 
         prompt = GOLDEN_PROMPT
-        expected_prefix = GOLDEN_RESPONSE
+        expected_response = (
+            GOLDEN_RESPONSE
+            if config.token_selection_strategy != "beam_search"
+            else GOLDEN_BEAM_SEARCH_RESPONSE
+        )
 
         def _generate_task(prompt: str, port: int):
             try:
@@ -159,11 +183,11 @@ class TestLLMServer:
                     for generated_response in prompt_response.responses:
                         generated_response = GeneratedResponse(**generated_response)
                         generated_text = generated_response.text
-                        if generated_text != expected_prefix:
+                        if generated_text not in expected_response:
                             raise AccuracyValidationException(
-                                expected=f"{expected_prefix}...",
+                                expected=f"{expected_response}...",
                                 actual=response,
-                                message=f"Concurrent generation did not match expected pattern.\nExpected to start with: {expected_prefix}\nActual response: {response}",
+                                message=f"Concurrent generation did not match expected pattern.\nExpected to start with: {expected_response}\nActual response: {response}",
                             )
 
     def _generate(
