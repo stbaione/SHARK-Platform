@@ -165,6 +165,13 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         else:
             xq = embedding.apply_batched_mask(xt=xq, mask=embedding_batch_mask)
             xk = embedding.apply_batched_mask(xt=xk, mask=embedding_batch_mask)
+
+        if self.attn_q.q_output is not None:
+            xq = self.attn_q.q_output.quantize(xq)
+        if self.attn_k.q_output is not None:
+            xk = self.attn_k.q_output.quantize(xk)
+        if self.attn_v.q_output is not None:
+            xv = self.attn_v.q_output.quantize(xv)
         return xq, xk, xv
 
     def pre_process_attention(
@@ -263,6 +270,8 @@ class PagedLlamaAttentionBlock(ThetaLayer):
                 mask=attention_mask,
                 scale=self.attention_scale,
                 softcap=self.softcap,
+                k_quantizer=self.attn_k.q_output,
+                v_quantizer=self.attn_v.q_output,
             )
         # attn_output is sharded
         # Drop padded part of attn_output
