@@ -29,6 +29,14 @@ pytestmark = pytest.mark.parametrize(
     [
         (ModelConfig.get(name="tinystories_llama2_25m"), {"prefix_sharing": "none"}),
         (
+            ModelConfig.get(name="tinystories_llama2_25m"),
+            {
+                "token_selection_strategy": "independent",
+                "prefix_sharing": "none",
+                "num_beams": 2,
+            },
+        ),
+        (
             ModelConfig.get(name="tinystories_llama2_25m_gpu_argmax"),
             {"prefix_sharing": "none"},
         ),
@@ -39,6 +47,7 @@ pytestmark = pytest.mark.parametrize(
     ],
     ids=[
         "tinystories_llama2_25m_none",
+        "tinystories_llama2_25m_none_independent_2_beams",
         "tinystories_llama2_25m_gpu_argmax_none",
         "tinystories_llama2_25m_gpu_topk_k4_none",
     ],
@@ -64,7 +73,7 @@ class TestLLMServer:
         """
         test_id = request.node.callspec.id
 
-        process, port = server
+        process, port, config = server
         assert process.poll() is None, "Server process terminated unexpectedly"
         prompt = GOLDEN_PROMPT
         expected_prefix = GOLDEN_RESPONSE
@@ -79,16 +88,20 @@ class TestLLMServer:
             raise e
 
         response = json.loads(response)
-        response = GenerateReqOutput(**response)
-        response = PromptResponse(**response.responses[0])
-        response = GeneratedResponse(**response.responses[0])
-        response = response.text
-        if not expected_prefix in response:
-            raise AccuracyValidationException(
-                expected=f"{expected_prefix}...",
-                actual=response,
-                message=f"Generation did not match expected pattern.\nExpected to start with: {expected_prefix}\nActual response: {response}",
-            )
+        req_output = GenerateReqOutput(**response)
+
+        for prompt_response in req_output.responses:
+            prompt_response = PromptResponse(**prompt_response)
+            assert len(prompt_response.responses) == config.num_beams
+            for generated_response in prompt_response.responses:
+                generated_response = GeneratedResponse(**generated_response)
+                response_text = generated_response.text
+                if response_text != expected_prefix:
+                    raise AccuracyValidationException(
+                        expected=f"{expected_prefix}...",
+                        actual=response_text,
+                        message=f"Generation did not match expected pattern.\nExpected to start with: {expected_prefix}\nActual response: {response_text}",
+                    )
 
     @pytest.mark.parametrize(
         "concurrent_requests",
@@ -111,7 +124,7 @@ class TestLLMServer:
         """
         test_id = request.node.callspec.id
 
-        process, port = server
+        process, port, config = server
         assert process.poll() is None, "Server process terminated unexpectedly"
 
         prompt = GOLDEN_PROMPT
@@ -137,16 +150,21 @@ class TestLLMServer:
             for future in as_completed(futures):
                 response = future.result()
                 response = json.loads(response)
-                response = GenerateReqOutput(**response)
-                response = PromptResponse(**response.responses[0])
-                response = GeneratedResponse(**response.responses[0])
-                response = response.text
-                if response != expected_prefix:
-                    raise AccuracyValidationException(
-                        expected=f"{expected_prefix}...",
-                        actual=response,
-                        message=f"Concurrent generation did not match expected pattern.\nExpected to start with: {expected_prefix}\nActual response: {response}",
-                    )
+                req_output = GenerateReqOutput(**response)
+
+                for prompt_response in req_output.responses:
+                    prompt_response = PromptResponse(**prompt_response)
+                    assert len(prompt_response.responses) == config.num_beams
+
+                    for generated_response in prompt_response.responses:
+                        generated_response = GeneratedResponse(**generated_response)
+                        generated_text = generated_response.text
+                        if generated_text != expected_prefix:
+                            raise AccuracyValidationException(
+                                expected=f"{expected_prefix}...",
+                                actual=response,
+                                message=f"Concurrent generation did not match expected pattern.\nExpected to start with: {expected_prefix}\nActual response: {response}",
+                            )
 
     def _generate(
         self,
