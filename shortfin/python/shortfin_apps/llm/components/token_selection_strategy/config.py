@@ -61,9 +61,6 @@ class DecodeConfig:
     # Number of beams to use during generation
     num_beams: int = 1
 
-    # Strategy for selecting tokens during generation
-    token_selection_strategy: str | TokenSelectionStrategy = "independent"
-
     logits_normalization: LogitsNormalization = LogitsNormalization.NONE
 
     # Max number of tokens to generate in decode loop
@@ -72,17 +69,14 @@ class DecodeConfig:
     # Flatten or stretch logits to increase variability
     temperature: float = DEFAULT_TEMPERATURE
 
+    # Whether or not to use beam search during generation
+    use_beam_search: bool = False
+
     # Use `top_k` sampling strategy in decode loop
     top_k: int | None = None
 
     # Use `top_p` sampling strategy in decode loop
     top_p: int | None = None
-
-    def __post_init__(self):
-        if isinstance(self.token_selection_strategy, str):
-            self.token_selection_strategy = get_strategy_from_str(
-                self.token_selection_strategy
-            )
 
     def update_from_sampling_params(self, sampling_params):
         for field in fields(sampling_params):

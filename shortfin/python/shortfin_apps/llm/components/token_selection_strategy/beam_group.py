@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # TODO: Define `top_p` function in base class when enabled in
 # shortfin.
 @dataclass
-class Beam(ABC):
+class BaseBeam(ABC):
     exec_req: LlmInferenceExecRequest
 
     decode_config: DecodeConfig
@@ -191,10 +191,10 @@ class BeamGroup:
         self,
         eos_token_id: int,
         num_beams: int,
-        beams: List[Beam],
+        beams: List[BaseBeam],
         selection_callback: Callable[
-            [List[Beam], List[Beam]],
-            List[Beam],
+            [List[BaseBeam], List[BaseBeam]],
+            List[BaseBeam],
         ],
     ):
         self.beam_group_id = str(uuid4())
@@ -202,7 +202,7 @@ class BeamGroup:
         self.num_beams = num_beams
         self.active_beams = beams
         self.selection_callback = selection_callback
-        self.completed_beams: List[Beam] = []
+        self.completed_beams: List[BaseBeam] = []
 
     @property
     def active_beam_count(self):
@@ -217,9 +217,9 @@ class BeamGroup:
             self.active_beams, self.completed_beams
         )
         visited_reqs: Dict[str, LlmInferenceExecRequest] = {}
-        active_beams: List[Beam] = []
+        active_beams: List[BaseBeam] = []
         active_reqs: Set[LlmInferenceExecRequest] = set()
-        completed_beams: List[Beam] = []
+        completed_beams: List[BaseBeam] = []
         completed_reqs: Set[LlmInferenceExecRequest] = set()
 
         for i in range(len(beam_selections)):

@@ -7,12 +7,14 @@
 import logging
 
 import numpy as np
-from typing import List
+from typing import List, Tuple, Union
 
-from .beam_group import Beam, BeamGroup
+
+from .beam_group import BaseBeam, BeamGroup
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
 )
+from .config import LogitsNormalization
 
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
@@ -22,32 +24,88 @@ logger = logging.getLogger(__name__)
 TOP_P_DEFAULT_SELECTION = 32
 
 
-class IndependentBeam(Beam):
-    # TODO(stbaione): Combine this and `BeamSearchBeam` into a single class
-    def sample_logits(self) -> int:
+class Beam(BaseBeam):
+    def _sample_greedy(self, logits: np.array, indices: Union[np.array, None]) -> int:
+        """Select the token with the highest logit value.
+
+        Args:
+            logits (np.array): The logits from which to select.
+            indices (np.array | None): Optional indices to filter logits.
+
+        Returns:
+            int: The token ID of the selected token.
+        """
+        if indices is not None:
+            return indices.items[0]
+
+        return self.sampler.select_greedy(logits)
+
+    def _sample_beam_search(
+        self, logits: np.array, indices: Union[np.array, None], k: int
+    ) -> Tuple[np.array, np.array]:
+        """Select the top-k tokens based on beam search.
+
+        Args:
+            logits (np.array): The logits from which to select.
+            indices (np.array | None): Optional indices to filter logits.
+
+        Returns:
+            Tuple[np.array, np.array]: The selected tokens and their probabilities.
+        """
+        tokens, probs = self.sampler.select_top_k(logits, indices, -k)
+
+        if self.decode_config.logits_normalization == LogitsNormalization.NONE:
+            probs = self.apply_temperature(probs)
+
+        log_probs = self.convert_logits_normalization(
+            self.decode_config.logits_normalization,
+            LogitsNormalization.LOG_SOFTMAX,
+            probs,
+        ).tolist()
+
+        return tokens, log_probs
+
+    def _convert_results_to_log_probs(
+        self,
+        probs: np.array,
+    ):
+        log_probs = self.convert_logits_normalization(
+            LogitsNormalization.SOFTMAX,
+            LogitsNormalization.LOG_SOFTMAX,
+            probs,
+        )
+
+        return log_probs.tolist()
+
+    def sample_logits(self, num_completed_beams: int) -> int:
         """Return the single highest scoring token of the logits.
+
+        Args:
+            num_active_beams (int): Number of active beams, used for beam search.
 
         Returns:
             int: The `argmax` of the logits.
         """
         exec_req = self.exec_req
         decode_config = self.decode_config
+
+        use_beam_search = decode_config.use_beam_search
+        num_beams = decode_config.num_beams
+        k = num_beams - num_completed_beams
         top_k = decode_config.top_k
         top_p = decode_config.top_p
 
         logits = np.array(exec_req.result_logits)
         indices = exec_req.result_indices
-
-        # Normal greedy selection based on max value
-        if (top_k, top_p) == (None, None):
-            if indices is not None:
-                return indices.items[0]
-
-            return self.sampler.select_greedy(logits)
-
         indices = np.array(indices) if indices is not None else None
+
+        if (top_k, top_p) == (None, None):
+            if use_beam_search:
+                return self._sample_beam_search(logits, indices, k)
+            return self._sample_greedy(logits, indices)
+
         if top_k is not None:
-            num_selections = 1 if top_p is None else top_k
+            num_selections = top_k if use_beam_search or (top_p is not None) else 1
             tokens, probs = self._sample_logits_top_k(
                 logits,
                 indices,
@@ -71,7 +129,19 @@ class IndependentBeam(Beam):
                     tokens = tokens[sorted_order]
                     probs = probs[sorted_order]
 
-            tokens, _ = self._sample_logits_top_p(tokens, probs, top_p, 1)
+            tokens, probs = self._sample_logits_top_p(
+                tokens,
+                probs,
+                top_p,
+                k if use_beam_search else 1,
+                return_probs=use_beam_search,
+            )
+
+        if use_beam_search:
+            log_probs = self._convert_results_to_log_probs(
+                probs,
+            )
+            return tokens, log_probs
 
         return int(tokens[0])
 
@@ -80,22 +150,38 @@ class IndependentBeam(Beam):
         self.exec_req.input_token_ids.append(self.last_token)
         self.exec_req.start_position += 1
 
-    def update_score(self, value):
-        raise NotImplementedError("IndependentBeam does not track a score")
+    def update_score(self, log_prob: float):
+        """Increment the cumulative_log_prob of the beam.
 
-    def normalize_score(self, value):
-        raise NotImplementedError("IndependentBeam does not track a score")
+        Args:
+            log_prob (float): Log probability of the token.
+        """
+        self.score += log_prob
+
+    def normalize_score(self, min_log_prob: float):
+        """Track the accumulated_normalization for a given beam.
+
+        Args:
+            min_log_prob (float): Minimum log probability of the selected tokens.
+        """
+        self.accumulated_normalization += abs(min_log_prob)
 
     def update_final_score(self):
-        raise NotImplementedError("IndependentBeam does not track a score")
+        """Calculate the final score of a beam, with a brevity penalty."""
+        exec_req = self.exec_req
+        self.score = (self.score - self.accumulated_normalization) / (
+            len(exec_req.input_token_ids) - exec_req.prompt_length
+        )
 
 
-class IndependentTokenSelectionStrategy(BaseTokenSelectionStrategy):
-    def select_greedy(
+class TokenSelector(BaseTokenSelectionStrategy):
+    min_log_prob: float = 0.0
+
+    def select_independent(
         self,
-        active_beams: List[IndependentBeam],
-        _: List[IndependentBeam],
-    ) -> List[IndependentBeam]:
+        active_beams: List[Beam],
+        completed_beams: List[Beam],
+    ) -> List[Beam]:
         """Greedily select a token for each active beam.
 
         Args:
@@ -106,8 +192,10 @@ class IndependentTokenSelectionStrategy(BaseTokenSelectionStrategy):
             List[IndependentBeam]: Beams with new token selected.
         """
         selections = []
+
+        # Sample logits for each active beam for it to select its next token.
         for beam in active_beams:
-            token = beam.sample_logits()
+            token = beam.sample_logits(len(completed_beams))
             beam.last_token = token
             selections.append(
                 beam,
@@ -115,7 +203,97 @@ class IndependentTokenSelectionStrategy(BaseTokenSelectionStrategy):
 
         return selections
 
-    def _stream_single_beam(self, beam_group: BeamGroup) -> List[IndependentBeam]:
+    def select_beam_search(
+        self,
+        active_beams: List[Beam],
+        completed_beams: List[Beam],
+    ) -> List[Beam]:
+        """Handle the selection of the `top_k` beams within a decode step.
+
+        Args:
+            active_beams (List[IndependentBeam]): Beams that are still active.
+            completed_beams (Set[IndependentBeam]): Beams that have been completed.
+
+        Returns:
+            List[IndependentBeam]: The `top_k` selections, containing necessary info for `beam_group` to handle choosing and processing beams.
+        """
+        config = self.token_selection_strategy_config
+        k = config.decode_config.num_beams - len(completed_beams)
+
+        global_min_log_prob = 0.0
+
+        top_score = None
+        top_beam = None
+        selections: List[Beam] = []
+
+        # Parse each beam to select the next candidates
+        for beam in active_beams:
+            min_log_prob = 0.0
+
+            top_tokens, top_values = beam.sample_logits(len(completed_beams))
+            for token, value in zip(top_tokens, top_values):
+                if value < min_log_prob:
+                    min_log_prob = value
+
+                new_beam = Beam(
+                    exec_req=beam.exec_req,
+                    score=beam.score,
+                    accumulated_normalization=beam.accumulated_normalization,
+                    last_token=token,
+                    decode_config=config.decode_config,
+                )
+                new_beam.update_score(value)
+                selections.append(new_beam)
+
+                if top_score is None or new_beam.score > top_score:
+                    top_score = new_beam.score
+                    top_beam = new_beam
+
+            if min_log_prob < global_min_log_prob:
+                global_min_log_prob = min_log_prob
+
+        # Ensure we have enough beams to fill the `num_beams` requirement
+        if len(selections) < config.decode_config.num_beams:
+            beams_to_add = config.decode_config.num_beams - len(selections)
+            for _ in range(beams_to_add):
+                new_beam = Beam(
+                    exec_req=top_beam.exec_req,
+                    score=top_beam.score,
+                    accumulated_normalization=top_beam.accumulated_normalization,
+                    last_token=top_beam.last_token,
+                    decode_config=config.decode_config,
+                )
+                selections.append(new_beam)
+
+        # Sort the selections by score and normalize
+        # the scores based on the global minimum log probability.
+        sorted_selections = sorted(
+            selections, key=lambda beam: beam.score, reverse=True
+        )[:k]
+        for beam in sorted_selections:
+            beam.normalize_score(global_min_log_prob)
+        return sorted_selections
+
+    def _find_top_beam(
+        self,
+        active_beams: List[Beam],
+        completed_beams: List[Beam],
+    ) -> Beam:
+        """Find the highest scoring beam, post generation.
+
+        Args:
+            active_beams (List[IndependentBeam]): Beams that are still actively generating.
+            completed_beams (List[IndependentBeam]): Beams that have completed.
+
+        Returns:
+            IndependentBeam: Highest scoring beam.
+        """
+        beams = list(completed_beams) if completed_beams else active_beams
+        for beam in beams:
+            beam.update_final_score()
+        return max(beams, key=lambda beam: beam.score)
+
+    def _stream_single_beam(self, beam_group: BeamGroup) -> List[Beam]:
         """Stream a single beam for the `multi_greedy` strategy.
 
         Args:
@@ -148,22 +326,26 @@ class IndependentTokenSelectionStrategy(BaseTokenSelectionStrategy):
         exec_req.reset(InferencePhase.DECODE)
 
         num_beams = config.decode_config.num_beams
+        use_beam_search = config.decode_config.use_beam_search
 
         # Copy `exec_req` to `num_beams` total requests
-        if num_beams > 1:
+        if num_beams > 1 and not use_beam_search:
             exec_reqs = self.replicate_inference_exec_requests(exec_req, num_beams - 1)
         else:
             exec_reqs = [exec_req]
 
         beams = [
-            IndependentBeam(exec_req, decode_config=config.decode_config)
-            for exec_req in exec_reqs
+            Beam(exec_req, decode_config=config.decode_config) for exec_req in exec_reqs
         ]
+
+        selection_callback = (
+            self.select_independent if not use_beam_search else self.select_beam_search
+        )
         beam_group = BeamGroup(
             config.eos_token_id,
             config.decode_config.num_beams,
             beams,
-            self.select_greedy,
+            selection_callback,
         )
 
         reservations = beam_group.active_beam_count
@@ -171,11 +353,19 @@ class IndependentTokenSelectionStrategy(BaseTokenSelectionStrategy):
         for _ in range(config.decode_config.max_completion_tokens):
             if exec_req.status_tracker.is_disconnected():
                 break
+
             active_beam_count = len(beam_group.active_beams)
             if reservations > active_beam_count:
                 release_amount = reservations - active_beam_count
                 config.decode_end_callback(
                     rid=exec_req.orig_instance_id, count=release_amount
+                )
+                reservations = active_beam_count
+
+            if reservations < active_beam_count:
+                acquire_amount = active_beam_count - reservations
+                config.decode_begin_callback(
+                    rid=exec_req.orig_instance_id, count=acquire_amount
                 )
                 reservations = active_beam_count
 
@@ -190,22 +380,49 @@ class IndependentTokenSelectionStrategy(BaseTokenSelectionStrategy):
             if not beam_group.active_beams:
                 break
 
-            if config.decode_config.num_beams == 1:
+            if config.decode_config.num_beams == 1 and not use_beam_search:
                 self._stream_single_beam(beam_group)
 
         config.decode_end_callback(rid=exec_req.orig_instance_id, count=reservations)
         beam_group.clean_up()
 
-        if config.decode_config.num_beams > 1:
-            results = [
-                beam.exec_req.input_token_ids[exec_req.prompt_length :]
-                for beam in beam_group.completed_beams
-            ]
-            if len(results) < beam_group.num_beams:
+        self.get_results(beam_group)
+
+    def _get_results_beam_search(self, beam_group: BeamGroup, results: List[List[int]]):
+        for beam in beam_group.active_beams:
+            beam.update_final_score()
+
+        active_beams = sorted(
+            [beam for beam in beam_group.active_beams],
+            key=lambda beam: beam.score,
+            reverse=True,
+        )
+        for i in range(beam_group.num_beams - len(results)):
+            beam = active_beams[i]
+            results.append(beam.exec_req.input_token_ids[beam.exec_req.prompt_length :])
+
+        return results
+
+    def get_results(self, beam_group: BeamGroup):
+        config = self.token_selection_strategy_config
+        use_beam_search = config.decode_config.use_beam_search
+        if config.decode_config.num_beams == 1 and not use_beam_search:
+            self._stream_single_beam(beam_group)
+            return
+
+        results = [
+            beam.exec_req.input_token_ids[beam.exec_req.prompt_length :]
+            for beam in beam_group.completed_beams
+        ]
+        if len(results) < beam_group.num_beams:
+            if use_beam_search:
+                results = self._get_results_beam_search(beam_group, results)
+            else:
                 results.extend(
                     [
-                        beam.exec_req.input_token_ids[exec_req.prompt_length :]
+                        beam.exec_req.input_token_ids[beam.exec_req.prompt_length :]
                         for beam in beam_group.active_beams
                     ]
                 )
-            config.results_callback(results)
+
+        config.results_callback(results)
