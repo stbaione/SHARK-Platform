@@ -25,6 +25,16 @@ TOP_P_DEFAULT_SELECTION = 32
 
 
 class Beam(BaseBeam):
+    @classmethod
+    def clone(cls, beam: "Beam") -> "Beam":
+        return cls(
+            exec_req=beam.exec_req,
+            score=beam.score,
+            accumulated_normalization=beam.accumulated_normalization,
+            last_token=beam.last_token,
+            decode_config=beam.decode_config,
+        )
+
     def _sample_greedy(self, logits: np.array, indices: Union[np.array, None]) -> int:
         """Select the token with the highest logit value.
 
@@ -80,6 +90,23 @@ class Beam(BaseBeam):
 
         return log_probs.tolist()
 
+    def _pre_select_top_p(
+        self, logits: np.array, indices: Union[np.array, None]
+    ) -> Tuple[np.array, np.array]:
+        top_p_selection = min(logits.shape[-1], TOP_P_DEFAULT_SELECTION)
+        tokens, values = self.sampler.select_top_k(logits, indices, -top_p_selection)
+        probs = self._to_softmax(
+            values,
+            self.decode_config.logits_normalization,
+        )
+
+        if indices is None:
+            sorted_order = np.argsort(probs)[::-1]
+            tokens = tokens[sorted_order]
+            probs = probs[sorted_order]
+
+        return tokens, probs
+
     def sample_logits(self, num_completed_beams: int) -> int:
         """Return the single highest scoring token of the logits.
 
@@ -118,19 +145,7 @@ class Beam(BaseBeam):
 
         if top_p is not None:
             if top_k is None:
-                top_p_selection = min(logits.shape[-1], TOP_P_DEFAULT_SELECTION)
-                tokens, values = self.sampler.select_top_k(
-                    logits, indices, -top_p_selection
-                )
-                probs = self._to_softmax(
-                    values,
-                    self.decode_config.logits_normalization,
-                )
-
-                if indices is None:
-                    sorted_order = np.argsort(probs)[::-1]
-                    tokens = tokens[sorted_order]
-                    probs = probs[sorted_order]
+                tokens, probs = self._pre_select_top_p(logits, indices)
 
             tokens, probs = self._sample_logits_top_p(
                 tokens,
@@ -238,13 +253,8 @@ class TokenSelector(BaseTokenSelectionStrategy):
                 if value < min_log_prob:
                     min_log_prob = value
 
-                new_beam = Beam(
-                    exec_req=beam.exec_req,
-                    score=beam.score,
-                    accumulated_normalization=beam.accumulated_normalization,
-                    last_token=token,
-                    decode_config=config.decode_config,
-                )
+                new_beam = Beam.clone(beam)
+                new_beam.last_token = token
                 new_beam.update_score(value)
                 selections.append(new_beam)
 
@@ -259,13 +269,7 @@ class TokenSelector(BaseTokenSelectionStrategy):
         if len(selections) < config.decode_config.num_beams:
             beams_to_add = config.decode_config.num_beams - len(selections)
             for _ in range(beams_to_add):
-                new_beam = Beam(
-                    exec_req=top_beam.exec_req,
-                    score=top_beam.score,
-                    accumulated_normalization=top_beam.accumulated_normalization,
-                    last_token=top_beam.last_token,
-                    decode_config=config.decode_config,
-                )
+                new_beam = Beam.clone(top_beam)
                 selections.append(new_beam)
 
         # Sort the selections by score and normalize
