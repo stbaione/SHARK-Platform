@@ -10,7 +10,7 @@ import logging
 from typing import List
 
 
-from .beam_group import BeamGroup, DefaultBeam, BeamSearchBeam
+from .beam_group import BeamGroup, build_beam_group
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
 )
@@ -54,31 +54,16 @@ class TokenSelector(BaseTokenSelectionStrategy):
             exec_req (LlmInferenceExecRequest): Initial inference request, post prefill.
         """
         self._log_sampling_method()
+
         config = self.token_selection_strategy_config
+        use_beam_search = config.decode_config.use_beam_search
 
         exec_req.reset(InferencePhase.DECODE)
 
-        num_beams = config.decode_config.num_beams
-        use_beam_search = config.decode_config.use_beam_search
-
-        # Copy `exec_req` to `num_beams` total requests
-        if num_beams > 1 and not use_beam_search:
-            exec_reqs = self.replicate_inference_exec_requests(exec_req, num_beams - 1)
-        else:
-            exec_reqs = [exec_req]
-
-        beam_cls = BeamSearchBeam if use_beam_search else DefaultBeam
-        beams = [
-            beam_cls(exec_req, decode_config=config.decode_config)
-            for exec_req in exec_reqs
-        ]
-
-        selection_callback = self.scorer.select_beams
-        beam_group = BeamGroup(
-            config.eos_token_id,
-            config.decode_config.num_beams,
-            beams,
-            selection_callback,
+        beam_group = build_beam_group(
+            exec_req,
+            config,
+            self.scorer.select_beams,
         )
 
         reservations = beam_group.active_beam_count

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Set
 from uuid import uuid4
 
-from .config import DecodeConfig, LogitsNormalization
+from .config import DecodeConfig, LogitsNormalization, TokenSelectionStrategyConfig
 from .sampler import Sampler
 from ..messages import LlmInferenceExecRequest
 
@@ -92,6 +92,18 @@ class BaseBeam(ABC):
             tokens (np.array): The selected tokens.
             probs (np.array): The probabilities of the selected tokens.
         """
+
+    @staticmethod
+    def replicate_inference_exec_requests(
+        exec_req: LlmInferenceExecRequest,
+        replicate: int,
+    ) -> List[LlmInferenceExecRequest]:
+        """Replicate inference requests for each beam."""
+        exec_reqs = [exec_req]
+        for _ in range(replicate):
+            exec_reqs.append(LlmInferenceExecRequest.copy_exec_request(exec_req))
+
+        return exec_reqs
 
     @classmethod
     def clone(cls, beam: "BaseBeam") -> "BaseBeam":
@@ -420,6 +432,31 @@ class DefaultBeam(BaseBeam):
 
     def get_results(self, tokens, _):
         return int(tokens[0])
+
+
+def build_beam_group(
+    exec_req: LlmInferenceExecRequest,
+    config: TokenSelectionStrategyConfig,
+    selection_callback: Callable[[List[BaseBeam], List[BaseBeam]], List[BaseBeam]],
+) -> Callable[[LlmInferenceExecRequest], BaseBeam]:
+    """Select the appropriate beam class based on the decode configuration."""
+    decode_config = config.decode_config
+    if not decode_config.use_beam_search and decode_config.num_beams > 1:
+        exec_reqs = BaseBeam.replicate_inference_exec_requests(
+            exec_req,
+            decode_config.num_beams - 1,
+        )
+    else:
+        exec_reqs = [exec_req]
+
+    beam_cls = BeamSearchBeam if decode_config.use_beam_search else DefaultBeam
+    beams = [beam_cls(exec_req, decode_config=decode_config) for exec_req in exec_reqs]
+    return BeamGroup(
+        config.eos_token_id,
+        decode_config.num_beams,
+        beams,
+        selection_callback,
+    )
 
 
 class BeamGroup:
