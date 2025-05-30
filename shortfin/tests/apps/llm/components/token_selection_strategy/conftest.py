@@ -59,14 +59,6 @@ def decode_config():
 
 
 class DummyTokenSelectionStrategy(BaseTokenSelectionStrategy):
-    def __init__(self, token_selection_strategy_config: TokenSelectionStrategyConfig):
-        # Initialize with a dummy config instance.
-        self._token_selection_strategy_config = token_selection_strategy_config
-
-    @property
-    def token_selection_strategy_config(self):
-        return self._token_selection_strategy_config
-
     async def decode(self, exec_req):
         pass
 

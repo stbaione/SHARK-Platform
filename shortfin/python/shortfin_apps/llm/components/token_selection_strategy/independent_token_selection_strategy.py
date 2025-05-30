@@ -52,6 +52,9 @@ class Beam(BaseBeam):
         Returns:
             Tuple[np.array, np.array]: The selected tokens and their probabilities.
         """
+        if indices is not None:
+            indices = np.array(indices)
+
         tokens, probs = self.sampler.select_top_k(logits, indices, -k)
 
         if self.decode_config.logits_normalization == LogitsNormalization.NONE:
@@ -97,13 +100,13 @@ class Beam(BaseBeam):
 
         logits = np.array(exec_req.result_logits)
         indices = exec_req.result_indices
-        indices = np.array(indices) if indices is not None else None
 
         if (top_k, top_p) == (None, None):
             if use_beam_search:
                 return self._sample_beam_search(logits, indices, k)
             return self._sample_greedy(logits, indices)
 
+        indices = np.array(indices) if indices is not None else None
         if top_k is not None:
             num_selections = top_k if use_beam_search or (top_p is not None) else 1
             tokens, probs = self._sample_logits_top_k(

@@ -26,11 +26,11 @@ from shortfin_apps.llm.components.messages import (
 from shortfin_apps.llm.components.token_selection_strategy import (
     build_token_selector_config,
     DecodeConfig,
-    IndependentTokenSelectionStrategy,
+    TokenSelector,
     TokenSelectionStrategy,
 )
 from shortfin_apps.llm.components.token_selection_strategy.independent_token_selection_strategy import (
-    IndependentBeam,
+    Beam,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,14 +52,14 @@ def exec_req_list(exec_req, cache, dummy_pages):
 
 @pytest.fixture(scope="function")
 def independent_token_selection_strategy():
-    yield IndependentTokenSelectionStrategy(
+    yield TokenSelector(
         None,
     )
 
 
 @pytest.fixture(scope="function")
 def independent_beam(exec_req, decode_config):
-    yield IndependentBeam(
+    yield Beam(
         exec_req,
         decode_config=decode_config,
     )
@@ -84,7 +84,7 @@ def test_independent_beam_sample_logits(device, independent_beam):
     src.items = data
 
     independent_beam.exec_req.result_logits = src
-    token = independent_beam.sample_logits()
+    token = independent_beam.sample_logits(0)
     assert token == 15
 
 
@@ -100,7 +100,7 @@ def test_independent_beam_sample_logits_w_indices(device, independent_beam):
     independent_beam.exec_req.result_logits = src
     independent_beam.exec_req.result_indices = indices
 
-    token = independent_beam.sample_logits()
+    token = independent_beam.sample_logits(0)
     assert token == 0
 
 
@@ -115,7 +115,7 @@ def test_independent_beam_sample_logits_top_k(device, independent_beam):
     independent_beam.decode_config.top_k = 3
     independent_beam.exec_req.result_logits = src
 
-    token = independent_beam.sample_logits()
+    token = independent_beam.sample_logits(0)
     assert token in expected_tokens
 
 
@@ -137,7 +137,7 @@ def test_independent_beam_sample_logits_top_k_w_indices(device, independent_beam
     independent_beam.exec_req.result_logits = src
     independent_beam.exec_req.result_indices = indices
 
-    token = independent_beam.sample_logits()
+    token = independent_beam.sample_logits(0)
 
     expected_tokens = indices.view(0, 0, slice(None, 3)).items.tolist()
     assert token in expected_tokens
@@ -154,7 +154,7 @@ def test_independent_beam_sample_logits_top_p(device, independent_beam):
     independent_beam.decode_config.top_k = None
     independent_beam.exec_req.result_logits = src
 
-    token = independent_beam.sample_logits()
+    token = independent_beam.sample_logits(0)
     expected_tokens = {13, 14, 15}
     assert token in expected_tokens
 
@@ -179,7 +179,7 @@ def test_independent_beam_sample_logits_top_p_w_indices(device, independent_beam
     independent_beam.exec_req.result_logits = src
     independent_beam.exec_req.result_indices = indices
 
-    token = independent_beam.sample_logits()
+    token = independent_beam.sample_logits(0)
     expected_tokens = indices.view(0, 0, slice(None, 3)).items.tolist()
     assert token in expected_tokens
 
@@ -195,7 +195,7 @@ def test_independent_beam_sample_logits_top_k_top_p(device, independent_beam):
     independent_beam.exec_req.result_logits = src
     expected_tokens = [13, 14, 15]
 
-    token = independent_beam.sample_logits()
+    token = independent_beam.sample_logits(0)
     assert token in expected_tokens
 
 
@@ -219,7 +219,7 @@ def test_independent_beam_sample_logits_top_k_top_p_w_indices(device, independen
     independent_beam.exec_req.result_logits = src
     independent_beam.exec_req.result_indices = indices
 
-    token = independent_beam.sample_logits()
+    token = independent_beam.sample_logits(0)
     expected_tokens = indices.view(0, 0, slice(None, 3)).items.tolist()
     assert token in expected_tokens
 
@@ -247,11 +247,8 @@ def test_select_greedy(
         exec_req.result_logits = src
         count += 1
 
-    beams = [
-        IndependentBeam(exec_req, decode_config=decode_config)
-        for exec_req in exec_req_list
-    ]
-    selections = independent_token_selection_strategy.select_greedy(beams, [])
+    beams = [Beam(exec_req, decode_config=decode_config) for exec_req in exec_req_list]
+    selections = independent_token_selection_strategy.select_independent(beams, [])
     assert len(selections) == len(beams)
 
     expected_last_tokens = [i for i in range(len(beams))]
@@ -279,7 +276,6 @@ async def test_independent_decode_single(
         results_array.extend(tokens)
 
     decode_config = DecodeConfig(
-        token_selection_strategy=TokenSelectionStrategy.INDEPENDENT,
         num_beams=2,
         max_completion_tokens=1,
     )
@@ -355,7 +351,6 @@ async def test_independent_decode_multiple_completions(
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
     decode_config = DecodeConfig(
-        token_selection_strategy=TokenSelectionStrategy.INDEPENDENT,
         num_beams=2,
         max_completion_tokens=5,
     )
@@ -434,7 +429,6 @@ async def test_independent_decode_eos_token(
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
     decode_config = DecodeConfig(
-        token_selection_strategy=TokenSelectionStrategy.INDEPENDENT,
         num_beams=2,
         max_completion_tokens=5,
     )

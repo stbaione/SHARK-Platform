@@ -41,9 +41,7 @@ def _results_callback(token: int | List[int]):
 
 
 def test_build_token_selector_config():
-    strategy = token_selection_strategy.TokenSelectionStrategy.INDEPENDENT
     decode_config = token_selection_strategy.DecodeConfig(
-        token_selection_strategy=strategy,
         max_completion_tokens=42,
     )
 
@@ -61,22 +59,9 @@ def test_build_token_selector_config():
     assert config.eos_token_id == 0
     assert config.decode_config.max_completion_tokens == 42
 
-    with pytest.raises(NotImplementedError):
-        decode_config.token_selection_strategy = "NotImplemented"
-        config = token_selection_strategy.build_token_selector_config(
-            decode_config,
-            prefill_batcher=FakeBatcher(_batcher_callback, _batcher_workitem_callback),
-            decode_batcher=FakeBatcher(_batcher_callback, _batcher_workitem_callback),
-            results_callback=_results_callback,
-            eos_token_id=0,
-        )
-
 
 def test_build_token_selector():
-    strategy = token_selection_strategy.TokenSelectionStrategy.INDEPENDENT
-
     decode_config = token_selection_strategy.DecodeConfig(
-        token_selection_strategy=strategy,
         max_completion_tokens=42,
     )
     config = token_selection_strategy.build_token_selector_config(
@@ -90,10 +75,6 @@ def test_build_token_selector():
         config,
     )
     assert token_selector.token_selection_strategy_config == config
-
-    with pytest.raises(NotImplementedError):
-        config.decode_config.token_selection_strategy = "NotImplemented"
-        token_selection_strategy.build_token_selector(config)
 
 
 @pytest.mark.asyncio
@@ -121,10 +102,7 @@ async def test_prefill(
     def _results_callback(token: int):
         results_array.append(token)
 
-    strategy = token_selection_strategy.TokenSelectionStrategy.INDEPENDENT
-
     decode_config = token_selection_strategy.DecodeConfig(
-        token_selection_strategy=strategy,
         max_completion_tokens=1,
     )
 
@@ -135,7 +113,7 @@ async def test_prefill(
         results_callback=_results_callback,
         eos_token_id=0,
     )
-    dummy_token_selection_strategy._token_selection_strategy_config = config
+    dummy_token_selection_strategy.token_selection_strategy_config = config
     await dummy_token_selection_strategy.prefill(exec_req)
 
     assert results_array[0] == 15
@@ -145,22 +123,14 @@ async def test_prefill(
 
 def test_decode_config():
     num_beams = 42
-    for strategy in [
-        token_selection_strategy.TokenSelectionStrategy.INDEPENDENT,
-        token_selection_strategy.TokenSelectionStrategy.BEAM_SEARCH,
-    ]:
-        decode_config = token_selection_strategy.DecodeConfig(num_beams, strategy)
-        assert decode_config.num_beams == 42
-        assert decode_config.token_selection_strategy == strategy
+    decode_config = token_selection_strategy.DecodeConfig(num_beams)
+    assert decode_config.num_beams == 42
+    assert not decode_config.use_beam_search
 
+    decode_config = token_selection_strategy.DecodeConfig(
+        num_beams,
+        use_beam_search=True,
+    )
 
-def test_decode_config_str():
-    # Str conversion at init
-    num_beams = 42
-    for strategy_str in ["independent", "beam_search"]:
-        decode_config = token_selection_strategy.DecodeConfig(num_beams, strategy_str)
-        assert decode_config.num_beams == num_beams
-        assert (
-            decode_config.token_selection_strategy
-            == token_selection_strategy.get_strategy_from_str(strategy_str)
-        )
+    assert decode_config.num_beams == 42
+    assert decode_config.use_beam_search

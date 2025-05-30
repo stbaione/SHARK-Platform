@@ -12,7 +12,7 @@ from shortfin_apps.llm.components.kvcache.base_attention_cache import (
 from shortfin_apps.llm.components.messages import LlmInferenceExecRequest
 from shortfin_apps.llm.components.token_selection_strategy.beam_group import (
     BeamGroup,
-    Beam,
+    BaseBeam,
 )
 from shortfin_apps.llm.components.token_selection_strategy.config import (
     LogitsNormalization,
@@ -38,7 +38,7 @@ def exec_req_list(exec_req, cache, dummy_pages):
     yield exec_reqs
 
 
-class DummyBeam(Beam):
+class DummyBeam(BaseBeam):
     def sample_logits(self):
         pass
 

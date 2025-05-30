@@ -11,13 +11,12 @@ import pytest
 import random
 import struct
 
-from typing import Any, List
+from typing import List
 from unittest.mock import patch
 
-import shortfin as sf
 import shortfin.array as sfnp
 
-from shortfin_apps.utils import approximately_equal, convert_float_to_int
+from shortfin_apps.utils import approximately_equal
 from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     BasePagedAttentionCacheAllocation,
 )
@@ -27,13 +26,12 @@ from shortfin_apps.llm.components.messages import (
 )
 from shortfin_apps.llm.components.token_selection_strategy import (
     build_token_selector_config,
-    BeamSearchTokenSelectionStrategy,
+    TokenSelector,
     DecodeConfig,
-    TokenSelectionStrategy,
     TokenSelectionStrategyConfig,
 )
-from shortfin_apps.llm.components.token_selection_strategy.beam_search_token_selection_strategy import (
-    BeamSearchBeam,
+from shortfin_apps.llm.components.token_selection_strategy.independent_token_selection_strategy import (
+    Beam,
 )
 from shortfin_apps.llm.components.token_selection_strategy.beam_group import (
     BeamGroup,
@@ -58,14 +56,15 @@ def exec_req_list(exec_req, cache_ref_count, dummy_pages, request):
 
 @pytest.fixture(scope="function")
 def beam_search_token_selection_strategy():
-    yield BeamSearchTokenSelectionStrategy(
+    yield TokenSelector(
         None,
     )
 
 
 @pytest.fixture(scope="function")
 def beam_search_beam(exec_req, decode_config):
-    yield BeamSearchBeam(
+    decode_config.use_beam_search = True
+    yield Beam(
         exec_req,
         decode_config=decode_config,
     )
@@ -93,7 +92,8 @@ def test_beam_search_beam_sample_logits(device, beam_search_beam):
     src.items = data
 
     beam_search_beam.exec_req.result_logits = src
-    top_tokens, top_values = beam_search_beam.sample_logits(3)
+    beam_search_beam.decode_config.num_beams = 3
+    top_tokens, top_values = beam_search_beam.sample_logits(0)
 
     assert len(top_tokens) == 3
     assert len(top_values) == 3
@@ -114,7 +114,8 @@ def test_beam_search_beam_sample_logits_w_indices(device, beam_search_beam):
 
     beam_search_beam.exec_req.result_logits = src
     beam_search_beam.exec_req.result_indices = indices
-    top_tokens, top_values = beam_search_beam.sample_logits(3)
+    beam_search_beam.decode_config.num_beams = 3
+    top_tokens, top_values = beam_search_beam.sample_logits(0)
 
     assert len(top_tokens) == 3
     assert len(top_values) == 3
@@ -127,9 +128,11 @@ def test_beam_search_beam_sample_logits_top_k(device, beam_search_beam):
     src = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
     data = [float(i) for i in range(math.prod(src.shape))]
     src.items = data
-    beam_search_beam.exec_req.result_logits = src
 
-    top_tokens, top_values = beam_search_beam.sample_logits(3)
+    beam_search_beam.exec_req.result_logits = src
+    beam_search_beam.decode_config.num_beams = 3
+
+    top_tokens, top_values = beam_search_beam.sample_logits(0)
 
     assert len(top_tokens) == 3
     assert len(top_values) == 3
@@ -162,10 +165,11 @@ def test_beam_search_beam_sample_logits_top_k_w_indices(device, beam_search_beam
     indices.items = indices_np.flatten().tolist()
 
     beam_search_beam.decode_config.top_k = 3
+    beam_search_beam.decode_config.num_beams = 3
     beam_search_beam.exec_req.result_logits = src
     beam_search_beam.exec_req.result_indices = indices
 
-    top_tokens, top_values = beam_search_beam.sample_logits(3)
+    top_tokens, top_values = beam_search_beam.sample_logits(0)
 
     assert len(top_tokens) == 3
     assert len(top_values) == 3
@@ -191,7 +195,7 @@ def test_beam_search_beam_sample_logits_top_p(device, beam_search_beam):
     with patch.object(
         beam_search_beam, "_sample_logits_top_p", return_value=(expected_tokens, values)
     ):
-        result_tokens, result_values = beam_search_beam.sample_logits(3)
+        result_tokens, result_values = beam_search_beam.sample_logits(0)
 
         assert result_tokens == expected_tokens
         assert approximately_equal(result_values, expected_values)
@@ -211,10 +215,11 @@ def test_beam_search_beam_sample_logits_top_p_w_indices(device, beam_search_beam
     indices.items = indices_np.flatten().tolist()
 
     beam_search_beam.decode_config.top_p = 0.94
+    beam_search_beam.decode_config.num_beams = 3
     beam_search_beam.exec_req.result_logits = src
     beam_search_beam.exec_req.result_indices = indices
 
-    top_tokens, top_values = beam_search_beam.sample_logits(3)
+    top_tokens, top_values = beam_search_beam.sample_logits(0)
 
     assert len(top_tokens) == 3
     assert len(top_values) == 3
@@ -272,10 +277,11 @@ def test_beam_search_beam_sample_logits_top_k_top_p_w_indices(device, beam_searc
 
     beam_search_beam.decode_config.top_k = 5
     beam_search_beam.decode_config.top_p = 0.94
+    beam_search_beam.decode_config.num_beams = 3
     beam_search_beam.exec_req.result_logits = src
     beam_search_beam.exec_req.result_indices = indices
 
-    top_tokens, top_values = beam_search_beam.sample_logits(3)
+    top_tokens, top_values = beam_search_beam.sample_logits(0)
 
     assert len(top_tokens) == 3
     assert len(top_values) == 3
@@ -320,7 +326,7 @@ def test_beam_search_beam_update_final_score(mock_void_future, decode_config):
         initial_prompt,
     )
     exec_req.input_token_ids.extend(new_input_tokens)
-    beam = BeamSearchBeam(
+    beam = Beam(
         exec_req,
         decode_config=decode_config,
         score=score,
@@ -337,10 +343,7 @@ def test__find_top_beam_completed_beams(
     exec_req_list,
     decode_config,
 ):
-    beams = [
-        BeamSearchBeam(exec_req, decode_config=decode_config)
-        for exec_req in exec_req_list
-    ]
+    beams = [Beam(exec_req, decode_config=decode_config) for exec_req in exec_req_list]
     scores = [float(val) for val in range(len(beams))]
     for i, beam in enumerate(beams):
         beam.score = scores[i]
@@ -349,7 +352,7 @@ def test__find_top_beam_completed_beams(
 
     # Completed Reqs
     with patch.object(
-        BeamSearchBeam,
+        Beam,
         "update_final_score",
         side_effect=lambda: None,
     ):
@@ -379,10 +382,7 @@ def test__find_top_beam_completed_beams(
 def test__find_top_beam_active_beams(
     beam_search_token_selection_strategy, decode_config, exec_req_list
 ):
-    beams = [
-        BeamSearchBeam(exec_req, decode_config=decode_config)
-        for exec_req in exec_req_list
-    ]
+    beams = [Beam(exec_req, decode_config=decode_config) for exec_req in exec_req_list]
     scores = [float(val) for val in range(len(beams))]
     for i, beam in enumerate(beams):
         beam.score = scores[i]
@@ -391,7 +391,7 @@ def test__find_top_beam_active_beams(
 
     # Completed Reqs
     with patch.object(
-        BeamSearchBeam,
+        Beam,
         "update_final_score",
         side_effect=lambda: None,
     ):
@@ -421,10 +421,7 @@ def test__find_top_beam_active_beams(
 def test_get_results(
     beam_search_token_selection_strategy, decode_config, exec_req_list
 ):
-    beams = [
-        BeamSearchBeam(exec_req, decode_config=decode_config)
-        for exec_req in exec_req_list
-    ]
+    beams = [Beam(exec_req, decode_config=decode_config) for exec_req in exec_req_list]
     # Offset the input_ids to differentiate between reqs
     offset = 1
     for beam in beams[1:]:
@@ -445,7 +442,7 @@ def test_get_results(
     config = TokenSelectionStrategyConfig(
         decode_config=DecodeConfig(
             num_beams=num_beams,
-            token_selection_strategy=TokenSelectionStrategy.BEAM_SEARCH,
+            use_beam_search=True,
             max_completion_tokens=1,
         ),
         prefill_callback=lambda _: None,
@@ -499,10 +496,7 @@ def test_get_results(
 def test_get_results_extra_reqs(
     beam_search_token_selection_strategy, decode_config, exec_req_list
 ):
-    beams = [
-        BeamSearchBeam(exec_req, decode_config=decode_config)
-        for exec_req in exec_req_list
-    ]
+    beams = [Beam(exec_req, decode_config=decode_config) for exec_req in exec_req_list]
     # Offset the input_ids to differentiate between reqs
     offset = 1
     for beam in beams[1:]:
@@ -523,7 +517,7 @@ def test_get_results_extra_reqs(
     config = TokenSelectionStrategyConfig(
         decode_config=DecodeConfig(
             num_beams=num_beams,
-            token_selection_strategy=TokenSelectionStrategy.BEAM_SEARCH,
+            use_beam_search=True,
             max_completion_tokens=1,
         ),
         prefill_callback=lambda _: None,
@@ -602,7 +596,7 @@ async def test_beam_search_decode_single(
 
     num_beams = 8
     decode_config = DecodeConfig(
-        token_selection_strategy=TokenSelectionStrategy.BEAM_SEARCH,
+        use_beam_search=True,
         num_beams=num_beams,
         max_completion_tokens=1,
     )
@@ -682,7 +676,7 @@ async def test_beam_search_decode_multiple_completions(
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
     decode_config = DecodeConfig(
-        token_selection_strategy=TokenSelectionStrategy.BEAM_SEARCH,
+        use_beam_search=True,
         num_beams=num_beams,
         max_completion_tokens=5,
     )
@@ -775,7 +769,7 @@ async def test_beam_search_decode_eos_token(
 
     exec_req.start_position = len(exec_req.input_token_ids) - 1
     decode_config = DecodeConfig(
-        token_selection_strategy=TokenSelectionStrategy.BEAM_SEARCH,
+        use_beam_search=True,
         num_beams=num_beams,
         max_completion_tokens=10,
     )
