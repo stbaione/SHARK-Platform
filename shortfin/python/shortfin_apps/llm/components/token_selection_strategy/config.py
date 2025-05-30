@@ -5,10 +5,12 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from dataclasses import dataclass, fields
+from typing import Callable, List, Union
 from dataclasses_json import dataclass_json, Undefined
 from enum import Enum, auto
 
 from ..io_struct import DEFAULT_MAX_COMPLETION_TOKENS, DEFAULT_TEMPERATURE
+from ..messages import LlmInferenceExecRequest
 
 
 class LogitsNormalization(Enum):
@@ -82,3 +84,16 @@ class DecodeConfig:
         for field in fields(sampling_params):
             if hasattr(self, field.name):
                 setattr(self, field.name, getattr(sampling_params, field.name))
+
+
+@dataclass
+class TokenSelectionStrategyConfig:
+    """Configuration for token selection strategies."""
+
+    decode_config: DecodeConfig
+    prefill_callback: Callable[[LlmInferenceExecRequest], None]
+    decode_callback: Callable[[LlmInferenceExecRequest], None]
+    decode_begin_callback: Callable[[int], None]
+    decode_end_callback: Callable[[int], None]
+    results_callback: Callable[[Union[int, List[int]]], None]
+    eos_token_id: int

@@ -7,9 +7,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
-from typing import List, Callable, Union
+from typing import List
 
-from .config import DecodeConfig
+from .config import TokenSelectionStrategyConfig
 from .scorer import BaseBeamScorer
 
 from ..messages import LlmInferenceExecRequest
@@ -18,19 +18,6 @@ import shortfin.array as sfnp
 
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class TokenSelectionStrategyConfig:
-    """Configuration for token selection strategies."""
-
-    decode_config: DecodeConfig
-    prefill_callback: Callable[[LlmInferenceExecRequest], None]
-    decode_callback: Callable[[LlmInferenceExecRequest], None]
-    decode_begin_callback: Callable[[int], None]
-    decode_end_callback: Callable[[int], None]
-    results_callback: Callable[[Union[int, List[int]]], None]
-    eos_token_id: int
 
 
 @dataclass

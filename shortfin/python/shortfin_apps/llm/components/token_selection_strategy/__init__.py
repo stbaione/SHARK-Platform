@@ -8,13 +8,13 @@ from typing import Callable, List, Union
 
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
-    TokenSelectionStrategyConfig,
 )
 
 from .config import (
     DecodeConfig,
-    TokenSelectionStrategy,
     get_strategy_from_str,
+    TokenSelectionStrategy,
+    TokenSelectionStrategyConfig,
 )
 from .scorer import BeamSearchScorer, DefaultScorer
 from .token_selector import TokenSelector
