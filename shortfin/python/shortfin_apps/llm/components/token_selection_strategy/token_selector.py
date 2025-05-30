@@ -10,7 +10,7 @@ import numpy as np
 from typing import List, Tuple, Union
 
 
-from .beam_group import BaseBeam, BeamGroup
+from .beam_group import BaseBeam, BeamGroup, BaseBeamScorer
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
 )
@@ -25,16 +25,6 @@ TOP_P_DEFAULT_SELECTION = 32
 
 
 class Beam(BaseBeam):
-    @classmethod
-    def clone(cls, beam: "Beam") -> "Beam":
-        return cls(
-            exec_req=beam.exec_req,
-            score=beam.score,
-            accumulated_normalization=beam.accumulated_normalization,
-            last_token=beam.last_token,
-            decode_config=beam.decode_config,
-        )
-
     def _sample_greedy(self, logits: np.array, indices: Union[np.array, None]) -> int:
         """Select the token with the highest logit value.
 
@@ -107,6 +97,43 @@ class Beam(BaseBeam):
 
         return tokens, probs
 
+    def _sample_default(
+        self, logits: np.array, indices: Union[np.array, None], k: int | None = None
+    ) -> int:
+        decode_config = self.decode_config
+        if decode_config.use_beam_search:
+            return self._sample_beam_search(logits, indices, k)
+        return self._sample_greedy(logits, indices)
+
+    def _sample_top_k(
+        self,
+        logits: np.array,
+        indices: Union[np.array, None],
+        top_k: int,
+    ) -> Tuple[np.array, np.array]:
+        """Sample the top-k tokens from the logits.
+
+        Args:
+            logits (np.array): The logits from which to select.
+            indices (np.array | None): Optional indices to filter logits.
+            top_k (int): The number of top tokens to select.
+            num_selections (int): The number of selections to make.
+
+        Returns:
+            Tuple[np.array, np.array]: The selected tokens and their probabilities.
+        """
+        decode_config = self.decode_config
+        use_beam_search = decode_config.use_beam_search
+        top_p = decode_config.top_p
+
+        num_selections = top_k if use_beam_search or (top_p is not None) else 1
+        return self._sample_logits_top_k(
+            logits,
+            indices,
+            top_k,
+            num_selections,
+        )
+
     def sample_logits(self, num_completed_beams: int) -> int:
         """Return the single highest scoring token of the logits.
 
@@ -129,18 +156,14 @@ class Beam(BaseBeam):
         indices = exec_req.result_indices
 
         if (top_k, top_p) == (None, None):
-            if use_beam_search:
-                return self._sample_beam_search(logits, indices, k)
-            return self._sample_greedy(logits, indices)
+            return self._sample_default(logits, indices, k)
 
         indices = np.array(indices) if indices is not None else None
         if top_k is not None:
-            num_selections = top_k if use_beam_search or (top_p is not None) else 1
-            tokens, probs = self._sample_logits_top_k(
+            tokens, probs = self._sample_top_k(
                 logits,
                 indices,
                 top_k,
-                num_selections,
             )
 
         if top_p is not None:
@@ -192,8 +215,49 @@ class Beam(BaseBeam):
         )
 
 
+class BeamSearchScorer(BaseBeamScorer):
+    def update_score(
+        self,
+        beam: BaseBeam,
+        log_prob: float,
+    ) -> None:
+        """Update the score of a beam with the log probability of the selected token.
+
+        Args:
+            beam (BaseBeam): The beam to update.
+            log_prob (float): Log probability of the token.
+        """
+        beam.score += log_prob
+
+    def finalize_score(
+        self,
+        beam: BaseBeam,
+    ) -> None:
+        """Finalize the score of a beam after all tokens have been selected.
+
+        Args:
+            beam (BaseBeam): The beam to finalize.
+        """
+        beam.score = beam.score - beam.accumulated_normalization
+        return self.penalize_brevity(beam)
+
+    def normalize_score(
+        self,
+        beam: BaseBeam,
+        min_log_prob: float,
+    ) -> None:
+        """Normalize the score of a beam based on the minimum log probability.
+
+        Args:
+            beam (BaseBeam): The beam to normalize.
+            min_log_prob (float): Minimum log probability of the selected tokens.
+        """
+        beam.accumulated_normalization += abs(min_log_prob)
+
+
 class TokenSelector(BaseTokenSelectionStrategy):
     min_log_prob: float = 0.0
+    scorer: BeamSearchScorer = BeamSearchScorer()
 
     def select_independent(
         self,
@@ -255,7 +319,7 @@ class TokenSelector(BaseTokenSelectionStrategy):
 
                 new_beam = Beam.clone(beam)
                 new_beam.last_token = token
-                new_beam.update_score(value)
+                self.scorer.update_score(new_beam, value)
                 selections.append(new_beam)
 
                 if top_score is None or new_beam.score > top_score:
@@ -278,7 +342,7 @@ class TokenSelector(BaseTokenSelectionStrategy):
             selections, key=lambda beam: beam.score, reverse=True
         )[:k]
         for beam in sorted_selections:
-            beam.normalize_score(global_min_log_prob)
+            self.scorer.normalize_score(beam, global_min_log_prob)
         return sorted_selections
 
     def _find_top_beam(
@@ -297,7 +361,7 @@ class TokenSelector(BaseTokenSelectionStrategy):
         """
         beams = list(completed_beams) if completed_beams else active_beams
         for beam in beams:
-            beam.update_final_score()
+            self.scorer.finalize_score(beam)
         return max(beams, key=lambda beam: beam.score)
 
     def _stream_single_beam(self, beam_group: BeamGroup) -> List[Beam]:

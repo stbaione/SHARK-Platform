@@ -6,7 +6,7 @@
 
 import logging
 import numpy as np
-from typing import Union
+from typing import Union, ForwardRef
 
 import shortfin.array as sfnp
 
@@ -23,9 +23,9 @@ from ..messages import LlmInferenceExecRequest
 
 logger = logging.getLogger(__name__)
 
+BaseBeamScorer = ForwardRef("BaseBeamScorer")
 
-# TODO: Define `top_p` function in base class when enabled in
-# shortfin.
+
 @dataclass
 class BaseBeam(ABC):
     exec_req: LlmInferenceExecRequest
@@ -34,9 +34,54 @@ class BaseBeam(ABC):
 
     sampler: Sampler = field(default_factory=Sampler)
 
+    is_scored: bool = False
+    scorer: BaseBeamScorer | None = None
     score: float = 0.0
     accumulated_normalization: float = 0.0
     last_token: int | None = None
+
+    @abstractmethod
+    def sample_logits(self):
+        """Define how to sample and select tokens for a give `Beam`"""
+        pass
+
+    @abstractmethod
+    def update_score(self, value: float):
+        """Update the score of a `beam`.
+
+        Args:
+            value (float): Value to update the score with.
+        """
+        pass
+
+    @abstractmethod
+    def update_exec_req(self):
+        """Update an `LlmInferenceExecRequest`, after a decode loop"""
+        pass
+
+    @abstractmethod
+    def normalize_score(self, value: float):
+        """Normalize the score of a `beam`.
+
+        Args:
+            value (float): Value to normalize the score with.
+        """
+        pass
+
+    @abstractmethod
+    def update_final_score(self):
+        """Define a `final_score` for a given beam, if applicable."""
+        pass
+
+    @classmethod
+    def clone(cls, beam: "BaseBeam") -> "BaseBeam":
+        return cls(
+            exec_req=beam.exec_req,
+            score=beam.score,
+            accumulated_normalization=beam.accumulated_normalization,
+            last_token=beam.last_token,
+            decode_config=beam.decode_config,
+        )
 
     def apply_temperature(self, logits: np.array) -> np.array:
         """Apply temperature to the logits of a decode invocation.
@@ -103,11 +148,6 @@ class BaseBeam(ABC):
 
         return converted_logits
 
-    @abstractmethod
-    def sample_logits(self):
-        """Define how to sample and select tokens for a give `Beam`"""
-        pass
-
     def _to_softmax(
         self,
         values: np.array,
@@ -157,33 +197,61 @@ class BaseBeam(ABC):
             return_probs=return_probs,
         )
 
+
+class BaseBeamScorer(ABC):
     @abstractmethod
-    def update_score(self, value: float):
+    def update_score(
+        self,
+        beam: BaseBeam,
+        value: float,
+    ) -> None:
         """Update the score of a `beam`.
 
         Args:
+            beam (BaseBeam): The beam to update.
             value (float): Value to update the score with.
         """
-        pass
 
     @abstractmethod
-    def update_exec_req(self):
-        """Update an `LlmInferenceExecRequest`, after a decode loop"""
-        pass
+    def finalize_score(self, beam: BaseBeam) -> None:
+        """Define a `final_score` for a given beam, if applicable.
+
+        Args:
+            beam (BaseBeam): The beam to update.
+        """
 
     @abstractmethod
-    def normalize_score(self, value: float):
+    def normalize_score(
+        self,
+        beam: BaseBeam,
+        value: float,
+    ) -> float:
         """Normalize the score of a `beam`.
 
         Args:
+            beam (BaseBeam): The beam to normalize.
             value (float): Value to normalize the score with.
-        """
-        pass
 
-    @abstractmethod
-    def update_final_score(self):
-        """Define a `final_score` for a given beam, if applicable."""
-        pass
+        Returns:
+            float: Normalized score.
+        """
+
+    def penalize_brevity(
+        self,
+        beam: BaseBeam,
+    ) -> float:
+        """Apply a length penalty to the score of a `beam`.
+
+        Args:
+            beam (BaseBeam): The beam to penalize.
+            length (int): Length of the sequence.
+
+        Returns:
+            float: Penalized score.
+        """
+        # TODO(stbaione): Extend this to support other length penalty types
+        exec_req = beam.exec_req
+        beam.score /= len(exec_req.input_token_ids) - exec_req.prompt_length
 
 
 class BeamGroup:
