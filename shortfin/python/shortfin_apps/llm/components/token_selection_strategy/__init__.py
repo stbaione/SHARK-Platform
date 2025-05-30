@@ -16,7 +16,7 @@ from .config import (
     TokenSelectionStrategy,
     get_strategy_from_str,
 )
-from .independent_token_selection_strategy import TokenSelector
+from .token_selector import TokenSelector
 from .sampler import Sampler
 
 

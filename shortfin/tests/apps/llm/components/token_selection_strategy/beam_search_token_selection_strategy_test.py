@@ -30,7 +30,7 @@ from shortfin_apps.llm.components.token_selection_strategy import (
     DecodeConfig,
     TokenSelectionStrategyConfig,
 )
-from shortfin_apps.llm.components.token_selection_strategy.independent_token_selection_strategy import (
+from shortfin_apps.llm.components.token_selection_strategy.token_selector import (
     Beam,
 )
 from shortfin_apps.llm.components.token_selection_strategy.beam_group import (
