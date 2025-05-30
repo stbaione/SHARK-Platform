@@ -26,6 +26,7 @@ from shortfin_apps.llm.components.messages import (
 )
 from shortfin_apps.llm.components.token_selection_strategy import (
     build_token_selector_config,
+    BeamSearchScorer,
     TokenSelector,
     DecodeConfig,
     TokenSelectionStrategyConfig,
@@ -55,9 +56,15 @@ def exec_req_list(exec_req, cache_ref_count, dummy_pages, request):
 
 
 @pytest.fixture(scope="function")
-def beam_search_token_selection_strategy():
+def beam_search_scorer(decode_config):
+    yield BeamSearchScorer(config=decode_config)
+
+
+@pytest.fixture(scope="function")
+def beam_search_token_selection_strategy(beam_search_scorer):
     yield TokenSelector(
         None,
+        scorer=beam_search_scorer,
     )
 
 
@@ -338,86 +345,6 @@ def test_beam_search_beam_update_final_score(mock_void_future, decode_config):
     assert beam.score == expected
 
 
-def test__find_top_beam_completed_beams(
-    beam_search_token_selection_strategy,
-    exec_req_list,
-    decode_config,
-):
-    beams = [Beam(exec_req, decode_config=decode_config) for exec_req in exec_req_list]
-    scores = [float(val) for val in range(len(beams))]
-    for i, beam in enumerate(beams):
-        beam.score = scores[i]
-
-    expected_top_beam = beams[-1]
-
-    # Completed Reqs
-    with patch.object(
-        Beam,
-        "update_final_score",
-        side_effect=lambda: None,
-    ):
-        # Sorted ascending
-        top_beam = beam_search_token_selection_strategy._find_top_beam(
-            [],
-            beams,
-        )
-        assert top_beam == expected_top_beam
-
-        # Sorted descending
-        top_beam = beam_search_token_selection_strategy._find_top_beam(
-            [],
-            beams[::-1],
-        )
-        assert top_beam == expected_top_beam
-
-        # Randomized
-        random.shuffle(beams)
-        top_beam = beam_search_token_selection_strategy._find_top_beam(
-            [],
-            beams,
-        )
-        assert top_beam == expected_top_beam
-
-
-def test__find_top_beam_active_beams(
-    beam_search_token_selection_strategy, decode_config, exec_req_list
-):
-    beams = [Beam(exec_req, decode_config=decode_config) for exec_req in exec_req_list]
-    scores = [float(val) for val in range(len(beams))]
-    for i, beam in enumerate(beams):
-        beam.score = scores[i]
-
-    expected_top_beam = beams[-1]
-
-    # Completed Reqs
-    with patch.object(
-        Beam,
-        "update_final_score",
-        side_effect=lambda: None,
-    ):
-        # Sorted ascending
-        top_beam = beam_search_token_selection_strategy._find_top_beam(
-            beams,
-            [],
-        )
-        assert top_beam == expected_top_beam
-
-        # Sorted descending
-        top_beam = beam_search_token_selection_strategy._find_top_beam(
-            beams[::-1],
-            [],
-        )
-        assert top_beam == expected_top_beam
-
-        # Randomized
-        random.shuffle(exec_req_list)
-        top_beam = beam_search_token_selection_strategy._find_top_beam(
-            beams,
-            [],
-        )
-        assert top_beam == expected_top_beam
-
-
 def test_get_results(
     beam_search_token_selection_strategy, decode_config, exec_req_list
 ):
@@ -580,7 +507,6 @@ async def test_beam_search_decode_single(
     device,
     dummy_pages,
     exec_req: LlmInferenceExecRequest,
-    beam_search_token_selection_strategy,
 ):
     def _batcher_callback(request: LlmInferenceExecRequest):
         result_logits = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
@@ -607,7 +533,10 @@ async def test_beam_search_decode_single(
         results_callback=_results_callback,
         eos_token_id=-1,
     )
-
+    beam_search_token_selection_strategy = TokenSelector(
+        token_selection_strategy_config=config,
+        scorer=BeamSearchScorer(config=config),
+    )
     exec_req._cache = cache_ref_count
     allocation = BasePagedAttentionCacheAllocation(dummy_pages, cache=cache_ref_count)
     exec_req.allocation = allocation
@@ -641,7 +570,6 @@ async def test_beam_search_decode_multiple_completions(
     device,
     dummy_pages,
     exec_req: LlmInferenceExecRequest,
-    beam_search_token_selection_strategy,
 ):
     results_array = []
 
@@ -691,34 +619,33 @@ async def test_beam_search_decode_multiple_completions(
         results_callback=_results_callback,
         eos_token_id=-1,
     )
+    beam_search_token_selection_strategy = TokenSelector(
+        token_selection_strategy_config=config,
+        scorer=BeamSearchScorer(config=config),
+    )
     exec_req._cache = cache_ref_count
     allocation = BasePagedAttentionCacheAllocation(dummy_pages, cache=cache_ref_count)
     exec_req.allocation = allocation
     with patch.object(
-        beam_search_token_selection_strategy,
-        "token_selection_strategy_config",
-        new=config,
-    ):
+        exec_req._cache, "fork_pages", return_value=allocation
+    ) as fork_pages_mock:
         with patch.object(
-            exec_req._cache, "fork_pages", return_value=allocation
-        ) as fork_pages_mock:
-            with patch.object(
-                BeamGroup,
-                "clean_up",
-            ) as mock_clean_up:
-                await beam_search_token_selection_strategy.decode(exec_req)
-                assert len(results_array) == num_beams
-                expected_tokens = set([0, 1, 2])
-                expected_tail = 0
-                results_array = sorted(results_array)
-                for result in results_array:
-                    assert len(result) == config.decode_config.max_completion_tokens
-                    assert all(val in expected_tokens for val in result)
-                    assert result[-1] == expected_tail
-                    expected_tail += 1
+            BeamGroup,
+            "clean_up",
+        ) as mock_clean_up:
+            await beam_search_token_selection_strategy.decode(exec_req)
+            assert len(results_array) == num_beams
+            expected_tokens = set([0, 1, 2])
+            expected_tail = 0
+            results_array = sorted(results_array)
+            for result in results_array:
+                assert len(result) == config.decode_config.max_completion_tokens
+                assert all(val in expected_tokens for val in result)
+                assert result[-1] == expected_tail
+                expected_tail += 1
 
-                fork_pages_mock.call_count == num_beams - 1
-                mock_clean_up.assert_called_once()
+            fork_pages_mock.call_count == num_beams - 1
+            mock_clean_up.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -784,31 +711,30 @@ async def test_beam_search_decode_eos_token(
         results_callback=_results_callback,
         eos_token_id=3,
     )
+    beam_search_token_selection_strategy = TokenSelector(
+        token_selection_strategy_config=config,
+        scorer=BeamSearchScorer(config=config),
+    )
     exec_req._cache = cache_ref_count
     allocation = BasePagedAttentionCacheAllocation(dummy_pages, cache=cache_ref_count)
     exec_req.allocation = allocation
     with patch.object(
-        beam_search_token_selection_strategy,
-        "token_selection_strategy_config",
-        new=config,
-    ):
+        exec_req._cache, "fork_pages", return_value=allocation
+    ) as fork_pages_mock:
         with patch.object(
-            exec_req._cache, "fork_pages", return_value=allocation
-        ) as fork_pages_mock:
-            with patch.object(
-                BeamGroup,
-                "clean_up",
-            ) as mock_clean_up:
-                await beam_search_token_selection_strategy.decode(exec_req)
-                assert len(results_array) == num_beams
-                expected_tokens = set([0, 1, 2])
-                expected_tail = 3
-                results_array = sorted(results_array)
-                assert len(results_array) == num_beams
-                for result in results_array:
-                    assert len(result) == 5
-                    assert all(val in expected_tokens for val in result[:-1])
-                    assert result[-1] == expected_tail
+            BeamGroup,
+            "clean_up",
+        ) as mock_clean_up:
+            await beam_search_token_selection_strategy.decode(exec_req)
+            assert len(results_array) == num_beams
+            expected_tokens = set([0, 1, 2])
+            expected_tail = 3
+            results_array = sorted(results_array)
+            assert len(results_array) == num_beams
+            for result in results_array:
+                assert len(result) == 5
+                assert all(val in expected_tokens for val in result[:-1])
+                assert result[-1] == expected_tail
 
-                fork_pages_mock.call_count == num_beams - 1
-                mock_clean_up.assert_called_once()
+            fork_pages_mock.call_count == num_beams - 1
+            mock_clean_up.assert_called_once()

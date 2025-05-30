@@ -35,6 +35,7 @@ from .service import LlmGenerateService
 from .token_selection_strategy import (
     TokenSelector,
     TokenSelectionStrategyConfig,
+    build_token_selector,
     build_token_selector_config,
     is_multi_response,
 )
@@ -81,7 +82,7 @@ class GenerateItemProcess(sf.Process):
                 eos_token_id=self.eos_token_id,
             )
         )
-        self.token_selector: TokenSelector = TokenSelector(
+        self.token_selector: TokenSelector = build_token_selector(
             self.token_selector_config,
         )
         self.streamed_tokens_index = 0

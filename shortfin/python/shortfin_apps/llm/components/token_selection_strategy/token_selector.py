@@ -217,10 +217,12 @@ class Beam(BaseBeam):
 
 
 class BeamSearchScorer(BaseBeamScorer):
-    def __init__(self):
+    def __init__(self, config):
         self.min_log_prob: float = 0.0
         self.top_score: float | None = None
         self.top_beam: BaseBeam | None = None
+
+        super().__init__(config)
 
     def update_score(
         self,
@@ -275,6 +277,46 @@ class BeamSearchScorer(BaseBeamScorer):
 
         return sorted_selections
 
+    def select_beams(
+        self,
+        active_beams: List[Beam],
+        completed_beams: List[Beam],
+    ) -> List[Beam]:
+        """Handle the selection of the `top_k` beams within a decode step.
+
+        Args:
+            active_beams (List[IndependentBeam]): Beams that are still active.
+            completed_beams (Set[IndependentBeam]): Beams that have been completed.
+
+        Returns:
+            List[IndependentBeam]: The `top_k` selections, containing necessary info for `beam_group` to handle choosing and processing beams.
+        """
+        config = self.config
+        num_beams = config.decode_config.num_beams
+        k = num_beams - len(completed_beams)
+        selections: List[Beam] = []
+
+        # Parse each beam to select the next candidates
+        for beam in active_beams:
+            top_tokens, top_values = beam.sample_logits(len(completed_beams))
+            for token, value in zip(top_tokens, top_values):
+
+                new_beam = Beam.clone(beam)
+                new_beam.last_token = token
+                self.update_score(new_beam, value)
+                selections.append(new_beam)
+
+        # Ensure we have enough beams to fill the `num_beams` requirement
+        if len(selections) < k:
+            beams_to_add = num_beams - len(selections)
+            for _ in range(beams_to_add):
+                new_beam = Beam.clone(self.scorer.top_beam)
+                selections.append(new_beam)
+
+        selections = self.score_beams(selections, k)
+        self.reset()
+        return selections
+
     def reset(self):
         """Reset the scorer state."""
         self.min_log_prob = 0.0
@@ -283,8 +325,8 @@ class BeamSearchScorer(BaseBeamScorer):
 
 @dataclass
 class TokenSelector(BaseTokenSelectionStrategy):
+    scorer: BeamSearchScorer
     min_log_prob: float = 0.0
-    scorer: BeamSearchScorer = BeamSearchScorer()
 
     def select_independent(
         self,
@@ -310,46 +352,6 @@ class TokenSelector(BaseTokenSelectionStrategy):
                 beam,
             )
 
-        return selections
-
-    def select_beam_search(
-        self,
-        active_beams: List[Beam],
-        completed_beams: List[Beam],
-    ) -> List[Beam]:
-        """Handle the selection of the `top_k` beams within a decode step.
-
-        Args:
-            active_beams (List[IndependentBeam]): Beams that are still active.
-            completed_beams (Set[IndependentBeam]): Beams that have been completed.
-
-        Returns:
-            List[IndependentBeam]: The `top_k` selections, containing necessary info for `beam_group` to handle choosing and processing beams.
-        """
-        config = self.token_selection_strategy_config
-        num_beams = config.decode_config.num_beams
-        k = num_beams - len(completed_beams)
-        selections: List[Beam] = []
-
-        # Parse each beam to select the next candidates
-        for beam in active_beams:
-            top_tokens, top_values = beam.sample_logits(len(completed_beams))
-            for token, value in zip(top_tokens, top_values):
-
-                new_beam = Beam.clone(beam)
-                new_beam.last_token = token
-                self.scorer.update_score(new_beam, value)
-                selections.append(new_beam)
-
-        # Ensure we have enough beams to fill the `num_beams` requirement
-        if len(selections) < k:
-            beams_to_add = num_beams - len(selections)
-            for _ in range(beams_to_add):
-                new_beam = Beam.clone(self.scorer.top_beam)
-                selections.append(new_beam)
-
-        selections = self.scorer.score_beams(selections, k)
-        self.scorer.reset()
         return selections
 
     def _stream_single_beam(self, beam_group: BeamGroup) -> List[Beam]:
@@ -398,7 +400,7 @@ class TokenSelector(BaseTokenSelectionStrategy):
         ]
 
         selection_callback = (
-            self.select_independent if not use_beam_search else self.select_beam_search
+            self.select_independent if not use_beam_search else self.scorer.select_beams
         )
         beam_group = BeamGroup(
             config.eos_token_id,

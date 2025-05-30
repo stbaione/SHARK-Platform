@@ -37,7 +37,7 @@ class BaseTokenSelectionStrategy(ABC):
     """Abstract class for implementing token selection strategies."""
 
     token_selection_strategy_config: TokenSelectionStrategyConfig
-    scorer: BaseBeamScorer | None = None
+    scorer: BaseBeamScorer | None
 
     def _log_sampling_method(self):
         """Log the sampling method used for token selection."""

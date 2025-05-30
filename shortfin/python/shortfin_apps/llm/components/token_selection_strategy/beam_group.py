@@ -196,6 +196,9 @@ class BaseBeam(ABC):
 
 
 class BaseBeamScorer(ABC):
+    def __init__(self, config):
+        self.config = config
+
     @abstractmethod
     def update_score(
         self,
@@ -242,6 +245,20 @@ class BaseBeamScorer(ABC):
 
         Returns:
             List[BaseBeam]: The scored beams in descending order of score.
+        """
+
+    @abstractmethod
+    def select_beams(
+        active_beams: List[BaseBeam], complete_beams: List[BaseBeam]
+    ) -> List[BaseBeam]:
+        """Select the next candidate set of beams for decode invocation.
+
+        Args:
+            active_beams (List[BaseBeam]): The beams still actively being decoded.
+            complete_beams (List[BaseBeam]): The beams that are completed.
+
+        Returns:
+            List[BaseBeam]: Selected beams.
         """
 
     @abstractmethod

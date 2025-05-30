@@ -16,6 +16,11 @@ from shortfin_apps.llm.components.messages import (
 from shortfin_apps.llm.components import token_selection_strategy
 
 
+class DummyTokenSelectionStrategy(token_selection_strategy.BaseTokenSelectionStrategy):
+    async def decode(self, exec_req):
+        pass
+
+
 class FakeBatcher:
     def __init__(self, submit_cb, workitem_cb):
         self.submit = submit_cb
@@ -79,7 +84,8 @@ def test_build_token_selector():
 
 @pytest.mark.asyncio
 async def test_prefill(
-    device, exec_req: LlmInferenceExecRequest, dummy_token_selection_strategy
+    device,
+    exec_req: LlmInferenceExecRequest,
 ):
     def _batcher_callback(request: LlmInferenceExecRequest):
         """Mock the batcher function to isolate `TokenSelectionStrategy.prefill`.
@@ -113,7 +119,10 @@ async def test_prefill(
         results_callback=_results_callback,
         eos_token_id=0,
     )
-    dummy_token_selection_strategy.token_selection_strategy_config = config
+    dummy_token_selection_strategy = DummyTokenSelectionStrategy(
+        token_selection_strategy_config=config,
+        scorer=None,
+    )
     await dummy_token_selection_strategy.prefill(exec_req)
 
     assert results_array[0] == 15

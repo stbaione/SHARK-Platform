@@ -27,7 +27,6 @@ from shortfin_apps.llm.components.token_selection_strategy import (
     build_token_selector_config,
     DecodeConfig,
     TokenSelector,
-    TokenSelectionStrategy,
 )
 from shortfin_apps.llm.components.token_selection_strategy.token_selector import (
     Beam,
@@ -261,7 +260,6 @@ async def test_independent_decode_single(
     device,
     dummy_pages,
     exec_req: LlmInferenceExecRequest,
-    independent_token_selection_strategy,
 ):
     def _batcher_callback(request: LlmInferenceExecRequest):
         result_logits = sfnp.device_array(device, [1, 1, 16], dtype=sfnp.float32)
@@ -286,31 +284,30 @@ async def test_independent_decode_single(
         results_callback=_results_callback,
         eos_token_id=-1,
     )
+    token_selector = TokenSelector(
+        token_selection_strategy_config=config,
+        scorer=None,
+    )
 
     exec_req._cache = cache
     allocation = BasePagedAttentionCacheAllocation(dummy_pages, cache=cache)
     exec_req.allocation = allocation
     with patch.object(
-        independent_token_selection_strategy,
-        "token_selection_strategy_config",
-        new=config,
-    ):
+        exec_req._cache, "fork_pages", return_value=allocation
+    ) as fork_pages_mock:
         with patch.object(
-            exec_req._cache, "fork_pages", return_value=allocation
-        ) as fork_pages_mock:
-            with patch.object(
-                BeamGroup,
-                "clean_up",
-            ) as mock_clean_up:
-                await independent_token_selection_strategy.decode(exec_req)
-                logger.info(f"results_array: {results_array}")
-                assert len(results_array) == 2
-                for result in results_array:
-                    assert len(result) == 1
-                    assert result[0] == 15
+            BeamGroup,
+            "clean_up",
+        ) as mock_clean_up:
+            await token_selector.decode(exec_req)
+            logger.info(f"results_array: {results_array}")
+            assert len(results_array) == 2
+            for result in results_array:
+                assert len(result) == 1
+                assert result[0] == 15
 
-                fork_pages_mock.assert_called_once()
-                mock_clean_up.assert_called_once()
+            fork_pages_mock.assert_called_once()
+            mock_clean_up.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -319,7 +316,6 @@ async def test_independent_decode_multiple_completions(
     device,
     dummy_pages,
     exec_req: LlmInferenceExecRequest,
-    independent_token_selection_strategy,
 ):
     results_array = []
 
@@ -366,29 +362,28 @@ async def test_independent_decode_multiple_completions(
         eos_token_id=-1,
     )
 
+    token_selector = TokenSelector(
+        token_selection_strategy_config=config,
+        scorer=None,
+    )
     exec_req._cache = cache
     allocation = BasePagedAttentionCacheAllocation(dummy_pages, cache=cache)
     exec_req.allocation = allocation
     with patch.object(
-        independent_token_selection_strategy,
-        "token_selection_strategy_config",
-        new=config,
-    ):
+        exec_req._cache, "fork_pages", return_value=allocation
+    ) as fork_pages_mock:
         with patch.object(
-            exec_req._cache, "fork_pages", return_value=allocation
-        ) as fork_pages_mock:
-            with patch.object(
-                BeamGroup,
-                "clean_up",
-            ) as mock_clean_up:
-                await independent_token_selection_strategy.decode(exec_req)
-                assert len(results_array) == 2
-                for result in results_array:
-                    assert len(result) == 5
-                    assert result == [0, 1, 2, 3, 4]
+            BeamGroup,
+            "clean_up",
+        ) as mock_clean_up:
+            await token_selector.decode(exec_req)
+            assert len(results_array) == 2
+            for result in results_array:
+                assert len(result) == 5
+                assert result == [0, 1, 2, 3, 4]
 
-                fork_pages_mock.assert_called_once()
-                mock_clean_up.assert_called_once()
+            fork_pages_mock.assert_called_once()
+            mock_clean_up.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -397,7 +392,6 @@ async def test_independent_decode_eos_token(
     device,
     dummy_pages,
     exec_req: LlmInferenceExecRequest,
-    independent_token_selection_strategy,
 ):
     results_array = []
 
@@ -444,27 +438,26 @@ async def test_independent_decode_eos_token(
         eos_token_id=-1,
     )
 
+    token_selector = TokenSelector(
+        token_selection_strategy_config=config,
+        scorer=None,
+    )
     exec_req._cache = cache
     allocation = BasePagedAttentionCacheAllocation(dummy_pages, cache=cache)
     exec_req.allocation = allocation
     with patch.object(
-        independent_token_selection_strategy,
-        "token_selection_strategy_config",
-        new=config,
-    ):
+        exec_req._cache, "fork_pages", return_value=allocation
+    ) as fork_pages_mock:
         with patch.object(
-            exec_req._cache, "fork_pages", return_value=allocation
-        ) as fork_pages_mock:
-            with patch.object(
-                BeamGroup,
-                "clean_up",
-            ) as mock_clean_up:
-                await independent_token_selection_strategy.decode(exec_req)
-                logger.info(f"results_array: {results_array}")
-                assert len(results_array) == 2
-                for result in results_array:
-                    assert len(result) == 5
-                    assert result == [0, 1, 2, 3, 4]
+            BeamGroup,
+            "clean_up",
+        ) as mock_clean_up:
+            await token_selector.decode(exec_req)
+            logger.info(f"results_array: {results_array}")
+            assert len(results_array) == 2
+            for result in results_array:
+                assert len(result) == 5
+                assert result == [0, 1, 2, 3, 4]
 
-                fork_pages_mock.assert_called_once()
-                mock_clean_up.assert_called_once()
+            fork_pages_mock.assert_called_once()
+            mock_clean_up.assert_called_once()
