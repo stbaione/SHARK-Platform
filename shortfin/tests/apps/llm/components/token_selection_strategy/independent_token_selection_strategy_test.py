@@ -29,8 +29,8 @@ from shortfin_apps.llm.components.token_selection_strategy import (
     DefaultScorer,
     TokenSelector,
 )
-from shortfin_apps.llm.components.token_selection_strategy.token_selector import (
-    Beam,
+from shortfin_apps.llm.components.token_selection_strategy.beam_group import (
+    DefaultBeam,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def independent_token_selection_strategy():
 
 @pytest.fixture(scope="function")
 def independent_beam(exec_req, decode_config):
-    yield Beam(
+    yield DefaultBeam(
         exec_req,
         decode_config=decode_config,
     )
@@ -249,7 +249,9 @@ def test_select_greedy(
         exec_req.result_logits = src
         count += 1
 
-    beams = [Beam(exec_req, decode_config=decode_config) for exec_req in exec_req_list]
+    beams = [
+        DefaultBeam(exec_req, decode_config=decode_config) for exec_req in exec_req_list
+    ]
     token_selector = TokenSelector(
         token_selection_strategy_config=None,
         scorer=DefaultScorer(None),

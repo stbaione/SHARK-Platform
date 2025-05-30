@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List
 
-from .beam_group import BaseBeam, Beam
+from .beam_group import BaseBeam, DefaultBeam, BeamSearchBeam
 
 
 class BaseBeamScorer(ABC):
@@ -99,29 +99,29 @@ class DefaultScorer(BaseBeamScorer):
     def __init__(self, config):
         super().__init__(config)
 
-    def update_score(self, beam: BaseBeam, value: float) -> None:
+    def update_score(self, beam: DefaultBeam, value: float) -> None:
         pass
 
-    def finalize_score(self, beam: BaseBeam) -> None:
+    def finalize_score(self, beam: DefaultBeam) -> None:
         pass
 
-    def normalize_score(self, beam: BaseBeam, value: float) -> None:
+    def normalize_score(self, beam: DefaultBeam, value: float) -> None:
         pass
 
-    def score_beams(self, beams: List[BaseBeam]) -> List[BaseBeam]:
+    def score_beams(self, beams: List[DefaultBeam]) -> List[DefaultBeam]:
         return beams
 
     def select_beams(
-        self, active_beams: List[BaseBeam], completed_beams: List[BaseBeam]
-    ) -> List[BaseBeam]:
+        self, active_beams: List[DefaultBeam], completed_beams: List[DefaultBeam]
+    ) -> List[DefaultBeam]:
         """Select the next candidate set of beams for decode invocation.
 
         Args:
-            active_beams (List[BaseBeam]): The beams still actively being decoded.
-            completed_beams (List[BaseBeam]): The beams that are completed.
+            active_beams (List[DefaultBeam]): The beams still actively being decoded.
+            completed_beams (List[DefaultBeam]): The beams that are completed.
 
         Returns:
-            List[BaseBeam]: Selected beams.
+            List[DefaultBeam]: Selected beams.
         """
         selections = []
 
@@ -147,19 +147,19 @@ class BeamSearchScorer(BaseBeamScorer):
     def __init__(self, config):
         self.min_log_prob: float = 0.0
         self.top_score: float | None = None
-        self.top_beam: Beam | None = None
+        self.top_beam: BeamSearchBeam | None = None
 
         super().__init__(config)
 
     def update_score(
         self,
-        beam: Beam,
+        beam: BeamSearchBeam,
         log_prob: float,
     ) -> None:
         """Update the score of a beam with the log probability of the selected token.
 
         Args:
-            beam (Beam): The beam to update.
+            beam (BeamSearchBeam): The beam to update.
             log_prob (float): Log probability of the token.
         """
         if log_prob < self.min_log_prob:
@@ -173,25 +173,25 @@ class BeamSearchScorer(BaseBeamScorer):
 
     def finalize_score(
         self,
-        beam: Beam,
+        beam: BeamSearchBeam,
     ) -> None:
         """Finalize the score of a beam after all tokens have been selected.
 
         Args:
-            beam (Beam): The beam to finalize.
+            beam (BeamSearchBeam): The beam to finalize.
         """
         beam.score = beam.score - beam.accumulated_normalization
         return self.penalize_brevity(beam)
 
     def normalize_score(
         self,
-        beam: Beam,
+        beam: BeamSearchBeam,
         min_log_prob: float,
     ) -> None:
         """Normalize the score of a beam based on the minimum log probability.
 
         Args:
-            beam (Beam): The beam to normalize.
+            beam (BeamSearchBeam): The beam to normalize.
             min_log_prob (float): Minimum log probability of the selected tokens.
         """
         beam.accumulated_normalization += abs(min_log_prob)
@@ -206,9 +206,9 @@ class BeamSearchScorer(BaseBeamScorer):
 
     def select_beams(
         self,
-        active_beams: List[Beam],
-        completed_beams: List[Beam],
-    ) -> List[Beam]:
+        active_beams: List[BeamSearchBeam],
+        completed_beams: List[BeamSearchBeam],
+    ) -> List[BeamSearchBeam]:
         """Handle the selection of the `top_k` beams within a decode step.
 
         Args:
@@ -221,14 +221,14 @@ class BeamSearchScorer(BaseBeamScorer):
         config = self.config
         num_beams = config.decode_config.num_beams
         k = num_beams - len(completed_beams)
-        selections: List[Beam] = []
+        selections: List[BeamSearchBeam] = []
 
         # Parse each beam to select the next candidates
         for beam in active_beams:
             top_tokens, top_values = beam.sample_logits(len(completed_beams))
             for token, value in zip(top_tokens, top_values):
 
-                new_beam = Beam.clone(beam)
+                new_beam = BeamSearchBeam.clone(beam)
                 new_beam.last_token = token
                 self.update_score(new_beam, value)
                 selections.append(new_beam)
@@ -237,7 +237,7 @@ class BeamSearchScorer(BaseBeamScorer):
         if len(selections) < k:
             beams_to_add = num_beams - len(selections)
             for _ in range(beams_to_add):
-                new_beam = Beam.clone(self.scorer.top_beam)
+                new_beam = BeamSearchBeam.clone(self.scorer.top_beam)
                 selections.append(new_beam)
 
         selections = self.score_beams(selections, k)

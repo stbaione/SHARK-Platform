@@ -10,7 +10,7 @@ import logging
 from typing import List
 
 
-from .beam_group import Beam, BeamGroup
+from .beam_group import BeamGroup, DefaultBeam, BeamSearchBeam
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
 )
@@ -26,7 +26,7 @@ class TokenSelector(BaseTokenSelectionStrategy):
     scorer: BeamSearchScorer | DefaultScorer
     min_log_prob: float = 0.0
 
-    def _stream_single_beam(self, beam_group: BeamGroup) -> List[Beam]:
+    def _stream_single_beam(self, beam_group: BeamGroup):
         """Stream a single beam for the `multi_greedy` strategy.
 
         Args:
@@ -67,8 +67,10 @@ class TokenSelector(BaseTokenSelectionStrategy):
         else:
             exec_reqs = [exec_req]
 
+        beam_cls = BeamSearchBeam if use_beam_search else DefaultBeam
         beams = [
-            Beam(exec_req, decode_config=config.decode_config) for exec_req in exec_reqs
+            beam_cls(exec_req, decode_config=config.decode_config)
+            for exec_req in exec_reqs
         ]
 
         selection_callback = self.scorer.select_beams
@@ -121,7 +123,7 @@ class TokenSelector(BaseTokenSelectionStrategy):
 
     def _get_results_beam_search(self, beam_group: BeamGroup, results: List[List[int]]):
         for beam in beam_group.active_beams:
-            beam.update_final_score()
+            self.scorer.finalize_score(beam)
 
         active_beams = sorted(
             [beam for beam in beam_group.active_beams],

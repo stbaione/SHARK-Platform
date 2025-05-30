@@ -31,11 +31,9 @@ from shortfin_apps.llm.components.token_selection_strategy import (
     DecodeConfig,
     TokenSelectionStrategyConfig,
 )
-from shortfin_apps.llm.components.token_selection_strategy.token_selector import (
-    Beam,
-)
 from shortfin_apps.llm.components.token_selection_strategy.beam_group import (
     BeamGroup,
+    BeamSearchBeam,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,7 +69,7 @@ def beam_search_token_selection_strategy(beam_search_scorer):
 @pytest.fixture(scope="function")
 def beam_search_beam(exec_req, decode_config):
     decode_config.use_beam_search = True
-    yield Beam(
+    yield BeamSearchBeam(
         exec_req,
         decode_config=decode_config,
     )
@@ -298,9 +296,9 @@ def test_beam_search_beam_sample_logits_top_k_top_p_w_indices(device, beam_searc
         assert token in expected_tokens
 
 
-def test_beam_search_beam_update_score(beam_search_beam):
+def test_beam_search_beam_update_score(beam_search_beam, beam_search_scorer):
     score = 42.0
-    beam_search_beam.update_score(score)
+    beam_search_scorer.update_score(beam_search_beam, score)
     assert beam_search_beam.score == 42.0
 
 
@@ -315,14 +313,16 @@ def test_beam_search_beam_update_exec_req(beam_search_beam):
     assert beam_search_beam.exec_req.start_position == expected_start_position
 
 
-def test_beam_search_beam_normalize_score(beam_search_beam):
+def test_beam_search_beam_normalize_score(beam_search_beam, beam_search_scorer):
     min_log_prob = -42.0
-    beam_search_beam.normalize_score(min_log_prob)
+    beam_search_scorer.normalize_score(beam_search_beam, min_log_prob)
     assert beam_search_beam.accumulated_normalization == 42.0
 
 
 @patch("shortfin.VoidFuture")
-def test_beam_search_beam_update_final_score(mock_void_future, decode_config):
+def test_beam_search_beam_update_final_score(
+    mock_void_future, decode_config, beam_search_scorer
+):
     initial_prompt = [i for i in range(0, 5)]
     new_input_tokens = [i for i in range(5, 10)]
     score = random.uniform(0, 10)
@@ -333,7 +333,7 @@ def test_beam_search_beam_update_final_score(mock_void_future, decode_config):
         initial_prompt,
     )
     exec_req.input_token_ids.extend(new_input_tokens)
-    beam = Beam(
+    beam = BeamSearchBeam(
         exec_req,
         decode_config=decode_config,
         score=score,
@@ -341,14 +341,17 @@ def test_beam_search_beam_update_final_score(mock_void_future, decode_config):
     )
 
     expected = (score - accumulated_normalization) / 5
-    beam.update_final_score()
+    beam_search_scorer.finalize_score(beam)
     assert beam.score == expected
 
 
 def test_get_results(
     beam_search_token_selection_strategy, decode_config, exec_req_list
 ):
-    beams = [Beam(exec_req, decode_config=decode_config) for exec_req in exec_req_list]
+    beams = [
+        BeamSearchBeam(exec_req, decode_config=decode_config)
+        for exec_req in exec_req_list
+    ]
     # Offset the input_ids to differentiate between reqs
     offset = 1
     for beam in beams[1:]:
@@ -423,7 +426,10 @@ def test_get_results(
 def test_get_results_extra_reqs(
     beam_search_token_selection_strategy, decode_config, exec_req_list
 ):
-    beams = [Beam(exec_req, decode_config=decode_config) for exec_req in exec_req_list]
+    beams = [
+        BeamSearchBeam(exec_req, decode_config=decode_config)
+        for exec_req in exec_req_list
+    ]
     # Offset the input_ids to differentiate between reqs
     offset = 1
     for beam in beams[1:]:
