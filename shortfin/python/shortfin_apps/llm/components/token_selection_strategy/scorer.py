@@ -95,6 +95,54 @@ class BaseBeamScorer(ABC):
         beam.score /= len(exec_req.input_token_ids) - exec_req.prompt_length
 
 
+class DefaultScorer(BaseBeamScorer):
+    def __init__(self, config):
+        super().__init__(config)
+
+    def update_score(self, beam: BaseBeam, value: float) -> None:
+        pass
+
+    def finalize_score(self, beam: BaseBeam) -> None:
+        pass
+
+    def normalize_score(self, beam: BaseBeam, value: float) -> None:
+        pass
+
+    def score_beams(self, beams: List[BaseBeam]) -> List[BaseBeam]:
+        return beams
+
+    def select_beams(
+        self, active_beams: List[BaseBeam], completed_beams: List[BaseBeam]
+    ) -> List[BaseBeam]:
+        """Select the next candidate set of beams for decode invocation.
+
+        Args:
+            active_beams (List[BaseBeam]): The beams still actively being decoded.
+            completed_beams (List[BaseBeam]): The beams that are completed.
+
+        Returns:
+            List[BaseBeam]: Selected beams.
+        """
+        selections = []
+
+        # Sample logits for each active beam for it to select its next token.
+        for beam in active_beams:
+            token = beam.sample_logits(len(completed_beams))
+            beam.last_token = token
+            selections.append(
+                beam,
+            )
+
+        return selections
+
+    def reset(self) -> None:
+        """Reset the state of the scorer."""
+        pass
+
+    def penalize_brevity(self, beam):
+        pass
+
+
 class BeamSearchScorer(BaseBeamScorer):
     def __init__(self, config):
         self.min_log_prob: float = 0.0

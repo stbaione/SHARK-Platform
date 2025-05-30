@@ -16,7 +16,7 @@ from .config import (
     TokenSelectionStrategy,
     get_strategy_from_str,
 )
-from .scorer import BeamSearchScorer
+from .scorer import BeamSearchScorer, DefaultScorer
 from .token_selector import TokenSelector
 from .sampler import Sampler
 
@@ -70,7 +70,12 @@ def build_token_selector(
     Returns:
         BaseTokenSelectionStrategy: Instantiated token selector. Either `IndependentTokenSelectionStrategy` or `BeamSearchTokenSelectionStrategy`.
     """
-    scorer = BeamSearchScorer(config=config)
+    scorer = (
+        BeamSearchScorer(config=config)
+        if config.decode_config.use_beam_search
+        else DefaultScorer(config=config)
+    )
+
     return TokenSelector(token_selection_strategy_config=config, scorer=scorer)
 
 
@@ -82,13 +87,15 @@ def is_multi_response(decode_config: DecodeConfig) -> bool:
 
 
 __all__ = [
-    "BaseTokenSelectionStrategy",
-    "TokenSelectionStrategyConfig",
-    "TokenSelectionStrategy",
-    "Sampler",
-    "TokenSelector",
     "build_token_selector",
     "build_token_selector_config",
+    "BaseTokenSelectionStrategy",
+    "BeamSearchScorer",
+    "DefaultScorer",
     "get_strategy_from_str",
     "is_multi_response",
+    "Sampler",
+    "TokenSelectionStrategyConfig",
+    "TokenSelectionStrategy",
+    "TokenSelector",
 ]

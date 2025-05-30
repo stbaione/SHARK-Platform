@@ -26,6 +26,7 @@ from shortfin_apps.llm.components.messages import (
 from shortfin_apps.llm.components.token_selection_strategy import (
     build_token_selector_config,
     DecodeConfig,
+    DefaultScorer,
     TokenSelector,
 )
 from shortfin_apps.llm.components.token_selection_strategy.token_selector import (
@@ -235,7 +236,9 @@ def test_greedy_update_exec_req(independent_beam):
 
 
 def test_select_greedy(
-    decode_config, device, exec_req_list, independent_token_selection_strategy
+    decode_config,
+    device,
+    exec_req_list,
 ):
     count = 0
     for exec_req in exec_req_list:
@@ -247,7 +250,11 @@ def test_select_greedy(
         count += 1
 
     beams = [Beam(exec_req, decode_config=decode_config) for exec_req in exec_req_list]
-    selections = independent_token_selection_strategy.select_independent(beams, [])
+    token_selector = TokenSelector(
+        token_selection_strategy_config=None,
+        scorer=DefaultScorer(None),
+    )
+    selections = token_selector.scorer.select_beams(beams, [])
     assert len(selections) == len(beams)
 
     expected_last_tokens = [i for i in range(len(beams))]
@@ -286,7 +293,7 @@ async def test_independent_decode_single(
     )
     token_selector = TokenSelector(
         token_selection_strategy_config=config,
-        scorer=None,
+        scorer=DefaultScorer(config),
     )
 
     exec_req._cache = cache
@@ -364,7 +371,7 @@ async def test_independent_decode_multiple_completions(
 
     token_selector = TokenSelector(
         token_selection_strategy_config=config,
-        scorer=None,
+        scorer=DefaultScorer(config),
     )
     exec_req._cache = cache
     allocation = BasePagedAttentionCacheAllocation(dummy_pages, cache=cache)
@@ -440,7 +447,7 @@ async def test_independent_decode_eos_token(
 
     token_selector = TokenSelector(
         token_selection_strategy_config=config,
-        scorer=None,
+        scorer=DefaultScorer(config),
     )
     exec_req._cache = cache
     allocation = BasePagedAttentionCacheAllocation(dummy_pages, cache=cache)

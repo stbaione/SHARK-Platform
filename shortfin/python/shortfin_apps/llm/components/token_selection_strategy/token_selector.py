@@ -14,7 +14,7 @@ from .beam_group import Beam, BeamGroup
 from .base_token_selection_strategy import (
     BaseTokenSelectionStrategy,
 )
-from .scorer import BeamSearchScorer
+from .scorer import BeamSearchScorer, DefaultScorer
 
 from ..messages import LlmInferenceExecRequest, InferencePhase
 
@@ -23,34 +23,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TokenSelector(BaseTokenSelectionStrategy):
-    scorer: BeamSearchScorer
+    scorer: BeamSearchScorer | DefaultScorer
     min_log_prob: float = 0.0
-
-    def select_independent(
-        self,
-        active_beams: List[Beam],
-        completed_beams: List[Beam],
-    ) -> List[Beam]:
-        """Greedily select a token for each active beam.
-
-        Args:
-            active_beams (List[IndependentBeam]): Beams that are still active.
-            _ (List[IndependentBeam]): Beams that are completed.
-
-        Returns:
-            List[IndependentBeam]: Beams with new token selected.
-        """
-        selections = []
-
-        # Sample logits for each active beam for it to select its next token.
-        for beam in active_beams:
-            token = beam.sample_logits(len(completed_beams))
-            beam.last_token = token
-            selections.append(
-                beam,
-            )
-
-        return selections
 
     def _stream_single_beam(self, beam_group: BeamGroup) -> List[Beam]:
         """Stream a single beam for the `multi_greedy` strategy.
@@ -97,9 +71,7 @@ class TokenSelector(BaseTokenSelectionStrategy):
             Beam(exec_req, decode_config=config.decode_config) for exec_req in exec_reqs
         ]
 
-        selection_callback = (
-            self.select_independent if not use_beam_search else self.scorer.select_beams
-        )
+        selection_callback = self.scorer.select_beams
         beam_group = BeamGroup(
             config.eos_token_id,
             config.decode_config.num_beams,
