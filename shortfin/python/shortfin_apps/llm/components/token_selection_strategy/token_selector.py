@@ -128,8 +128,8 @@ class TokenSelector(BaseTokenSelectionStrategy):
     def get_results(self, beam_group: BeamGroup):
         config = self.token_selection_strategy_config
         use_beam_search = config.decode_config.use_beam_search
+        # Tokens were streamed as they were selected, for single beam case
         if config.decode_config.num_beams == 1 and not use_beam_search:
-            self._stream_single_beam(beam_group)
             return
 
         results = [
