@@ -9,7 +9,8 @@ from dataclasses import dataclass
 import logging
 from typing import List, Callable, Union
 
-from .config import DecodeConfig, TokenSelectionStrategy
+from .beam_group import BaseBeamScorer
+from .config import DecodeConfig
 from ..messages import LlmInferenceExecRequest
 
 import shortfin.array as sfnp
@@ -36,6 +37,7 @@ class BaseTokenSelectionStrategy(ABC):
     """Abstract class for implementing token selection strategies."""
 
     token_selection_strategy_config: TokenSelectionStrategyConfig
+    scorer: BaseBeamScorer | None = None
 
     def _log_sampling_method(self):
         """Log the sampling method used for token selection."""

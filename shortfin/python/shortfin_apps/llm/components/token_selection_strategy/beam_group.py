@@ -16,8 +16,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Set
 from uuid import uuid4
 
-from .base_token_selection_strategy import DecodeConfig
-from .config import LogitsNormalization
+from .config import DecodeConfig, LogitsNormalization
 from .sampler import Sampler
 from ..messages import LlmInferenceExecRequest
 
@@ -34,8 +33,6 @@ class BaseBeam(ABC):
 
     sampler: Sampler = field(default_factory=Sampler)
 
-    is_scored: bool = False
-    scorer: BaseBeamScorer | None = None
     score: float = 0.0
     accumulated_normalization: float = 0.0
     last_token: int | None = None
@@ -234,6 +231,24 @@ class BaseBeamScorer(ABC):
 
         Returns:
             float: Normalized score.
+        """
+
+    @abstractmethod
+    def score_beams(beams: List[BaseBeam]) -> List[BaseBeam]:
+        """Score a group of beams.
+
+        Args:
+            beams (List[BaseBeam]): The beams to score.
+
+        Returns:
+            List[BaseBeam]: The scored beams in descending order of score.
+        """
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset the state of the scorer.
+
+        This is useful when reusing the scorer for multiple decoding iterations.
         """
 
     def penalize_brevity(

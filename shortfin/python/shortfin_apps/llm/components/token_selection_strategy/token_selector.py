@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+from dataclasses import dataclass
 import logging
 
 import numpy as np
@@ -216,6 +217,11 @@ class Beam(BaseBeam):
 
 
 class BeamSearchScorer(BaseBeamScorer):
+    def __init__(self):
+        self.min_log_prob: float = 0.0
+        self.top_score: float | None = None
+        self.top_beam: BaseBeam | None = None
+
     def update_score(
         self,
         beam: BaseBeam,
@@ -227,7 +233,14 @@ class BeamSearchScorer(BaseBeamScorer):
             beam (BaseBeam): The beam to update.
             log_prob (float): Log probability of the token.
         """
+        if log_prob < self.min_log_prob:
+            self.min_log_prob = log_prob
+
         beam.score += log_prob
+
+        if self.top_score is None or beam.score > self.top_score:
+            self.top_score = beam.score
+            self.top_beam = beam
 
     def finalize_score(
         self,
@@ -254,7 +267,21 @@ class BeamSearchScorer(BaseBeamScorer):
         """
         beam.accumulated_normalization += abs(min_log_prob)
 
+    def score_beams(self, beams, k: int, normalize: bool = True):
+        sorted_selections = sorted(beams, key=lambda beam: beam.score, reverse=True)[:k]
+        if normalize:
+            for beam in sorted_selections:
+                self.normalize_score(beam, self.min_log_prob)
 
+        return sorted_selections
+
+    def reset(self):
+        """Reset the scorer state."""
+        self.min_log_prob = 0.0
+        self.top_score = None
+
+
+@dataclass
 class TokenSelector(BaseTokenSelectionStrategy):
     min_log_prob: float = 0.0
     scorer: BeamSearchScorer = BeamSearchScorer()
@@ -300,69 +327,30 @@ class TokenSelector(BaseTokenSelectionStrategy):
             List[IndependentBeam]: The `top_k` selections, containing necessary info for `beam_group` to handle choosing and processing beams.
         """
         config = self.token_selection_strategy_config
-        k = config.decode_config.num_beams - len(completed_beams)
-
-        global_min_log_prob = 0.0
-
-        top_score = None
-        top_beam = None
+        num_beams = config.decode_config.num_beams
+        k = num_beams - len(completed_beams)
         selections: List[Beam] = []
 
         # Parse each beam to select the next candidates
         for beam in active_beams:
-            min_log_prob = 0.0
-
             top_tokens, top_values = beam.sample_logits(len(completed_beams))
             for token, value in zip(top_tokens, top_values):
-                if value < min_log_prob:
-                    min_log_prob = value
 
                 new_beam = Beam.clone(beam)
                 new_beam.last_token = token
                 self.scorer.update_score(new_beam, value)
                 selections.append(new_beam)
 
-                if top_score is None or new_beam.score > top_score:
-                    top_score = new_beam.score
-                    top_beam = new_beam
-
-            if min_log_prob < global_min_log_prob:
-                global_min_log_prob = min_log_prob
-
         # Ensure we have enough beams to fill the `num_beams` requirement
-        if len(selections) < config.decode_config.num_beams:
-            beams_to_add = config.decode_config.num_beams - len(selections)
+        if len(selections) < k:
+            beams_to_add = num_beams - len(selections)
             for _ in range(beams_to_add):
-                new_beam = Beam.clone(top_beam)
+                new_beam = Beam.clone(self.scorer.top_beam)
                 selections.append(new_beam)
 
-        # Sort the selections by score and normalize
-        # the scores based on the global minimum log probability.
-        sorted_selections = sorted(
-            selections, key=lambda beam: beam.score, reverse=True
-        )[:k]
-        for beam in sorted_selections:
-            self.scorer.normalize_score(beam, global_min_log_prob)
-        return sorted_selections
-
-    def _find_top_beam(
-        self,
-        active_beams: List[Beam],
-        completed_beams: List[Beam],
-    ) -> Beam:
-        """Find the highest scoring beam, post generation.
-
-        Args:
-            active_beams (List[IndependentBeam]): Beams that are still actively generating.
-            completed_beams (List[IndependentBeam]): Beams that have completed.
-
-        Returns:
-            IndependentBeam: Highest scoring beam.
-        """
-        beams = list(completed_beams) if completed_beams else active_beams
-        for beam in beams:
-            self.scorer.finalize_score(beam)
-        return max(beams, key=lambda beam: beam.score)
+        selections = self.scorer.score_beams(selections, k)
+        self.scorer.reset()
+        return selections
 
     def _stream_single_beam(self, beam_group: BeamGroup) -> List[Beam]:
         """Stream a single beam for the `multi_greedy` strategy.
@@ -467,6 +455,10 @@ class TokenSelector(BaseTokenSelectionStrategy):
             [beam for beam in beam_group.active_beams],
             key=lambda beam: beam.score,
             reverse=True,
+        )
+        active_beams = beam_group.active_beams
+        active_beams = self.scorer.score_beams(
+            active_beams, len(active_beams), normalize=False
         )
         for i in range(beam_group.num_beams - len(results)):
             beam = active_beams[i]
