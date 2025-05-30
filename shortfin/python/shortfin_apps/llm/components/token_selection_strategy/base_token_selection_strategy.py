@@ -9,8 +9,9 @@ from dataclasses import dataclass
 import logging
 from typing import List, Callable, Union
 
-from .beam_group import BaseBeamScorer
 from .config import DecodeConfig
+from .scorer import BaseBeamScorer
+
 from ..messages import LlmInferenceExecRequest
 
 import shortfin.array as sfnp

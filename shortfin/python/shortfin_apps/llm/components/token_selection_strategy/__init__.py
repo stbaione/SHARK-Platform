@@ -16,7 +16,8 @@ from .config import (
     TokenSelectionStrategy,
     get_strategy_from_str,
 )
-from .token_selector import TokenSelector, BeamSearchScorer
+from .scorer import BeamSearchScorer
+from .token_selector import TokenSelector
 from .sampler import Sampler
 
 
