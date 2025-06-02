@@ -468,11 +468,11 @@ def main():
         """Return the max logits and indices for the given logits.
 
         Args:
-            logits (Tensor): Logits tensor to find the max from.
+            logits (torch.Tensor): Logits tensor to find the max from.
             chunk_size (int): Chunk size for the argmax operation.
 
         Returns:
-            Tuple[Tensor, Tensor]: A tuple containing the max logits and their indices.
+            Tuple[torch.Tensor, torch.Tensor]: A tuple containing the max logits and their indices.
         """
         indices = ops.argmax(logits, -1, chunk_size=chunk_size)
         indices_expanded = indices.unsqueeze(-1)
