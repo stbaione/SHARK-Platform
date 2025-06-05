@@ -69,16 +69,16 @@ class ServerInstance:
 
     def get_server_args(self) -> list[str]:
         """Returns the command line arguments to start the server."""
-        parameters = ["--parameters", self.config.artifacts.weights_path]
+        parameters = ["--parameters", str(self.config.artifacts.weights_path)]
         if self.config.artifacts.shard_paths is not None:
             parameters.extend(self.config.artifacts.shard_paths)
         argv = [
             "--tokenizer_json",
-            self.config.artifacts.tokenizer_path,
+            str(self.config.artifacts.tokenizer_path),
             "--model_config",
-            self.config.artifacts.config_path,
+            str(self.config.artifacts.config_path),
             "--vmfb",
-            self.config.artifacts.vmfb_path,
+            str(self.config.artifacts.vmfb_path),
             "--port",
             str(self.port),
             "--prefix_sharing_algorithm",
@@ -99,6 +99,7 @@ class ServerInstance:
         argv = self.get_server_args()
         from shortfin_apps.llm.server import parse_args
 
+        logger.info(f"Starting service with arguments: {argv}")
         args = parse_args(argv)
         if args.tokenizer_config_json is None:
             # this is only used for the EOS token
