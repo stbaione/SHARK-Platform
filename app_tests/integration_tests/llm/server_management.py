@@ -1,17 +1,22 @@
 """Handles server lifecycle and configuration."""
+import logging
+import requests
 import socket
+import subprocess
+import sys
+import time
+
 from contextlib import closing
 from dataclasses import dataclass
-import subprocess
-import time
-import requests
-import sys
 from typing import Optional
 
 from .device_settings import DeviceSettings
 from .model_management import ModelArtifacts
 from shortfin_apps.llm.components.service import GenerateService
 from contextlib import contextmanager
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -64,16 +69,26 @@ class ServerInstance:
 
     def get_server_args(self) -> list[str]:
         """Returns the command line arguments to start the server."""
+        parameters = ["--parameters", self.config.artifacts.weights_path]
+        if self.config.artifacts.shard_paths is not None:
+            parameters.extend(self.config.artifacts.shard_paths)
         argv = [
-            f"--tokenizer_json={self.config.artifacts.tokenizer_path}",
-            f"--model_config={self.config.artifacts.config_path}",
-            f"--vmfb={self.config.artifacts.vmfb_path}",
-            f"--parameters={self.config.artifacts.weights_path}",
-            f"--port={self.port}",
-            f"--prefix_sharing_algorithm={self.config.prefix_sharing_algorithm}",
-            f"--token_selection_strategy={self.config.token_selection_strategy}",
-            f"--num_beams={self.config.num_beams}",
+            "--tokenizer_json",
+            self.config.artifacts.tokenizer_path,
+            "--model_config",
+            self.config.artifacts.config_path,
+            "--vmfb",
+            self.config.artifacts.vmfb_path,
+            "--port",
+            str(self.port),
+            "--prefix_sharing_algorithm",
+            self.config.prefix_sharing_algorithm,
+            "--token_selection_strategy",
+            self.config.token_selection_strategy,
+            "--num_beams",
+            str(self.config.num_beams),
         ]
+        argv.extend(parameters)
         argv.extend(self.config.device_settings.server_flags)
         return argv
 
@@ -111,6 +126,7 @@ class ServerInstance:
             "-m",
             "shortfin_apps.llm.server",
         ] + self.get_server_args()
+        logger.info(f"Starting server with command: {cmd}")
         self.process = subprocess.Popen(cmd)
         self.wait_for_ready()
 
