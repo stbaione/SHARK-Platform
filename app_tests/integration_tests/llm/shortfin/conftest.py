@@ -38,6 +38,10 @@ def model_artifacts(tmp_path_factory, request, test_device):
     """Prepares model artifacts in a cached directory."""
     model_config: ModelConfig = request.param
     settings_key = test_device
+
+    if test_device == "cpu" and model_config.tensor_parallelism_size is not None:
+        pytest.skip("Skipping CPU tests with tensor parallelism")
+
     if (
         model_config.tensor_parallelism_size is not None
         and model_config.tensor_parallelism_size > 1
