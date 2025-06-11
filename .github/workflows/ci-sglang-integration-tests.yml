@@ -13,10 +13,6 @@ on:
     # intent of catching regressions early, and allowing for those
     # regressions to be easily triaged to a small subset of commits.
     - cron: '0 */4 * * *'
-  # TODO: REMOVE THIS AFTER VALIDATING IN CI
-  pull_request:
-    branches:
-      - main
 
 concurrency:
   # A PR number if a pull request and otherwise the commit hash. This cancels
