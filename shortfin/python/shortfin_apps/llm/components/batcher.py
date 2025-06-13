@@ -25,7 +25,6 @@ from .kvcache.base_attention_cache import (
 )
 
 from .messages import LlmInferenceExecRequest
-from .service_debug_dumper import SERVICE_DEBUG_DUMPER
 
 logger = logging.getLogger(__name__)
 
@@ -403,17 +402,6 @@ class LlmExecutorProcess(sf.Process):
                     ]
                 ),
             )
-
-            # pre-invocation args dump
-            if os.getenv("SHORTFIN_DEBUG_LLM_SERVICE", "False").lower() in (
-                "true",
-                "yes",
-                "1",
-                "y",
-            ):
-                await SERVICE_DEBUG_DUMPER.pre_invocation_debug_dump(
-                    executor=self, local_vars=locals()
-                )
 
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
             args_device = [arg.device for arg in args]
