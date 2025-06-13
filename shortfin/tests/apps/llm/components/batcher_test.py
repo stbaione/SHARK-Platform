@@ -200,7 +200,7 @@ class TestLlmExecutorProcess:
             llm_executor_process.exec_requests = exec_req_list
             device0 = llm_executor_process.fiber.device(0)
 
-            data = [1, 2, 3]
+            data = [1, 2, 3, 4, 5, 6]
 
             buffer0 = sfnp.device_array(device0, [1, 2, 3], dtype=sfnp.float16)
             buffer1 = None
@@ -214,7 +214,7 @@ class TestLlmExecutorProcess:
 
             assert isinstance(logits, sfnp.device_array)
             assert indices is None
-            assert logits.items.tolist() == [1, 2, 3, 0, 0, 0]
+            assert logits.items.tolist() == [1, 2, 3, 4, 5, 6]
 
         lsys.run(test_none_indices())
 
@@ -229,10 +229,10 @@ class TestLlmExecutorProcess:
             buffer1 = sfnp.device_array(device0, [1, 2, 3], dtype=sfnp.int32)
 
             with buffer0.map(discard=True) as m:
-                m.items = [1, 2, 3]
+                m.items = [1, 2, 3, 4, 5, 6]
 
             with buffer1.map(discard=True) as m:
-                m.items = [4, 5, 6]
+                m.items = [4, 5, 6, 7, 8, 9]
 
             logits, indices = await llm_executor_process._transfer_buffer(
                 1, device0, [buffer0, buffer1]
@@ -240,8 +240,8 @@ class TestLlmExecutorProcess:
 
             assert isinstance(logits, sfnp.device_array)
             assert isinstance(indices, sfnp.device_array)
-            assert logits.items.tolist() == [1, 2, 3, 0, 0, 0]
-            assert indices.items.tolist() == [4, 5, 6, 0, 0, 0]
+            assert logits.items.tolist() == [1, 2, 3, 4, 5, 6]
+            assert indices.items.tolist() == [4, 5, 6, 7, 8, 9]
 
         lsys.run(test_with_indices())
 
