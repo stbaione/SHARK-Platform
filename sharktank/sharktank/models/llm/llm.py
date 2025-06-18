@@ -108,7 +108,7 @@ class PagedLlmModelV1(BaseCausalLMModel):
             ),
         )
         self.add_module("output_lm_head", LinearLayer(theta("output")))
-        self.attn_blocks = nn.ModuleList(
+        self.attn_blocks: nn.ModuleList[AttentionFFNBlock] = nn.ModuleList(
             [
                 AttentionFFNBlock(
                     theta("blk", n),
@@ -150,6 +150,8 @@ class PagedLlmModelV1(BaseCausalLMModel):
         *,
         # [[bs|1, 1, batch_seq_len, batch_seq_len] x self.config.pipeline_parallelism_size]
         attention_mask: list[Union[torch.Tensor, ReplicatedTensor, None]],
+        # [bs] of starting positions
+        start_positions: Union[torch.Tensor, ReplicatedTensor],
         # [bs, batch_seq_len // block_seq_stride]
         seq_block_ids: list[Union[torch.Tensor, ReplicatedTensor]],
         cache_state: list[Union[torch.Tensor, SplitPrimitiveTensor]],
@@ -157,8 +159,25 @@ class PagedLlmModelV1(BaseCausalLMModel):
         self._assert_device(tokens)
         if not all(mask is None for mask in attention_mask):
             self._assert_device(*attention_mask, dtype=self.activation_dtype)
+        assert all(
+            len(start_positions.shape) == 1 for start_positions in start_positions
+        )
+        assert all(
+            start_positions.shape[0] == tokens.shape[0]
+            for start_positions in start_positions
+        )
+        self._assert_device(*start_positions)
         self._assert_device(*seq_block_ids)
         self._assert_device(*cache_state, dtype=self.activation_dtype)
+
+        embedding_batch_masks = []
+        for pipeline, start_position in enumerate(start_positions):
+            mask = self.attention_embedding[pipeline].compute_batch_mask(
+                start_position, batch_seq_len=tokens.shape[1]
+            )
+            embedding_batch_masks.append(mask)
+            # TODO: How to name and trace this properly
+            self.trace_tensor("llama.embedding_batch_mask", mask)
 
         h = self.token_embedding(tokens)
         self.trace_tensor("llama.token_embedding", h)
@@ -193,7 +212,8 @@ class PagedLlmModelV1(BaseCausalLMModel):
             h = block(
                 h,
                 embedding=self.attention_embedding[pipeline],
-                start_index=0,
+                embedding_batch_mask=embedding_batch_masks[pipeline],
+                start_positions=start_positions[pipeline],
                 attention_mask=mask[pipeline],
                 cache_state=cache_state,
                 seq_block_ids=seq_block_ids[pipeline],

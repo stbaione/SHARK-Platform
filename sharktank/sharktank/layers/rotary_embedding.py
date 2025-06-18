@@ -220,23 +220,27 @@ class RotaryEmbeddingLayer(BaseLayer):
             in the batch.
           batch_seq_len: The sequence length dimension of the batch.
         Returns:
-          Tensor of [bs, sl, 1, d] that will be later passed to apply_batch_mask.
+          Tensor of [bs, 1, sl, d] that will be later passed to apply_batch_mask.
         """
         self.trace_tensor("rope.start_positions", start_positions)
         positions_seq = torch.arange(0, batch_seq_len, device=self.device).unsqueeze(
             0
         ) + start_positions.unsqueeze(1)
+        bs = start_positions.shape[0]
+
+        flat_positions_seq = positions_seq.flatten()
+
         # Broadcast lookup to [b, ...].
         self.trace_tensor("rope.positions_seq", positions_seq)
         if self.use_hf:
             assert self.use_table, "use_hf requires use_table"
-            freqs_cis = self.rotary_embed_table
-            cos, sin = [x[positions_seq.flatten(), :] for x in freqs_cis]
-            freqs_cis = (cos[:, None, None, :], sin[:, None, None, :])
-            return freqs_cis
+            cos_table, sin_table = self.rotary_embed_table
+            cos = cos_table[flat_positions_seq]
+            sin = sin_table[flat_positions_seq]
 
-        if self.use_table:
-            freqs_cis = self.rotary_embed_table[positions_seq.flatten()]
+        elif self.use_table:
+            freqs_cis = self.rotary_embed_table[flat_positions_seq]
+            cos, sin = freqs_cis.unbind(-1)
         else:
             shape = positions_seq.shape
             if isinstance(positions_seq, ReplicatedTensor):
@@ -245,10 +249,16 @@ class RotaryEmbeddingLayer(BaseLayer):
                     for s in positions_seq.shards
                 ]
                 freqs_cis = ReplicatedTensor(ts=ts)
+                cos, sin = freqs_cis.unbind(-1)
             else:
                 freqs_cis = self._compute_rotary_embed_table(positions_seq.flatten())
+                cos, sin = freqs_cis.unbind(-1)
 
-        return freqs_cis.unsqueeze(1)
+        # Reshape back to [bs, sl, d]
+        cos = cos.view(bs, batch_seq_len, -1)
+        sin = sin.view(bs, batch_seq_len, -1)
+
+        return cos.unsqueeze(1), sin.unsqueeze(1)
 
     def apply_batched_mask(
         self,

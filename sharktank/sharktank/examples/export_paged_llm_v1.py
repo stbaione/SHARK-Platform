@@ -135,44 +135,44 @@ def main():
     fxb = FxProgramsBuilder(model)
 
     def setup_cache(model, shard_count):
-        if model.config.kv_cache_type == "paged":
-            cache_state = model.cache.allocate(
-                page_count=hp.context_length // llama_config.block_seq_stride
-            )
-            page_dim = torch.export.Dim("page")
-
-            pipeline_parallelism_size = len(cache_state)
-            tensor_parallelism_size = 1
-            if isinstance(cache_state[0], ShardedTensor):
-                tensor_parallelism_size = cache_state[0].shard_count
-            parallelized = pipeline_parallelism_size > 1 or tensor_parallelism_size > 1
-
-            dynamic_shapes = []
-            for _ in range(pipeline_parallelism_size):
-                ds = {0: page_dim}
-                if parallelized:
-                    ds = [ds] * tensor_parallelism_size
-                dynamic_shapes.append(ds)
-            unpacked = cache_state
-            arg_affinities = {}
-            shard_dim = None
-
-            # Need to unpack that state when sharded (for tracing support reasons)
-            if parallelized:
-                shard_dim = cache_state[0].shard_dim
-
-                unpacked = [[shard._data for shard in cs.shards] for cs in cache_state]
-
-                # Cache is unpacked as [[pipeline 0 shards], [pipeline 1 shards], ...]
-                # Therefore pipeline index is in outer loop.
-                for pipeline, cache_state_for_pipeline in enumerate(cache_state):
-                    for shard, device in enumerate(cache_state_for_pipeline.devices):
-                        i = pipeline * tensor_parallelism_size + shard
-                        arg_affinities[i] = DeviceAffinity(device)
-
-            return unpacked, shard_dim, dynamic_shapes, arg_affinities
-        else:
+        if model.config.kv_cache_type != "paged":
             raise NotImplementedError(f"Unsupported KV cache type: {type(model.cache)}")
+
+        cache_state = model.cache.allocate(
+            page_count=hp.context_length // llama_config.block_seq_stride
+        )
+        page_dim = torch.export.Dim("page")
+
+        pipeline_parallelism_size = len(cache_state)
+        tensor_parallelism_size = 1
+        if isinstance(cache_state[0], ShardedTensor):
+            tensor_parallelism_size = cache_state[0].shard_count
+        parallelized = pipeline_parallelism_size > 1 or tensor_parallelism_size > 1
+
+        dynamic_shapes = []
+        for _ in range(pipeline_parallelism_size):
+            ds = {0: page_dim}
+            if parallelized:
+                ds = [ds] * tensor_parallelism_size
+            dynamic_shapes.append(ds)
+        unpacked = cache_state
+        arg_affinities = {}
+        shard_dim = None
+
+        # Need to unpack that state when sharded (for tracing support reasons)
+        if parallelized:
+            shard_dim = cache_state[0].shard_dim
+
+            unpacked = [[shard._data for shard in cs.shards] for cs in cache_state]
+
+            # Cache is unpacked as [[pipeline 0 shards], [pipeline 1 shards], ...]
+            # Therefore pipeline index is in outer loop.
+            for pipeline, cache_state_for_pipeline in enumerate(cache_state):
+                for shard, device in enumerate(cache_state_for_pipeline.devices):
+                    i = pipeline * tensor_parallelism_size + shard
+                    arg_affinities[i] = DeviceAffinity(device)
+
+        return unpacked, shard_dim, dynamic_shapes, arg_affinities
 
     def repack_cache(
         cache, shard_dim, pipeline_to_device_map: tuple[tuple[int, ...], ...]
@@ -203,6 +203,7 @@ def main():
             dtype=torch.int64,
         )
         seq_lens = torch.empty(bs, dtype=torch.int64)
+        start_positions = torch.ones(bs, dtype=torch.int64)
 
         cache, cache_shard_dim, cache_dynamic_shapes, arg_affinities = setup_cache(
             model, llama_config.tensor_parallelism_size
@@ -223,6 +224,7 @@ def main():
         dynamic_shapes = {
             "tokens": {1: sl_dim},
             "seq_lens": {},
+            "start_positions": {},
             "seq_block_ids": {1: block_dim},
             "cs": cache_dynamic_shapes,
         }
@@ -231,12 +233,12 @@ def main():
 
         @fxb.export_program(
             name=f"prefill_bs{bs}",
-            args=(tokens, seq_lens, seq_block_ids, cache),
+            args=(tokens, seq_lens, start_positions, seq_block_ids, cache),
             dynamic_shapes=dynamic_shapes,
             strict=args.strict,
             arg_device=arg_affinities,
         )
-        def _(model, tokens, seq_lens, seq_block_ids, cs):
+        def _(model, tokens, seq_lens, start_positions, seq_block_ids, cs):
             cache_tensors = cs
 
             attention_mask = None
@@ -251,6 +253,7 @@ def main():
             ):
                 attention_mask = [attention_mask]
                 seq_block_ids = [seq_block_ids]
+                start_positions = [start_positions]
             else:
                 shard_count = llama_config.tensor_parallelism_size
                 pipeline_to_device_map = (
@@ -275,14 +278,29 @@ def main():
                         )
                         for pipeline in range(len(pipeline_to_device_map))
                     ]
-                seq_block_ids = [
-                    ops.replicate(
-                        seq_block_ids,
-                        count=shard_count,
-                        devices=pipeline_to_device_map[pipeline],
+
+                _start_positions, _seq_block_ids = [], []
+                for pipeline in range(len(pipeline_to_device_map)):
+                    _start_positions.append(
+                        ops.replicate(
+                            start_positions,
+                            count=shard_count,
+                            devices=pipeline_to_device_map[pipeline],
+                        )
                     )
-                    for pipeline in range(len(pipeline_to_device_map))
-                ]
+                    _seq_block_ids.append(
+                        ops.replicate(
+                            seq_block_ids,
+                            count=shard_count,
+                            devices=pipeline_to_device_map[pipeline],
+                        )
+                    )
+
+                start_positions, seq_block_ids = (
+                    _start_positions,
+                    _seq_block_ids,
+                )
+
                 cache_tensors = repack_cache(
                     cs, cache_shard_dim, pipeline_to_device_map
                 )
@@ -290,6 +308,7 @@ def main():
             logits = model.prefill(
                 tokens,
                 attention_mask=attention_mask,
+                start_positions=start_positions,
                 seq_block_ids=seq_block_ids,
                 cache_state=cache_tensors,
             )
