@@ -76,7 +76,7 @@ class HFRotaryComparisonTest(unittest.TestCase):
         st_results = st_rotary.forward(xt=example, start_index=0)
         assert torch.all(torch.eq(st_results, hf_results))
 
-    def test_seq_len_42(self):
+    def test_seq_len_5(self):
         test_dtype = torch.float32
         bs = 2
         length = 10
