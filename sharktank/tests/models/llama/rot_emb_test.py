@@ -128,8 +128,14 @@ class HFRotaryComparisonTest(unittest.TestCase):
         st_results = st_rotary.apply_batched_mask_unsharded(
             xt=prefill_example, mask=mask
         )
+        start_pos = torch.arange(0, bs)
+        hf_positions = (
+            torch.arange(0, batch_seq_len).unsqueeze(0).repeat(bs, 1)
+            + start_pos[:, None]
+        )
         hf_results = hf_rotary.forward(
-            xt=prefill_example, positions=torch.arange(0, bs).unsqueeze(1)
+            xt=prefill_example,
+            positions=hf_positions,
         )
         assert torch.all(torch.eq(st_results, hf_results))
 

@@ -212,7 +212,6 @@ class RotaryEmbeddingLayer(BaseLayer):
     def compute_batch_mask(
         self, start_positions: Union[torch.Tensor, ReplicatedTensor], batch_seq_len: int
     ) -> torch.Tensor:
-        # TODO: I'm pretty sure this function is only correct because batch_seq_len is always 1
         """Computes a mask for a batch that can be repeatedly applied.
 
         Args:
