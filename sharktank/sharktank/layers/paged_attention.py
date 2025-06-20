@@ -1135,8 +1135,9 @@ class PagedAttention:
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
-        cache_state: List[torch.Tensor],
+        cache_state: List[torch.Tensor | SplitPrimitiveTensor | ReplicatedTensor],
         seq_block_ids: torch.Tensor,
+        start_positions: torch.Tensor,
         block_index: int,
         attention_kernel: str,
         head_count_attn: int,
@@ -1147,12 +1148,24 @@ class PagedAttention:
         mask: Optional[torch.Tensor] = None,
         probs_quantizer: Optional[StaticScaledQuantizer] = None,
     ):
-        self.write(
-            cache_state,
+        # Write un-cached cache partitions into the cache.
+        self.write_timestep(
+            state=cache_state,
             cache_partitions=[unpack_raw_tensor(k), unpack_raw_tensor(v)],
+            transformer_block_index=block_index,
+            seq_positions=start_positions,
+            page_ids=seq_block_ids,
+        )
+
+        # Restore the cached K and V tensors.
+        k, v = self.read(
+            state=cache_state,
             transformer_block_index=block_index,
             page_ids=seq_block_ids,
         )
+
+        k = pack_raw_tensor(k, cache_quantizer)
+        v = pack_raw_tensor(v, cache_quantizer)
 
         return self.attention(
             q=q,

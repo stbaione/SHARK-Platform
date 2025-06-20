@@ -237,9 +237,13 @@ class RotaryEmbeddingLayer(BaseLayer):
             cos = cos_table[flat_positions_seq]
             sin = sin_table[flat_positions_seq]
 
-        elif self.use_table:
+            cos = cos.view(bs, batch_seq_len, -1)
+            sin = sin.view(bs, batch_seq_len, -1)
+
+            return cos.unsqueeze(1), sin.unsqueeze(1)
+
+        if self.use_table:
             freqs_cis = self.rotary_embed_table[flat_positions_seq]
-            cos, sin = freqs_cis.unbind(-1)
         else:
             shape = positions_seq.shape
             if isinstance(positions_seq, ReplicatedTensor):
@@ -248,16 +252,11 @@ class RotaryEmbeddingLayer(BaseLayer):
                     for s in positions_seq.shards
                 ]
                 freqs_cis = ReplicatedTensor(ts=ts)
-                cos, sin = freqs_cis.unbind(-1)
             else:
                 freqs_cis = self._compute_rotary_embed_table(positions_seq.flatten())
-                cos, sin = freqs_cis.unbind(-1)
 
-        # Reshape back to [bs, sl, d]
-        cos = cos.view(bs, batch_seq_len, -1)
-        sin = sin.view(bs, batch_seq_len, -1)
-
-        return cos.unsqueeze(1), sin.unsqueeze(1)
+        # [bs * sl, 1,  d]
+        return freqs_cis.unsqueeze(1)
 
     def apply_batched_mask(
         self,

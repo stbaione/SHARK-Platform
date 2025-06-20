@@ -217,6 +217,7 @@ class PagedLlmModelV1(BaseCausalLMModel):
                 attention_mask=mask[pipeline],
                 cache_state=cache_state,
                 seq_block_ids=seq_block_ids[pipeline],
+                prefill=True,
             )
             h = self._inter_layer_callback(h, block_idx)
             self.trace_tensor(f"llama.attn_block.{block_idx}.output", h)
@@ -472,6 +473,7 @@ class AttentionFFNBlock(ThetaLayer):
         attention_mask: list[Union[torch.Tensor, ReplicatedTensor]] = None,
         embedding_batch_mask: Optional[torch.Tensor] = None,
         cache_state: list[torch.Tensor] = None,
+        prefill: bool = False,
     ):
         h = self.attn(
             h,
@@ -482,6 +484,7 @@ class AttentionFFNBlock(ThetaLayer):
             attention_mask=attention_mask,
             embedding_batch_mask=embedding_batch_mask,
             cache_state=cache_state,
+            prefill=prefill,
         )
 
         # Feed forward network.
