@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import torch
 
@@ -211,15 +211,17 @@ class RotaryEmbeddingLayer(BaseLayer):
 
     def compute_batch_mask(
         self, start_positions: Union[torch.Tensor, ReplicatedTensor], batch_seq_len: int
-    ) -> torch.Tensor:
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Computes a mask for a batch that can be repeatedly applied.
 
         Args:
-          start_positions: Tensor of [bs] with start positions for every sequence
-            in the batch.
-          batch_seq_len: The sequence length dimension of the batch.
+            start_positions (Union[torch.Tensor, ReplicatedTensor]): starting positions for each sequence in the batch
+            batch_seq_len (int): length of the sequences in the batch
+
         Returns:
-          Tensor of [bs, 1, sl, d] that will be later passed to apply_batch_mask.
+            Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+                - If use_hf is False, returns a tensor of shape [bs, sl, d] with the rotary embeddings.
+                - If use_hf is True, returns a tuple of tensors (cos, sin) of shape [bs, 1, sl, d].
         """
         self.trace_tensor("rope.start_positions", start_positions)
         positions_seq = torch.arange(0, batch_seq_len, device=self.device).unsqueeze(
@@ -237,6 +239,7 @@ class RotaryEmbeddingLayer(BaseLayer):
             cos = cos_table[flat_positions_seq]
             sin = sin_table[flat_positions_seq]
 
+            # Reshape cos and sin to [bs, batch_seq_len, d]
             cos = cos.view(bs, batch_seq_len, -1)
             sin = sin.view(bs, batch_seq_len, -1)
 
@@ -255,8 +258,8 @@ class RotaryEmbeddingLayer(BaseLayer):
             else:
                 freqs_cis = self._compute_rotary_embed_table(positions_seq.flatten())
 
-        # [bs * sl, 1,  d]
-        return freqs_cis.unsqueeze(1)
+        # [bs, sl,  d]
+        return freqs_cis.reshape([bs, batch_seq_len, -1])
 
     def apply_batched_mask(
         self,
