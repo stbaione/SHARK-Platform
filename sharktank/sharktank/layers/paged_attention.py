@@ -341,7 +341,7 @@ class KVCache:
             index = index * self.attn_head_count + head_offset
             index = index * self.block_seq_stride + page_offset
 
-            cache_partition.transpose(1, 2)
+            # cache_partition.transpose(1, 2)
             values = ops.to(cache_partition, dtype=page_table.dtype)
 
             if page_table.dtype == torch.float8_e4m3fnuz:
@@ -349,6 +349,81 @@ class KVCache:
                 page_table_as_int8 = page_table.view(dtype=torch.int8)
                 values_int8 = values.view(dtype=torch.int8)
                 page_table_as_int8.index_put_(indices=(index,), values=values_int8)
+            else:
+                page_table.index_put_(indices=(index,), values=values)
+
+    def write_range(
+        self,
+        *,
+        state: List[torch.Tensor],
+        cache_partitions: List[torch.Tensor],
+        transformer_block_index: int,
+        seq_positions: torch.Tensor,
+        page_ids: Union[torch.Tensor, ReplicatedTensor],
+    ):
+        """Writes a range of cache partitions to the page table.
+
+        Similar function to `write_timestep`, but generalized for writing
+        cache partitions with seq_len > 1.
+
+        Args:
+            state (List[torch.Tensor]): Current state of the KV cache allocation.
+            cache_partitions (List[torch.Tensor]): K and V cache partitions.
+            transformer_block_index (int): Transformer block index to write to.
+            seq_positions (torch.Tensor): Positions denoting the starting index to write for a given sequence.
+            page_ids (Union[torch.Tensor, ReplicatedTensor]): Page IDs to write to.
+        """
+        assert len(state) == 1
+        assert len(cache_partitions) == self.cache_partition_count
+
+        page_table = self.unflatten_page_table(state)[0]
+        page_table = page_table.flatten(0, 4)
+
+        device = self.device
+        bs, seq_len, *_ = cache_partitions[0].shape
+
+        positions = torch.arange(seq_len, device=device, dtype=torch.int64).unsqueeze(
+            0
+        ) + seq_positions.unsqueeze(
+            1
+        )  # [bs, seq_len]
+
+        # Compute the logical page indices from `seq_positions`
+        logical_page_index = positions // self.block_seq_stride  # [bs, seq_len]
+
+        # Obtain the real page ids from the page table.
+        real_page_ids = ops.gather(page_ids, dim=1, index=logical_page_index).view(
+            bs, seq_len, 1
+        )
+
+        # Compute the page offsets within the block sequence stride.
+        page_offset = (positions % self.block_seq_stride).view(bs, seq_len, 1)
+
+        # Compute the head offsets.
+        head_offset = torch.arange(self.attn_head_count, device=device).view(
+            (1, 1, self.attn_head_count)
+        )
+
+        # Loop over the cache partitions and write them to the page table.
+        for cache_partition_id, cache_partition in enumerate(cache_partitions):
+            partitions = torch.tensor(cache_partition_id, device=device).view(1, 1, 1)
+
+            # Compute the flat index for the page table.
+            index = real_page_ids
+            index = index * self.transformer_block_count + transformer_block_index
+            index = index * self.cache_partition_count + partitions
+            index = index * self.attn_head_count + head_offset
+            index = index * self.block_seq_stride + page_offset
+
+            # Prepare the values to write.
+            values = ops.to(cache_partition, dtype=page_table.dtype)
+
+            if page_table.dtype == torch.float8_e4m3fnuz:
+                # Workaround for Torch not supporting torch.Tensor.index_copy_ for f8.
+                page_table_as_int8 = page_table.view(dtype=torch.int8)
+                values_int8 = values.view(dtype=torch.int8)
+                page_table_as_int8.index_put_(indices=(index,), values=values_int8)
+
             else:
                 page_table.index_put_(indices=(index,), values=values)
 
@@ -950,6 +1025,22 @@ class PagedAttention:
             page_ids=page_ids,
         )
 
+    def write_range(
+        self,
+        state: List[torch.Tensor | SplitPrimitiveTensor | ReplicatedTensor],
+        cache_partitions: List[torch.Tensor | SplitPrimitiveTensor | ReplicatedTensor],
+        transformer_block_index: int,
+        seq_positions: Optional[torch.Tensor],
+        page_ids: Union[torch.Tensor, ReplicatedTensor],
+    ):
+        self.kv_cache.write_range(
+            state=state,
+            cache_partitions=cache_partitions,
+            transformer_block_index=transformer_block_index,
+            seq_positions=seq_positions,
+            page_ids=page_ids,
+        )
+
     def write(
         self,
         state: List[torch.Tensor | SplitPrimitiveTensor | ReplicatedTensor],
@@ -1149,7 +1240,7 @@ class PagedAttention:
         probs_quantizer: Optional[StaticScaledQuantizer] = None,
     ):
         # Write un-cached cache partitions into the cache.
-        self.write_timestep(
+        self.write_range(
             state=cache_state,
             cache_partitions=[unpack_raw_tensor(k), unpack_raw_tensor(v)],
             transformer_block_index=block_index,
