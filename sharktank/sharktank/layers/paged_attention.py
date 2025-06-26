@@ -380,6 +380,10 @@ class KVCache:
         device = self.device
         bs, seq_len, *_ = cache_partitions[0].shape
 
+        if seq_len == 0:
+            # If the sequence length is 0, we don't need to write anything.
+            return
+
         positions = torch.arange(seq_len, device=device, dtype=torch.int64).unsqueeze(
             0
         ) + seq_positions.unsqueeze(

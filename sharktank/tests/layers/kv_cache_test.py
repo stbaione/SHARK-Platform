@@ -132,20 +132,20 @@ def test_paged(dtype: torch.dtype):
     "dtype,write_seq_len",
     [
         # Test all relevant dtypes
+        (torch.float32, 8),
         (torch.float8_e4m3fnuz, 8),
         (torch.bfloat16, 8),
         (torch.float16, 8),
-        # Test edge cases
-        (torch.float32, 0),
+        # # Test edge cases
         (torch.float32, 4),
-        (torch.float32, 8),
+        (torch.float32, 13),
+        (torch.float32, 0),
         (torch.float32, 24),
     ],
 )
 def test_write_range(dtype: torch.dtype, write_seq_len: int):
     bs = 4
     seq_length = 24
-    # write_seq_len = 8
     attn_head_count = 8
     attn_head_dim = 16
     transformer_block_count = 4
@@ -156,8 +156,8 @@ def test_write_range(dtype: torch.dtype, write_seq_len: int):
         transformer_block_count=transformer_block_count,
         attn_head_count=attn_head_count,
         attn_head_dim=attn_head_dim,
-        cache_dtype=torch.float32,
-        attn_dtype=torch.float32,
+        cache_dtype=dtype,
+        attn_dtype=dtype,
         device=None,
     )
 
@@ -173,8 +173,8 @@ def test_write_range(dtype: torch.dtype, write_seq_len: int):
 
     # Create data to write
     shape = (bs, write_seq_len, attn_head_count, attn_head_dim)
-    write_ones = torch.rand(*shape)
-    write_twos = torch.rand(*shape)
+    write_ones = torch.rand(*shape).to(dtype=dtype)
+    write_twos = torch.rand(*shape).to(dtype=dtype)
 
     cache_partitions = [write_ones, write_twos]
     start_positions = torch.full((bs,), seq_length - write_seq_len, dtype=torch.int64)
