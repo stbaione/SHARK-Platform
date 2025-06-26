@@ -298,15 +298,6 @@ class ClientGenerateBatchProcess(sf.Process):
             await asyncio.gather(*gen_processes)
             if not self.responder.is_disconnected():
                 self.generate_response(gen_processes, streaming)
-        except Exception as e:
-            logger.exception("Error in ClientGenerateBatchProcess: %s", e)
-            if not self.responder.is_disconnected():
-                self._return_error_response(
-                    status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    error_message=str(e),
-                    code=ResponseErrorCodes.INTERNAL_ERROR,
-                    extra_fields={},
-                )
         finally:
             self.service.main_fiber_pool.return_fiber(indices)
             self.responder.ensure_response()
