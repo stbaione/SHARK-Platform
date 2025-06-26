@@ -272,16 +272,21 @@ class ClientGenerateBatchProcess(sf.Process):
 
                 idx, fiber = await self.service.main_fiber_pool.get()
                 indices.append(idx)
+
+                input_text = (
+                    self.gen_req.text[index]
+                    if not is_pretokenized and not self.gen_req.is_single
+                    else self.gen_req.text
+                )
+
                 gen_process = GenerateItemProcess(
                     self,
                     self.gen_req,
                     index,
-                    (
-                        self.gen_req.text
-                        if self.gen_req.is_single
-                        else self.gen_req.text[index]
-                    ),
-                    input_tokens if is_pretokenized else input_tokens.ids,
+                    input_text=input_text,
+                    input_token_ids=input_tokens
+                    if is_pretokenized
+                    else input_tokens.ids,
                     eos_token_id=self.tokenizer.eos_token_id,
                     decode_config=decode_config,
                     status_tracker=self.responder.get_status_tracker(),
@@ -293,6 +298,15 @@ class ClientGenerateBatchProcess(sf.Process):
             await asyncio.gather(*gen_processes)
             if not self.responder.is_disconnected():
                 self.generate_response(gen_processes, streaming)
+        except Exception as e:
+            logger.exception("Error in ClientGenerateBatchProcess: %s", e)
+            if not self.responder.is_disconnected():
+                self._return_error_response(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    error_message=str(e),
+                    code=ResponseErrorCodes.INTERNAL_ERROR,
+                    extra_fields={},
+                )
         finally:
             self.service.main_fiber_pool.return_fiber(indices)
             self.responder.ensure_response()
