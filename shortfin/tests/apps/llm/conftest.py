@@ -63,6 +63,7 @@ class MockPagePool(PagePool):
             self._queue.put(page)
             self.attn_page_entries.append(page)
 
+        self.available_pages = self.attn_page_entries.copy()
         self.page_tables = []
 
         # Set up a basic page table with shape [num_pages, 16].
@@ -84,10 +85,6 @@ class MockPagePool(PagePool):
             alloc_page_count=total_pages,
             paged_kv_block_size_elements=TEST_PAGE_SIZE,
         )
-
-    @property
-    def available_pages(self) -> List[PageInfo]:
-        return [self._queue.get_nowait() for _ in range(self._queue.qsize())]
 
     def acquire_free_pages(self, count: int) -> List[PageInfo]:
         try:
