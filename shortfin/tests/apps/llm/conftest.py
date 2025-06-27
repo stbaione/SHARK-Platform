@@ -25,7 +25,11 @@ import shortfin.array as sfnp
 from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     BasePagedAttentionCache,
 )
-from shortfin_apps.llm.components.kvcache.page_pool import PagePool, PageInfo
+from shortfin_apps.llm.components.kvcache.page_pool import (
+    PagePool,
+    PageInfo,
+    PagePoolConfig,
+)
 
 
 @pytest.fixture(scope="module")
@@ -74,6 +78,16 @@ class MockPagePool(PagePool):
             m.fill(0)
         page_table_host.copy_to(page_table)
         self.page_tables.append(page_table)
+
+        self.config = PagePoolConfig(
+            dtype=sfnp.float32,
+            alloc_page_count=total_pages,
+            paged_kv_block_size_elements=TEST_PAGE_SIZE,
+        )
+
+    @property
+    def available_pages(self) -> List[PageInfo]:
+        return [self._queue.get_nowait() for _ in range(self._queue.qsize())]
 
     def acquire_free_pages(self, count: int) -> List[PageInfo]:
         try:
