@@ -33,7 +33,7 @@ class RequestQueueManager:
         with self._lock:
             if self.current_queue_size + request_size > self.max_queue_size:
                 logger.debug(
-                    f"Add failed: queue size {self.current_queue_size}, request size {request_size}"
+                    f"Add failed: queue size {self.current_queue_size}, max_queue_size {self.max_queue_size}, request size {request_size}"
                 )
                 return False
             self.current_queue_size += request_size
