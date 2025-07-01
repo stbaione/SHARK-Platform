@@ -226,7 +226,6 @@ class RotaryEmbeddingLayer(BaseLayer):
         batch_seq_len: int,
         rotary_embed_table: torch.Tensor,
     ) -> torch.Tensor:
-        # TODO: I'm pretty sure this function is only correct because batch_seq_len is always 1
         """Computes a mask for a batch that can be repeatedly applied.
 
         Args:
@@ -234,21 +233,30 @@ class RotaryEmbeddingLayer(BaseLayer):
             in the batch.
           batch_seq_len: The sequence length dimension of the batch.
         Returns:
-          Tensor of [bs, sl, 1, d] that will be later passed to apply_batch_mask.
+          - If use_hf is True, returns a tuple of tensors (cos, sin) of shape [bs, 1, sl, d].
         """
         self.trace_tensor("rope.start_positions", start_positions)
+        bs = start_positions.shape[0]
         positions_seq = torch.arange(0, batch_seq_len, device=self.device).unsqueeze(
             0
         ) + start_positions.unsqueeze(1)
+        flat_positions_seq = positions_seq.flatten()
+
         # Broadcast lookup to [b, ...].
         self.trace_tensor("rope.positions_seq", positions_seq)
         if self.use_hf:
             assert self.use_table, "use_hf requires use_table"
-            freqs_cis = rotary_embed_table
-            cos, sin = [x[positions_seq.flatten(), :] for x in freqs_cis]
-            freqs_cis = (cos[:, None, None, :], sin[:, None, None, :])
-            return freqs_cis
+            cos_table, sin_table = rotary_embed_table
+            cos = cos_table[flat_positions_seq]
+            sin = sin_table[flat_positions_seq]
 
+            # Reshape cos and sin to [bs, batch_seq_len, d]
+            cos = cos.view(bs, batch_seq_len, -1)
+            sin = sin.view(bs, batch_seq_len, -1)
+
+            return cos.unsqueeze(1), sin.unsqueeze(1)
+
+        # TODO(stbaione): Fix this for `batch_seq_len > 1`
         if self.use_table:
             freqs_cis = rotary_embed_table[positions_seq.flatten()]
         else:

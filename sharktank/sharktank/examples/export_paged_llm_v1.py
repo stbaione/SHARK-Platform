@@ -203,6 +203,10 @@ def main():
             dtype=torch.int64,
         )
         seq_lens = torch.empty(bs, dtype=torch.int64)
+        start_positions = None
+        if args.prefill_use_offsets:
+            # Create start_positions for prefill
+            start_positions = torch.empty(bs, dtype=torch.int64)
 
         cache, cache_shard_dim, cache_dynamic_shapes, arg_affinities = setup_cache(
             model, llama_config.tensor_parallelism_size
@@ -226,17 +230,19 @@ def main():
             "seq_block_ids": {1: block_dim},
             "cs": cache_dynamic_shapes,
         }
+        if args.prefill_use_offsets:
+            dynamic_shapes["start_positions"] = {}
 
         print(f"Exporting prefill_bs{bs}")
 
-        @fxb.export_program(
-            name=f"prefill_bs{bs}",
-            args=(tokens, seq_lens, seq_block_ids, cache),
-            dynamic_shapes=dynamic_shapes,
-            strict=args.strict,
-            arg_device=arg_affinities,
-        )
-        def _(model, tokens, seq_lens, seq_block_ids, cs):
+        def _preprocess_inputs(
+            tokens: torch.Tensor,
+            seq_lens: torch.Tensor,
+            seq_block_ids: torch.Tensor,
+            cs: list[ShardedTensor],
+            start_positions: torch.Tensor | None = None,
+        ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, list[ShardedTensor]]:
+            """Preprocess inputs for the prefill function."""
             cache_tensors = cs
 
             attention_mask = None
@@ -251,6 +257,8 @@ def main():
             ):
                 attention_mask = [attention_mask]
                 seq_block_ids = [seq_block_ids]
+                if start_positions is not None:
+                    start_positions = [start_positions]
             else:
                 shard_count = llama_config.tensor_parallelism_size
                 pipeline_to_device_map = (
@@ -283,34 +291,64 @@ def main():
                     )
                     for pipeline in range(len(pipeline_to_device_map))
                 ]
+                if start_positions is not None:
+                    start_positions = [
+                        ops.replicate(
+                            start_positions,
+                            count=shard_count,
+                            devices=pipeline_to_device_map[pipeline],
+                        )
+                        for pipeline in range(len(pipeline_to_device_map))
+                    ]
                 cache_tensors = repack_cache(
                     cs, cache_shard_dim, pipeline_to_device_map
                 )
 
-            logits = model.prefill(
-                tokens,
-                attention_mask=attention_mask,
-                seq_block_ids=seq_block_ids,
-                cache_state=cache_tensors,
+            inputs = (
+                (
+                    tokens,
+                    seq_lens,
+                    seq_block_ids,
+                    cache_tensors,
+                    attention_mask,
+                )
+                if start_positions is None
+                else (
+                    tokens,
+                    seq_lens,
+                    start_positions,
+                    seq_block_ids,
+                    cache_tensors,
+                    attention_mask,
+                )
             )
+            return inputs
 
+        def _postprocess_output(
+            logits: torch.Tensor,
+            seq_lens: torch.Tensor,
+            logits_normalization: str,
+            prefill_final_logits: bool,
+            top_k: int | None = None,
+            use_linalgext_topk: bool = False,
+        ) -> torch.Tensor:
+            """Postprocess the output of the prefill function."""
             if llama_config.tensor_parallelism_size != 1:
                 logits = ops.unshard(logits)
 
-            if args.logits_normalization == "softmax":
+            if logits_normalization == "softmax":
                 logits = ops.softmax(logits, dim=-1)
 
-            if args.logits_normalization == "log_softmax":
+            if logits_normalization == "log_softmax":
                 logits = ops.elementwise(torch.log, ops.softmax(logits, dim=-1))
 
-            if args.prefill_final_logits:
+            if prefill_final_logits:
                 last_seq_lens = seq_lens
                 bsi = torch.tensor(list(range(logits.shape[0])))
 
                 logits = logits[bsi, last_seq_lens - 1]
                 logits = logits.unsqueeze(1)
 
-            top_k = args.top_k
             if top_k is None:
                 return logits
 
@@ -319,10 +357,94 @@ def main():
 
             return topk_output(
                 logits,
-                k=args.top_k,
+                k=top_k,
                 chunk_size=256,
-                use_linalgext_topk=args.use_linalgext_topk,
+                use_linalgext_topk=use_linalgext_topk,
             )
+
+        if not args.prefill_use_offsets:
+
+            @fxb.export_program(
+                name=f"prefill_bs{bs}",
+                args=(tokens, seq_lens, seq_block_ids, cache),
+                dynamic_shapes=dynamic_shapes,
+                strict=args.strict,
+                arg_device=arg_affinities,
+            )
+            def _(model, tokens, seq_lens, seq_block_ids, cs):
+                """Prefill function for the model."""
+                (
+                    tokens,
+                    seq_lens,
+                    seq_block_ids,
+                    cache_tensors,
+                    attention_mask,
+                ) = _preprocess_inputs(
+                    tokens,
+                    seq_lens,
+                    seq_block_ids,
+                    cs,
+                )
+
+                logits = model.prefill(
+                    tokens,
+                    attention_mask=attention_mask,
+                    start_positions=None,
+                    seq_block_ids=seq_block_ids,
+                    cache_state=cache_tensors,
+                )
+
+                return _postprocess_output(
+                    logits,
+                    seq_lens,
+                    args.logits_normalization,
+                    args.prefill_final_logits,
+                    top_k=args.top_k,
+                    use_linalgext_topk=args.use_linalgext_topk,
+                )
+
+        else:
+
+            @fxb.export_program(
+                name=f"prefill_bs{bs}",
+                args=(tokens, seq_lens, start_positions, seq_block_ids, cache),
+                dynamic_shapes=dynamic_shapes,
+                strict=args.strict,
+                arg_device=arg_affinities,
+            )
+            def _(model, tokens, seq_lens, start_positions, seq_block_ids, cs):
+                """Prefill function for the model with offsets."""
+                (
+                    tokens,
+                    seq_lens,
+                    start_positions,
+                    seq_block_ids,
+                    cache_tensors,
+                    attention_mask,
+                ) = _preprocess_inputs(
+                    tokens,
+                    seq_lens,
+                    seq_block_ids,
+                    cs,
+                    start_positions=start_positions,
+                )
+
+                logits = model.prefill(
+                    tokens,
+                    attention_mask=attention_mask,
+                    start_positions=start_positions,
+                    seq_block_ids=seq_block_ids,
+                    cache_state=cache_tensors,
+                )
+
+                return _postprocess_output(
+                    logits,
+                    seq_lens,
+                    args.logits_normalization,
+                    args.prefill_final_logits,
+                    top_k=args.top_k,
+                    use_linalgext_topk=args.use_linalgext_topk,
+                )
 
     def generate_batch_decode(bs: int):
         # torch.export.Dim would make min at least 2

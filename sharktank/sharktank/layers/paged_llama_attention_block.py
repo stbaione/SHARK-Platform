@@ -217,6 +217,7 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         attention_mask: Optional[torch.Tensor | ReplicatedTensor] = None,
         embedding_batch_mask: Optional[torch.Tensor] = None,
         cache_state: list[torch.Tensor] = None,
+        prefill: bool = False,
     ):
         assert bool(start_index is not None) ^ bool(embedding_batch_mask is not None)
 
@@ -262,7 +263,7 @@ class PagedLlamaAttentionBlock(ThetaLayer):
         if self.attn_type == "mla" and self.head_dim != self.v_head_dim:
             xv = ops.pad(xv, [0, self.head_dim - self.v_head_dim])
 
-        if start_positions is None:
+        if prefill:
             attn_output = self.paged_attention.forward_prefill(
                 q=xq,
                 k=xk,
@@ -270,6 +271,7 @@ class PagedLlamaAttentionBlock(ThetaLayer):
                 cache_state=cache_state,
                 seq_block_ids=seq_block_ids,
                 block_index=self.block_index,
+                start_positions=start_positions,
                 head_count_attn=self.head_count,
                 cache_quantizer=self.cache_quantizer,
                 fake_quant=self.fake_quant,

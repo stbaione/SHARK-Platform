@@ -11,7 +11,7 @@ tightly coupled transformer blocks a bit less "stringy" with loose tensors
 and dims floating around everywhere.
 """
 
-from typing import Optional, Union, List
+from typing import Optional, Tuple, Union, List
 
 import math
 
@@ -380,18 +380,24 @@ class KVCache:
         device = self.device
         bs, seq_len, *_ = cache_partitions[0].shape
 
-        if seq_len == 0:
-            # If the sequence length is 0, we don't need to write anything.
-            return
-
+        # Compute token-aligned positions
         positions = torch.arange(seq_len, device=device, dtype=torch.int64).unsqueeze(
             0
-        ) + seq_positions.unsqueeze(
+        ) + (seq_positions * self.block_seq_stride).unsqueeze(
             1
         )  # [bs, seq_len]
 
-        # Compute the logical page indices from `seq_positions`
+        # Mask out positions that are out of bounds
+        limit = torch.tensor(seq_len, device=device, dtype=torch.int64)
+        position_mask = positions < limit
+
+        # Compute logical page indices
         logical_page_index = positions // self.block_seq_stride  # [bs, seq_len]
+
+        # Clamp logical page indices to the valid range
+        # (overflowing indices will be masked out later)
+        num_blocks = page_ids.size(1)
+        logical_page_index = logical_page_index.clamp(0, num_blocks - 1)
 
         # Obtain the real page ids from the page table.
         real_page_ids = ops.gather(page_ids, dim=1, index=logical_page_index).view(
@@ -416,18 +422,45 @@ class KVCache:
             index = index * self.cache_partition_count + partitions
             index = index * self.attn_head_count + head_offset
             index = index * self.block_seq_stride + page_offset
+            flat_idx = index.view(-1)
 
             # Prepare the values to write.
             values = ops.to(cache_partition, dtype=page_table.dtype)
+            if values.dtype == torch.float8_e4m3fnuz:
+                values = values.view(dtype=torch.int8)
 
+            # Create the index for gathering values from the cache partition.
+            idx_vals = (
+                positions.unsqueeze(-1)
+                .unsqueeze(-1)
+                .expand(bs, seq_len, self.attn_head_count, cache_partition.shape[-1])
+                .clamp(0, seq_len - 1)
+            )
+
+            # Gather the values from the cache partition at the specified positions
+            values = values.gather(dim=1, index=idx_vals)
+            if cache_partition.dtype == torch.float8_e4m3fnuz:
+                # Convert back to float8 after gathering
+                values = values.view(dtype=torch.float8_e4m3fnuz)
+            flat_vals = values.view(-1, cache_partition.shape[-1])
+
+            # Flatten mask
+            mask_flat = (
+                position_mask.unsqueeze(-1).expand_as(index).contiguous().view(-1)
+            )
+
+            # Write the values to the page table at the specified indices
             if page_table.dtype == torch.float8_e4m3fnuz:
                 # Workaround for Torch not supporting torch.Tensor.index_copy_ for f8.
                 page_table_as_int8 = page_table.view(dtype=torch.int8)
-                values_int8 = values.view(dtype=torch.int8)
-                page_table_as_int8.index_put_(indices=(index,), values=values_int8)
-
+                values_int8 = flat_vals.view(dtype=torch.int8)
+                page_table_as_int8.index_put_(
+                    indices=(flat_idx[mask_flat],), values=values_int8[mask_flat]
+                )
             else:
-                page_table.index_put_(indices=(index,), values=values)
+                page_table.index_put_(
+                    indices=(flat_idx[mask_flat],), values=flat_vals[mask_flat]
+                )
 
 
 class ShardedCache:
@@ -1291,6 +1324,7 @@ class PagedAttention:
         cache_state: List[torch.Tensor],
         seq_block_ids: torch.Tensor,
         block_index: int,
+        start_positions: Union[torch.Tensor, None],
         attention_kernel: str,
         head_count_attn: int,
         cache_quantizer: Optional[QuantizerTensor],
@@ -1300,12 +1334,41 @@ class PagedAttention:
         mask: Optional[torch.Tensor] = None,
         probs_quantizer: Optional[StaticScaledQuantizer] = None,
     ):
-        self.write(
-            cache_state,
-            cache_partitions=[unpack_raw_tensor(k), unpack_raw_tensor(v)],
-            transformer_block_index=block_index,
-            page_ids=seq_block_ids,
-        )
+        k_unpacked = unpack_raw_tensor(k)
+        v_unpacked = unpack_raw_tensor(v)
+
+        # Assume start at `index 0` and write the entire sequence.
+        if start_positions is None:
+            self.write(
+                cache_state,
+                cache_partitions=[k_unpacked, v_unpacked],
+                transformer_block_index=block_index,
+                page_ids=seq_block_ids,
+            )
+
+        # If we have start positions, we write to the kvcache from
+        # sequence[i][start_positions[i]:] for each sequence.
+        # We then restore sequence[i][:start_positions[i]] from the cache.
+        # This is used for `offset prefill`, where cached sequences are
+        # already present in the cache, and we only need to update the
+        # cache with the new sequence positions.
+        else:
+            self.write_range(
+                state=cache_state,
+                cache_partitions=[k_unpacked, v_unpacked],
+                transformer_block_index=block_index,
+                seq_positions=start_positions,
+                page_ids=seq_block_ids,
+            )
+
+            k, v = self.read(
+                state=cache_state,
+                transformer_block_index=block_index,
+                page_ids=seq_block_ids,
+            )
+
+            k = pack_raw_tensor(k, cache_quantizer)
+            v = pack_raw_tensor(v, cache_quantizer)
 
         return self.attention(
             q=q,

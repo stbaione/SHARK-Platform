@@ -153,6 +153,8 @@ class PagedLlmModelV1(BaseCausalLMModel):
         *,
         # [[bs|1, 1, batch_seq_len, batch_seq_len] x self.config.pipeline_parallelism_size]
         attention_mask: list[Union[torch.Tensor, ReplicatedTensor, None]],
+        # [bs] of starting positions
+        start_positions: Optional[Union[torch.Tensor, ReplicatedTensor, None]],
         # [bs, batch_seq_len // block_seq_stride]
         seq_block_ids: list[Union[torch.Tensor, ReplicatedTensor]],
         cache_state: list[Union[torch.Tensor, SplitPrimitiveTensor]],
@@ -162,6 +164,8 @@ class PagedLlmModelV1(BaseCausalLMModel):
             self._assert_device(*attention_mask, dtype=self.activation_dtype)
         self._assert_device(*seq_block_ids)
         self._assert_device(*cache_state, dtype=self.activation_dtype)
+        if start_positions is not None:
+            self._assert_device(*start_positions)
 
         h = self.token_embedding(tokens)
         self.trace_tensor("llama.token_embedding", h)
@@ -180,6 +184,21 @@ class PagedLlmModelV1(BaseCausalLMModel):
                 for pipeline in range(len(self.cache.pipeline_to_device_map))
             ]
 
+        if start_positions is not None:
+            start_index = None
+            embedding_batch_masks = []
+            for pipeline, start_position in enumerate(start_positions):
+                # `start_positions` are block-aligned for prefill
+                start_position_offsets = start_position * self.config.block_seq_stride
+                mask = self.attention_embedding[pipeline].compute_batch_mask(
+                    start_position_offsets, batch_seq_len=h.shape[1]
+                )
+                embedding_batch_masks.append(mask)
+
+        else:
+            start_index = 0
+            embedding_batch_masks = None
+
         # Iterate over attention blocks.
         for block_idx, block in enumerate(self.attn_blocks):
             if block_idx == 0:
@@ -196,10 +215,17 @@ class PagedLlmModelV1(BaseCausalLMModel):
             h = block(
                 h,
                 embedding=self.attention_embedding[pipeline],
-                start_index=0,
+                start_index=start_index,
                 attention_mask=mask[pipeline],
                 cache_state=cache_state,
                 seq_block_ids=seq_block_ids[pipeline],
+                embedding_batch_mask=(
+                    embedding_batch_masks[pipeline]
+                    if embedding_batch_masks is not None
+                    else None
+                ),
+                start_positions=start_positions[pipeline] if start_positions else None,
+                prefill=True,
             )
             h = self._inter_layer_callback(h, block_idx)
             self.trace_tensor(f"llama.attn_block.{block_idx}.output", h)
@@ -455,6 +481,7 @@ class AttentionFFNBlock(ThetaLayer):
         attention_mask: list[Union[torch.Tensor, ReplicatedTensor]] = None,
         embedding_batch_mask: Optional[torch.Tensor] = None,
         cache_state: list[torch.Tensor] = None,
+        prefill: bool = False,
     ):
         h = self.attn(
             h,
@@ -465,6 +492,7 @@ class AttentionFFNBlock(ThetaLayer):
             attention_mask=attention_mask,
             embedding_batch_mask=embedding_batch_mask,
             cache_state=cache_state,
+            prefill=prefill,
         )
 
         # Feed forward network.

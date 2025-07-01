@@ -170,6 +170,14 @@ def add_model_options(parser: argparse.ArgumentParser):
         help="Return only the final logits",
         action="store_true",
     )
+    parser.add_argument(
+        "--prefill-use-offsets",
+        help="""
+        Use offsets for prefill instead of assuming all sequences begin at index 0.
+        Used for KVCache prefix sharing algorithms, like `RadixAttention`.
+        """,
+        action="store_true",
+    )
 
 
 def add_model_input_options(parser: argparse.ArgumentParser):
