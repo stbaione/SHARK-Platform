@@ -362,8 +362,10 @@ class KVCache:
         page_ids: Union[torch.Tensor, ReplicatedTensor],
     ):
         """Writes a range of cache partitions to the page table.
+
         Similar function to `write_timestep`, but generalized for writing
         cache partitions with seq_len > 1.
+
         Args:
             state (List[torch.Tensor]): Current state of the KV cache allocation.
             cache_partitions (List[torch.Tensor]): K and V cache partitions.
@@ -387,15 +389,10 @@ class KVCache:
             1
         )  # [bs, seq_len]
 
-        # Mask out positions that are out of bounds
-        limit = torch.tensor(seq_len, device=device, dtype=torch.int64)
-        position_mask = positions < limit
-
         # Compute logical page indices
         logical_page_index = positions // self.block_seq_stride  # [bs, seq_len]
 
         # Clamp logical page indices to the valid range
-        # (overflowing indices will be masked out later)
         num_blocks = page_ids.size(1)
         logical_page_index = logical_page_index.clamp(0, num_blocks - 1)
 
@@ -416,51 +413,37 @@ class KVCache:
         for cache_partition_id, cache_partition in enumerate(cache_partitions):
             partitions = torch.tensor(cache_partition_id, device=device).view(1, 1, 1)
 
-            # Compute the flat index for the page table.
-            index = real_page_ids
-            index = index * self.transformer_block_count + transformer_block_index
-            index = index * self.cache_partition_count + partitions
-            index = index * self.attn_head_count + head_offset
-            index = index * self.block_seq_stride + page_offset
-            flat_idx = index.view(-1)
+            for partition_row_id, partition_row in enumerate(cache_partition):
+                offset = seq_positions[partition_row_id] * self.block_seq_stride
 
-            # Prepare the values to write.
-            values = ops.to(cache_partition, dtype=page_table.dtype)
-            if values.dtype == torch.float8_e4m3fnuz:
-                values = values.view(dtype=torch.int8)
+                partition_row = partition_row[
+                    seq_positions[partition_row_id] * self.block_seq_stride :, ...
+                ].unsqueeze(0)
+                partition_page_ids = real_page_ids[
+                    partition_row_id, : seq_len - offset, :
+                ].unsqueeze(0)
+                partition_page_offsets = page_offset[
+                    partition_row_id, : seq_len - offset, :
+                ].unsqueeze(0)
 
-            # Create the index for gathering values from the cache partition.
-            idx_vals = (
-                positions.unsqueeze(-1)
-                .unsqueeze(-1)
-                .expand(bs, seq_len, self.attn_head_count, cache_partition.shape[-1])
-                .clamp(0, seq_len - 1)
-            )
+                # Compute the flat index for the page table.
+                index = partition_page_ids
+                index = index * self.transformer_block_count + transformer_block_index
+                index = index * self.cache_partition_count + partitions
+                index = index * self.attn_head_count + head_offset
+                index = index * self.block_seq_stride + partition_page_offsets
 
-            # Gather the values from the cache partition at the specified positions
-            values = values.gather(dim=1, index=idx_vals)
-            if cache_partition.dtype == torch.float8_e4m3fnuz:
-                # Convert back to float8 after gathering
-                values = values.view(dtype=torch.float8_e4m3fnuz)
-            flat_vals = values.view(-1, cache_partition.shape[-1])
+                # Prepare the values to write.
+                values = ops.to(partition_row, dtype=page_table.dtype)
 
-            # Flatten mask
-            mask_flat = (
-                position_mask.unsqueeze(-1).expand_as(index).contiguous().view(-1)
-            )
-
-            # Write the values to the page table at the specified indices
-            if page_table.dtype == torch.float8_e4m3fnuz:
-                # Workaround for Torch not supporting torch.Tensor.index_copy_ for f8.
-                page_table_as_int8 = page_table.view(dtype=torch.int8)
-                values_int8 = flat_vals.view(dtype=torch.int8)
-                page_table_as_int8.index_put_(
-                    indices=(flat_idx[mask_flat],), values=values_int8[mask_flat]
-                )
-            else:
-                page_table.index_put_(
-                    indices=(flat_idx[mask_flat],), values=flat_vals[mask_flat]
-                )
+                # Write the values to the page table at the specified indices
+                if page_table.dtype == torch.float8_e4m3fnuz:
+                    # Workaround for Torch not supporting torch.Tensor.index_copy_ for f8.
+                    page_table_as_int8 = page_table.view(dtype=torch.int8)
+                    values_int8 = values.view(dtype=torch.int8)
+                    page_table_as_int8.index_put_(indices=(index,), values=values_int8)
+                else:
+                    page_table.index_put_(indices=(index,), values=values)
 
 
 class ShardedCache:
