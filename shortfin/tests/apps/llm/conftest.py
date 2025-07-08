@@ -76,7 +76,9 @@ class MockPagePool(PagePool):
             self._queue.put(page)
             self.attn_page_entries.append(page)
 
-        self.available_pages = deepcopy(self.attn_page_entries)
+        self.available_pages = []
+        for page in self.attn_page_entries:
+            self.available_pages.append(page)
         self.page_tables = []
 
         # Set up a basic page table with shape [num_pages, 16].
