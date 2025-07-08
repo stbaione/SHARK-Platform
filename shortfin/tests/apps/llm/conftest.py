@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+from copy import deepcopy
 import queue
 from typing import List
 import pytest
@@ -75,7 +76,7 @@ class MockPagePool(PagePool):
             self._queue.put(page)
             self.attn_page_entries.append(page)
 
-        self.available_pages = self.attn_page_entries.copy()
+        self.available_pages = deepcopy(self.attn_page_entries)
         self.page_tables = []
 
         # Set up a basic page table with shape [num_pages, 16].
