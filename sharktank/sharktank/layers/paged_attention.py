@@ -1113,6 +1113,37 @@ class PagedAttention:
             page_ids=page_ids,
         )
 
+    def get_read_write_pages(
+        self,
+        seq_positions: torch.Tensor,
+        page_ids: Union[torch.Tensor, ReplicatedTensor],
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        bs, num_pages = page_ids.shape
+
+        page_pos = (
+            torch.arange(num_pages, device=self.device, dtype=torch.int64)
+            .unsqueeze(0)
+            .repeat(bs, 1)
+        )
+
+        read_mask = page_pos < seq_positions.unsqueeze(1)
+        write_mask = ~read_mask
+
+        read_pages, write_pages = [], []
+
+        for i in range(bs):
+            idx_read = read_mask[i].nonzero(as_tuple=True)[0]
+            idx_write = write_mask[i].nonzero(as_tuple=True)[0]
+            sequence_page_ids = page_ids[i]
+
+            sequence_read_pages = ops.gather(sequence_page_ids, dim=0, index=idx_read)
+            sequence_write_pages = ops.gather(sequence_page_ids, dim=0, index=idx_write)
+
+            read_pages.append(sequence_read_pages)
+            write_pages.append(sequence_write_pages)
+
+        return read_pages, write_pages
+
     def write(
         self,
         state: List[torch.Tensor | SplitPrimitiveTensor | ReplicatedTensor],
@@ -1316,42 +1347,68 @@ class PagedAttention:
         scale: Optional[float] = None,
         mask: Optional[torch.Tensor] = None,
         probs_quantizer: Optional[StaticScaledQuantizer] = None,
+        k_quantizer: Optional[StaticScaledQuantizer] = None,
+        v_quantizer: Optional[StaticScaledQuantizer] = None,
     ):
         k_unpacked = unpack_raw_tensor(k)
         v_unpacked = unpack_raw_tensor(v)
 
-        # Assume start at `index 0` and write the entire sequence.
-        if start_positions is None:
-            self.write(
-                cache_state,
-                cache_partitions=[k_unpacked, v_unpacked],
-                transformer_block_index=block_index,
-                page_ids=seq_block_ids,
+        if start_positions is not None:
+            _, write_pages = self.get_read_write_pages(
+                seq_positions=start_positions, page_ids=seq_block_ids
             )
 
-        # If we have start positions, we write to the kvcache from
-        # sequence[i][start_positions[i]:] for each sequence.
-        # We then restore sequence[i][:start_positions[i]] from the cache.
-        # This is used for `offset prefill`, where cached sequences are
-        # already present in the cache, and we only need to update the
-        # cache with the new sequence positions.
-        else:
-            self.write_range(
-                state=cache_state,
-                cache_partitions=[k_unpacked, v_unpacked],
-                transformer_block_index=block_index,
-                seq_positions=start_positions,
-                page_ids=seq_block_ids,
-            )
+            bs = seq_block_ids.size(0)
+            for i in range(bs):
+                pages = write_pages[i]
 
+                k_partition = k_unpacked[i].unsqueeze(0)
+                v_partition = v_unpacked[i].unsqueeze(0)
+
+                offsets = torch.arange(
+                    self.block_seq_stride,
+                    device=self.device,
+                    dtype=torch.int64,
+                )
+
+                base = pages * self.block_seq_stride
+
+                pos_grid = base.unsqueeze(1) + offsets
+                flat_pos = pos_grid.flatten()
+
+                idx = flat_pos.view(1, -1, 1, 1).expand(
+                    -1, -1, self.head_count_kv, self.attn_head_dim
+                )
+
+                k_partition = k_partition.gather(dim=1, index=idx)
+                v_partition = v_partition.gather(dim=1, index=idx)
+
+                # Write the new sequence positions to the cache.
+                self.write(
+                    state=cache_state,
+                    cache_partitions=[k_partition, v_partition],
+                    transformer_block_index=block_index,
+                    page_ids=pages.unsqueeze(0),
+                )
+
+            # Restore k and v from the cache for the read pages.
             k, v = self.read(
                 state=cache_state,
                 transformer_block_index=block_index,
                 page_ids=seq_block_ids,
             )
 
-            k = pack_raw_tensor(k, cache_quantizer)
-            v = pack_raw_tensor(v, cache_quantizer)
+            k = pack_raw_tensor(k, k_quantizer)
+            v = pack_raw_tensor(v, v_quantizer)
+
+        else:
+            # Assume start at `index 0` and write the entire sequence.
+            self.write(
+                cache_state,
+                cache_partitions=[k_unpacked, v_unpacked],
+                transformer_block_index=block_index,
+                page_ids=seq_block_ids,
+            )
 
         return self.attention(
             q=q,
