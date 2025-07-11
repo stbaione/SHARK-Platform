@@ -248,7 +248,6 @@ class RotaryEmbeddingLayer(BaseLayer):
         batch_seq_len: int,
         rotary_embed_table: torch.Tensor,
     ) -> torch.Tensor:
-        # TODO: I'm pretty sure this function is only correct because batch_seq_len is always 1
         """Computes a mask for a batch that can be repeatedly applied.
 
         Args:
