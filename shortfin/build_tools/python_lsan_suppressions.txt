@@ -9,6 +9,3 @@ leak:pyo3::pyclass::create_type_object
 leak:ufunc
 leak:pydantic_core
 leak:sentencepiece
-leak:malloc
-    fun:_PyCode_ConstantKey
-    obj:tuple_alloc
