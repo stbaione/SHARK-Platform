@@ -281,7 +281,6 @@ class RotaryEmbeddingLayer(BaseLayer):
         else:
             freqs_cis = self.compute_rotary_embed_table(flat_positions_seq)
 
-        # return freqs_cis.reshape([bs, batch_seq_len, -1])
         bs = start_positions.shape[0]
         return freqs_cis.unflatten(0, (bs, batch_seq_len))
 
