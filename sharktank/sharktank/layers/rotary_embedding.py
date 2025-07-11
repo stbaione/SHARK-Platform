@@ -257,7 +257,7 @@ class RotaryEmbeddingLayer(BaseLayer):
 
         Returns:
           - If use_hf is True, returns a tuple of tensors (cos, sin) of shape [bs, 1, sl, d].
-          - If use_hf is False, a tensor of shape [bs, 1, d]
+          - If use_hf is False, a tensor of shape [bs, sl, d]
         """
         self.trace_tensor("rope.start_positions", start_positions)
         positions_seq = torch.arange(0, batch_seq_len, device=self.device).unsqueeze(
