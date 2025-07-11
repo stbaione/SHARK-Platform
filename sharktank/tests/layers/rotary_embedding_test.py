@@ -8,6 +8,7 @@ import math
 import torch
 import unittest
 
+from parameterized import parameterized_class
 from sharktank.layers.rotary_embedding import build_rotary_layer
 from transformers.models.llama.modeling_llama import (
     LlamaRotaryEmbedding,
@@ -234,6 +235,13 @@ class HFRotaryComparisonTest(unittest.TestCase):
         assert torch.all(torch.eq(st_results, hf_results))
 
 
+@parameterized_class(
+    ("use_table",),
+    [
+        {"use_table": True},
+        {"use_table": False},
+    ],
+)
 class SharktankRotaryMaskTest(unittest.TestCase):
     def setUp(self):
         torch.manual_seed(123456)
@@ -249,6 +257,7 @@ class SharktankRotaryMaskTest(unittest.TestCase):
             max_seqlen=self.max_seqlen,
             rope_freq_base=10000,
             use_hf=False,
+            use_table=self.use_table,
             dtype=self.dtype,
             yarn_beta_slow=1,
             yarn_beta_fast=1,
