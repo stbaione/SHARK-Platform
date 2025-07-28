@@ -92,7 +92,7 @@ class BasePagedAttentionCacheAllocation(PageAllocation):
             )
             if new_pages is None:
                 msg = (
-                    f"FATAL: Failed to allocate {pages_needed - len(self._pages)} pages from `PagePool`.\n"
+                    f"FATAL CacheAllocationFailure: Failed to allocate {pages_needed - len(self._pages)} pages from `PagePool`.\n"
                     f"Required pages: {pages_needed}, Available pages: {len(self._cache.page_pool.available_pages)}, Total pages: {self._cache.page_pool.config.alloc_page_count}\n"
                     f"Consider re-exporting the model with a higher `--device-block-count` value."
                 )
@@ -175,7 +175,7 @@ class BasePagedAttentionCache:
 
         if pages is None:
             msg = (
-                f"FATAL: Failed to allocate {pages_needed} pages from `PagePool`.\n"
+                f"FATAL CacheAllocationFailure: Failed to allocate {pages_needed} pages from `PagePool`.\n"
                 f"Required pages: {pages_needed}, Available pages: {len(self.page_pool.available_pages)}, Total pages: {self.page_pool.config.alloc_page_count}\n"
                 f"Consider re-exporting the model with a higher `--device-block-count` value."
             )
