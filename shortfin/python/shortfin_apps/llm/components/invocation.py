@@ -22,12 +22,10 @@ class LlmDataHandler:
         exec_requests: List[LlmInferenceExecRequest],
         array_cache: DeviceArrayCache,
         seq_stride: int,
-        is_prefill: bool,
     ):
         self.exec_requests: List[LlmInferenceExecRequest] = exec_requests
         self._array_cache: DeviceArrayCache = array_cache
         self._seq_stride: int = seq_stride
-        self._is_prefill: bool = is_prefill
 
     async def get_args(
         self,
@@ -100,28 +98,6 @@ class LlmDataHandler:
             indices (Optional[sfnp.device_array]): The indices output from prefill, if any.
             req_count (int): The number of requests in the batch.
         """
-        is_prefill = self._is_prefill
-        for i in range(req_count):
-            req = self.exec_requests[i]
-            sl = len(req.input_token_ids) - 1 if is_prefill else 0
-
-            if logits.shape[1] == 1 and is_prefill:
-                logits_item = logits.view(i)
-            else:
-                logits_item = logits.view(i, sl)
-
-            index_item = None
-            if indices is not None:
-                if indices.shape[1] == 1 and is_prefill:
-                    index_item = indices.view(i)
-                else:
-                    index_item = indices.view(i, sl)
-
-            req.result_logits = logits_item
-            req.result_indices = index_item
-
-        for req in self.exec_requests:
-            req.done.set_success()
 
 
 class PrefillDataHandler(LlmDataHandler):
@@ -146,6 +122,12 @@ class PrefillDataHandler(LlmDataHandler):
         batch_size: int,
     ) -> Tuple[list[sfnp.device_array], int]:
         """Get the arguments for the prefill invocation.
+
+        The prefill args that are created are:
+            - tokens: [bs, bsl]
+            - seq_lens: [bs]
+            - seq_block_ids: [bs, blocks]
+            - cache_slabs: ...
 
         Args:
             page_tables (sfnp.device_array): Page tables in KVCache.
@@ -202,16 +184,45 @@ class PrefillDataHandler(LlmDataHandler):
             defaults=[0, 1, 0],
         )
 
-        # V1 args:
-        #  prefill:
-        #    tokens: [bs, bsl]
-        #    seq_lens: [bs]
-        #    seq_block_ids: [bs, blocks]
-        #    cache_slabs: ...
         for page_table in page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
         return args, req_count
+
+    async def get_result(
+        self,
+        logits: sfnp.device_array,
+        indices: Optional[sfnp.device_array],
+        req_count: int,
+    ):
+        """Get the results after a prefill invocation.
+
+        Args:
+            logits (sfnp.device_array): The logits output from prefill.
+            indices (Optional[sfnp.device_array]): The indices output from prefill, if any.
+            req_count (int): The number of requests in the batch.
+        """
+        for i in range(req_count):
+            req = self.exec_requests[i]
+            sl = len(req.input_token_ids) - 1
+
+            if logits.shape[1] == 1:
+                logits_item = logits.view(i)
+            else:
+                logits_item = logits.view(i, sl)
+
+            index_item = None
+            if indices is not None:
+                if indices.shape[1] == 1:
+                    index_item = indices.view(i)
+                else:
+                    index_item = indices.view(i, sl)
+
+            req.result_logits = logits_item
+            req.result_indices = index_item
+
+        for req in self.exec_requests:
+            req.done.set_success()
 
 
 class DecodeDataHandler(LlmDataHandler):
@@ -236,6 +247,13 @@ class DecodeDataHandler(LlmDataHandler):
         batch_size: int,
     ) -> Tuple[List[Union[Allocation, WrappedAllocation]], int]:
         """Get the arguments for the decode invocation.
+
+        The decode args that are created are:
+            - tokens: [bs, 1]
+            - seq_lens: [bs]
+            - start_positions: [bs]
+            - seq_block_ids: [bs, blocks]
+            - cache_slabs: ...
 
         Args:
             page_tables (sfnp.device_array): Page tables in KVCache.
@@ -296,17 +314,37 @@ class DecodeDataHandler(LlmDataHandler):
             defaults=[0, 1, 0, 0],
         )
 
-        # V1 args:
-        #  decode:
-        #    tokens: [bs, 1]
-        #    seq_lens: [bs]
-        #    start_positions: [bs]
-        #    seq_block_ids: [bs, blocks]
-        #    cache_slabs: ...
         for page_table in page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
         return args, req_count
+
+    async def get_result(
+        self,
+        logits: sfnp.device_array,
+        indices: Optional[sfnp.device_array],
+        req_count: int,
+    ):
+        """Get the results after a prefill invocation.
+
+        Args:
+            logits (sfnp.device_array): The logits output from prefill.
+            indices (Optional[sfnp.device_array]): The indices output from prefill, if any.
+            req_count (int): The number of requests in the batch.
+        """
+        for i in range(req_count):
+            req = self.exec_requests[i]
+            logits_item = logits.view(i, 0)
+
+            index_item = None
+            if indices is not None:
+                index_item = indices.view(i, 0)
+
+            req.result_logits = logits_item
+            req.result_indices = index_item
+
+        for req in self.exec_requests:
+            req.done.set_success()
 
 
 class LlmInvocationProcess(sf.Process):
