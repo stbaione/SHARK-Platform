@@ -18,8 +18,8 @@ from .config_struct import ModelParams
 from .device_array_cache import DeviceArrayCache
 from .invocation import (
     LlmInvocationProcess,
-    PrefillInvocationProcess,
-    DecodeInvocationProcess,
+    PrefillDataHandler,
+    DecodeDataHandler,
 )
 from .kvcache.base_attention_cache import (
     BasePagedAttentionCache,
@@ -221,14 +221,20 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         Returns:
             PrefillInvocationProcess: Process to handle execution of VMFB.
         """
-        return PrefillInvocationProcess(
-            exec_requests,
-            fiber,
-            self.array_cache,
-            self.functions,
-            self.page_seq_stride,
-            page_cache.page_pool.page_tables,
-            self.program_isolation,
+        data_handler = PrefillDataHandler(
+            exec_requests=exec_requests,
+            array_cache=self.array_cache,
+            seq_stride=self.page_seq_stride,
+        )
+        return LlmInvocationProcess(
+            name="prefill_invocation",
+            fiber=fiber,
+            array_cache=self.array_cache,
+            data_handler=data_handler,
+            functions=self.functions,
+            seq_stride=self.page_seq_stride,
+            page_tables=page_cache.page_pool.page_tables,
+            program_isolation=self.program_isolation,
         )
 
     def allocate_cache(
@@ -311,14 +317,20 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         Returns:
             DecodeInvocationProcess: Process to handle execution of VMFB for decode requests.
         """
-        return DecodeInvocationProcess(
-            exec_requests,
-            fiber,
-            self.array_cache,
-            self.functions,
-            self.page_seq_stride,
-            page_cache.page_pool.page_tables,
-            self.program_isolation,
+        data_handler = DecodeDataHandler(
+            exec_requests=exec_requests,
+            array_cache=self.array_cache,
+            seq_stride=self.page_seq_stride,
+        )
+        return LlmInvocationProcess(
+            name="decode_invocation",
+            fiber=fiber,
+            array_cache=self.array_cache,
+            data_handler=data_handler,
+            functions=self.functions,
+            seq_stride=self.page_seq_stride,
+            page_tables=page_cache.page_pool.page_tables,
+            program_isolation=self.program_isolation,
         )
 
     def allocate_cache(

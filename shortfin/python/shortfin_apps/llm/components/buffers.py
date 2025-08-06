@@ -1,0 +1,69 @@
+import logging
+
+from typing import List, Optional
+
+import shortfin.array as sfnp
+
+from .device_array_cache import Allocation
+
+
+logger = logging.getLogger(__name__)
+
+
+def create_argument_buffers(
+    buffers: List[Allocation],
+    data: List[int | float | List[int | float]],
+    defaults: List[Optional[int | float]],
+) -> List[Allocation]:
+    """Create argument buffers to submit to VMFB for prefill or decode.
+
+    `buffers`, `data`, and `defaults` are parallel lists.
+
+    Args:
+        buffers (List[Allocation]): Buffers to passed to VMFB.
+        data (List[int | float | List[int | float]]): Data to set buffer items to.
+        defaults (List[Optional[int  |  float]]): Defaults to fill the buffers with.
+
+    Returns:
+        List[sfnp.device_array]: A list of device arrays corresponding to the input buffers.
+    """
+    args = []
+    for index, buffer in enumerate(buffers):
+        buffer_data = data[index]
+        default = defaults[index]
+        with buffer.host.map(discard=True) as host_buffer:
+            if default is not None:
+                host_buffer.fill(default)
+            host_buffer.items = buffer_data
+
+        args.append(buffer)
+
+    [buffer.transfer_to_device() for buffer in buffers]
+    return args
+
+
+def copy_buffers_to_host(
+    buffers: List[Optional[sfnp.device_array]],
+) -> List[sfnp.device_array]:
+    """Copy device buffers to host buffers.
+
+    This function takes a list of device arrays and copies each one to a host buffer.
+    If a buffer is `None`, it appends `None` to the new buffers list.
+
+    Args:
+        buffers (List[Optional[sfnp.device_array]]): List of device arrays to copy to host.
+
+    Returns:
+        List[sfnp.device_array]: A list of host buffers corresponding to the input device buffers.
+    """
+    new_buffers = []
+    for buffer in buffers:
+        if buffer is None:
+            new_buffers.append(None)
+            continue
+
+        host_buffer = buffer.for_transfer()
+        host_buffer.copy_from(buffer)
+        new_buffers.append(host_buffer)
+
+    return new_buffers

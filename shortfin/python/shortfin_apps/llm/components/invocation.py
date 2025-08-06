@@ -6,6 +6,7 @@ import shortfin.array as sfnp
 
 from typing import List, Optional, Tuple, Union
 
+from .buffers import copy_buffers_to_host, create_argument_buffers
 from .device_array_cache import Allocation, DeviceArrayCache, WrappedAllocation
 from .messages import LlmInferenceExecRequest
 
@@ -68,21 +69,13 @@ class LlmDataHandler:
                 - The 1st element should be the `indices`, if any.
             device0 (sf.ScopedDevice): The device used for invocation.
         """
-        seq_stride = self._seq_stride
-
         indices = None
         logits = result[0]
         if len(result) > 1:
             indices = result[1]
 
-        # publish cache pages
-        for r in self.exec_requests:
-            total_tokens = r.start_position + len(r.input_token_ids)
-            number_of_complete_pages = total_tokens // seq_stride
-            r.publish_allocated_pages(number_of_complete_pages)
-
         logits, indices = await self.transfer_buffer(
-            req_count=req_count,
+            exec_requests=self.exec_requests,
             device0=device0,
             buffers=(logits, indices),
         )
@@ -129,7 +122,7 @@ class LlmDataHandler:
 
     async def transfer_buffer(
         self,
-        req_count: int,
+        exec_requests: List[LlmInferenceExecRequest],
         device0: sf.ScopedDevice,
         buffers: Tuple[sfnp.device_array, Optional[sfnp.device_array]],
     ) -> Tuple[sfnp.device_array, Optional[sfnp.device_array]]:
@@ -145,23 +138,12 @@ class LlmDataHandler:
         Returns:
             Tuple[sfnp.device_array, Optional[sfnp.device_array]]: A host-side copy of the given buffers.
         """
-        transfer = any(
-            [self.exec_requests[i].return_host_array for i in range(req_count)]
-        )
+        transfer = any([req.return_host_array for req in exec_requests])
 
         if not transfer:
             return buffers
 
-        new_buffers = []
-        for buffer in buffers:
-            if buffer is None:
-                new_buffers.append(None)
-                continue
-
-            host_buffer = buffer.for_transfer()
-            host_buffer.copy_from(buffer)
-            new_buffers.append(host_buffer)
-
+        new_buffers = copy_buffers_to_host(buffers)
         await device0
         return tuple(new_buffers)
 
@@ -199,6 +181,7 @@ class PrefillDataHandler(LlmDataHandler):
                 - The number of requests in the batch.
         """
         exec_requests = self.exec_requests
+        req_count = len(exec_requests)
         seq_stride = self._seq_stride
 
         for r in exec_requests:
@@ -222,28 +205,26 @@ class PrefillDataHandler(LlmDataHandler):
         seq_lens = array_cache.allocate([batch_size], int_dtype)
         seq_block_ids = array_cache.allocate([batch_size, block_count], int_dtype)
 
-        # Populate tokens.
-        for i in range(batch_size):
-            with tokens.host.view(i).map(discard=True) as m:
-                m.fill(0)
-                if i < req_count:
-                    m.items = exec_requests[i].input_token_ids
+        (token_vals, seq_lens_vals, seq_block_ids_vals) = [], [], []
+        for req in exec_requests:
+            # Populate tokens.
+            seq = req.input_token_ids
+            padded = seq + [0] * max(0, bsl - len(seq))
+            token_vals.extend(padded)
 
-        # Populate seq_lens
-        with seq_lens.host.map(discard=True) as m:
-            m.fill(1)
-            m.items = [len(req.input_token_ids) for req in exec_requests]
+            # Populate sequence lengths.
+            seq_lens_vals.append(len(req.input_token_ids))
 
-        # Populate cache pages.
-        for i in range(batch_size):
-            with seq_block_ids.host.view(i).map(discard=True) as m:
-                m.fill(0)
-                if i < req_count:
-                    m.items = exec_requests[i].cache_page_indices(block_count)
+            # Populate cache pages.
+            block_ids = req.cache_page_indices(block_count)
+            padded = block_ids + [0] * max(0, block_count - len(block_ids))
+            seq_block_ids_vals.extend(padded)
 
-        tokens.transfer_to_device()
-        seq_lens.transfer_to_device()
-        seq_block_ids.transfer_to_device()
+        args = create_argument_buffers(
+            buffers=[tokens, seq_lens, seq_block_ids],
+            data=[token_vals, seq_lens_vals, seq_block_ids_vals],
+            defaults=[0, 1, 0],
+        )
 
         # V1 args:
         #  prefill:
@@ -251,7 +232,6 @@ class PrefillDataHandler(LlmDataHandler):
         #    seq_lens: [bs]
         #    seq_block_ids: [bs, blocks]
         #    cache_slabs: ...
-        args = [tokens, seq_lens, seq_block_ids]
         for page_table in page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
@@ -312,43 +292,33 @@ class DecodeDataHandler(LlmDataHandler):
         seq_lens = array_cache.allocate([batch_size], int_dtype)
         seq_block_ids = array_cache.allocate([batch_size, block_count], int_dtype)
 
-        # Populate tokens.
-        with tokens.host.map(discard=True) as m:
-            m.fill(0)
-            vals = []
-            for i in range(batch_size):
-                if i < req_count:
-                    vals = vals + exec_requests[i].input_token_ids[-1:]
-            m.items = vals
+        # Populate data for args.
+        (token_data, seq_lens_data, start_positions_data, seq_block_ids_data,) = (
+            [],
+            [],
+            [],
+            [],
+        )
+        for req in exec_requests:
+            # Populate tokens.
+            token_data.extend(req.input_token_ids[-1:])
 
-        # For decode, populate start_positions and seq_lens.
-        with start_positions.host.map(discard=True) as m:
-            m.fill(0)
-            m.items = [req.start_position for req in exec_requests]
+            # Populate sequence lengths.
+            seq_lens_data.append(req.start_position + 1)
 
-        with seq_lens.host.map(discard=True) as m:
-            # Pad unused requests.
-            m.fill(
-                1  # Must pad with a nonzero value because a division by 0 during softmax floods clobber page (page 0) in cache with NaN values.
-            )
-            m.items = [req.start_position + 1 for req in exec_requests]
+            # Populate start positions.
+            start_positions_data.append(req.start_position)
 
-        # Populate cache pages.
-        with seq_block_ids.host.map(discard=True) as m:
-            m.fill(0)
-            block_ids = []
-            for i in range(batch_size):
-                if i < req_count:
-                    batch_ids = exec_requests[i].cache_page_indices(block_count)
-                    block_ids += batch_ids
-                    block_ids += [0] * (block_count - len(batch_ids))
-            m.items = block_ids
+            # Populate cache pages.
+            batch_ids = req.cache_page_indices(block_count)
+            seq_block_ids_data.extend(batch_ids)
+            seq_block_ids_data.extend([0] * (block_count - len(batch_ids)))
 
-        # Transfer to device memory:
-        tokens.transfer_to_device()
-        start_positions.transfer_to_device()
-        seq_lens.transfer_to_device()
-        seq_block_ids.transfer_to_device()
+        args = create_argument_buffers(
+            buffers=[tokens, seq_lens, start_positions, seq_block_ids],
+            data=[token_data, seq_lens_data, start_positions_data, seq_block_ids_data],
+            defaults=[0, 1, 0, 0],
+        )
 
         # V1 args:
         #  decode:
@@ -357,7 +327,6 @@ class DecodeDataHandler(LlmDataHandler):
         #    start_positions: [bs]
         #    seq_block_ids: [bs, blocks]
         #    cache_slabs: ...
-        args = [tokens, seq_lens, start_positions, seq_block_ids]
         for page_table in page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
@@ -426,63 +395,3 @@ class LlmInvocationProcess(sf.Process):
                 req.result_logits = None
                 req.free_cache_pages()
                 req.done.set_success()
-
-
-class PrefillInvocationProcess(LlmInvocationProcess):
-    """Executes the invocation of prefill for a batch of requests."""
-
-    def __init__(
-        self,
-        exec_requests: list[LlmInferenceExecRequest],
-        fiber: sf.Fiber,
-        array_cache: DeviceArrayCache,
-        functions: dict[int, sf.ProgramFunction],
-        seq_stride: int,
-        page_tables,
-        program_isolation: sf.ProgramIsolation,
-    ):
-        data_handler = PrefillDataHandler(
-            exec_requests=exec_requests,
-            array_cache=array_cache,
-            seq_stride=seq_stride,
-        )
-        super().__init__(
-            name="prefill_process",
-            fiber=fiber,
-            array_cache=array_cache,
-            data_handler=data_handler,
-            functions=functions,
-            seq_stride=seq_stride,
-            page_tables=page_tables,
-            program_isolation=program_isolation,
-        )
-
-
-class DecodeInvocationProcess(LlmInvocationProcess):
-    """Executes the invocation of decode for a batch of requests."""
-
-    def __init__(
-        self,
-        exec_requests: list[LlmInferenceExecRequest],
-        fiber: sf.Fiber,
-        array_cache: DeviceArrayCache,
-        functions: dict[int, sf.ProgramFunction],
-        seq_stride: int,
-        page_tables,
-        program_isolation: sf.ProgramIsolation,
-    ):
-        data_handler = DecodeDataHandler(
-            exec_requests=exec_requests,
-            array_cache=array_cache,
-            seq_stride=seq_stride,
-        )
-        super().__init__(
-            name="decode_process",
-            fiber=fiber,
-            array_cache=array_cache,
-            data_handler=data_handler,
-            functions=functions,
-            seq_stride=seq_stride,
-            page_tables=page_tables,
-            program_isolation=program_isolation,
-        )
