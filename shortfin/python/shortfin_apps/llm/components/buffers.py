@@ -1,7 +1,8 @@
 import logging
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
+import shortfin as sf
 import shortfin.array as sfnp
 
 from .device_array_cache import Allocation
@@ -42,8 +43,9 @@ def create_argument_buffers(
     return args
 
 
-def copy_buffers_to_host(
-    buffers: List[Optional[sfnp.device_array]],
+async def copy_buffers_to_host(
+    buffers: Tuple[Optional[sfnp.device_array]],
+    device: sf.ScopedDevice,
 ) -> List[sfnp.device_array]:
     """Copy device buffers to host buffers.
 
@@ -66,4 +68,5 @@ def copy_buffers_to_host(
         host_buffer.copy_from(buffer)
         new_buffers.append(host_buffer)
 
+    await device
     return new_buffers

@@ -74,11 +74,14 @@ class LlmDataHandler:
         if len(result) > 1:
             indices = result[1]
 
-        logits, indices = await self.transfer_buffer(
-            exec_requests=self.exec_requests,
-            device0=device0,
-            buffers=(logits, indices),
-        )
+        exec_requests = self.exec_requests
+        buffers = (logits, indices)
+        transfer = any([req.return_host_array for req in exec_requests])
+
+        if not transfer:
+            return buffers
+
+        logits, indices = await copy_buffers_to_host(buffers, device0)
 
         [arg.release() for arg in args]
 
@@ -119,33 +122,6 @@ class LlmDataHandler:
 
         for req in self.exec_requests:
             req.done.set_success()
-
-    async def transfer_buffer(
-        self,
-        exec_requests: List[LlmInferenceExecRequest],
-        device0: sf.ScopedDevice,
-        buffers: Tuple[sfnp.device_array, Optional[sfnp.device_array]],
-    ) -> Tuple[sfnp.device_array, Optional[sfnp.device_array]]:
-        """Transfer buffer data from device to host after invocation.
-
-        Args:
-            req_count (int): The number of requests in this batch.
-            device0 (sf.ScopedDevice): The device used for invocation.
-            buffers (Tuple[sfnp.device_array, Optional[sfnp.device_array]]): The buffers to be transferred.
-                - The 0th buffer should be the `logits`
-                - The 1st buffer should be the `indices`
-
-        Returns:
-            Tuple[sfnp.device_array, Optional[sfnp.device_array]]: A host-side copy of the given buffers.
-        """
-        transfer = any([req.return_host_array for req in exec_requests])
-
-        if not transfer:
-            return buffers
-
-        new_buffers = copy_buffers_to_host(buffers)
-        await device0
-        return tuple(new_buffers)
 
 
 class PrefillDataHandler(LlmDataHandler):
