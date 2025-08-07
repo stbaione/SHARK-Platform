@@ -209,16 +209,15 @@ class PrefillDataHandler(LlmDataHandler):
         req_count = len(exec_requests)
         logger.debug("Prefill bs=%d, bsl=%d", batch_size, bsl)
 
-        # Prepare inputs.
-        # TODO: Better support in shortfin for h2d. The best way to do it is
-        # device dependent.
         array_cache = self._array_cache
         int_dtype = sfnp.int64
 
+        # Acquire buffers for the arguments.
         tokens = array_cache.allocate([batch_size, bsl], int_dtype)
         seq_lens = array_cache.allocate([batch_size], int_dtype)
         seq_block_ids = array_cache.allocate([batch_size, block_count], int_dtype)
 
+        # Populate data for args.
         arg_data = self.get_args_data(
             exec_requests=exec_requests,
             batch_seq_len=bsl,
@@ -369,13 +368,10 @@ class DecodeDataHandler(LlmDataHandler):
         req_count = len(exec_requests)
         logger.debug("Decode bs=%d, bsl=%d", batch_size, bsl)
 
-        # Prepare inputs.
-        # TODO: Better support in shortfin for h2d. The best way to do it is
-        # device dependent.
-
         array_cache = self._array_cache
         int_dtype = sfnp.int64
 
+        # Acquire buffers for the arguments.
         tokens = array_cache.allocate([batch_size, 1], int_dtype)
         start_positions = array_cache.allocate([batch_size], int_dtype)
         seq_lens = array_cache.allocate([batch_size], int_dtype)
