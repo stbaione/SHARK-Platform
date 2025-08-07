@@ -27,6 +27,24 @@ class LlmDataHandler:
         self._array_cache: DeviceArrayCache = array_cache
         self._seq_stride: int = seq_stride
 
+    def get_args_data(
+        self,
+        exec_requests: List[LlmInferenceExecRequest],
+        *args,
+    ) -> Tuple[List[int | float] | List[List[int | float]]]:
+        """Get the invocation data for the given requests.
+
+        Prepare the data that will be used to create the argument_buffers
+        for the invocation.
+
+        Args:
+            exec_requests (List[LlmInferenceExecRequest]): List of execution requests.
+            *args: Additional arguments that may be needed for specific implementations.
+
+        Returns:
+            Tuple[List[int | float] | List[List[int | float]]]: A tuple containing argument data.
+        """
+
     async def get_args(
         self,
         page_tables: sfnp.device_array,
@@ -113,8 +131,46 @@ class PrefillDataHandler(LlmDataHandler):
             exec_requests=exec_requests,
             array_cache=array_cache,
             seq_stride=seq_stride,
-            is_prefill=True,
         )
+
+    def get_args_data(
+        self,
+        exec_requests: List[LlmInferenceExecRequest],
+        batch_seq_len: int,
+        block_count: int,
+    ) -> Tuple[List[int | float] | List[List[int | float]]]:
+        """Get the invocation data for the given requests.
+
+        Prepare the data that will be used to create the argument_buffers
+        for the invocation.
+
+        Args:
+            exec_requests (List[LlmInferenceExecRequest]): List of execution requests.
+            batch_seq_len (int): The maximum sequence length for the batch.
+            block_count (int): The number of blocks in the sequence.
+
+        Returns:
+            Tuple[List[int | float] | List[List[int | float]]]: A tuple containing:
+                - A list of token IDs for the invocation.
+                - A list of sequence lengths.
+                - A list of sequence block IDs.
+        """
+        (token_vals, seq_lens_vals, seq_block_ids_vals) = [], [], []
+        for req in exec_requests:
+            # Populate tokens.
+            seq = req.input_token_ids
+            padded = seq + [0] * max(0, batch_seq_len - len(seq))
+            token_vals.extend(padded)
+
+            # Populate sequence lengths.
+            seq_lens_vals.append(len(req.input_token_ids))
+
+            # Populate cache pages.
+            block_ids = req.cache_page_indices(block_count)
+            padded = block_ids + [0] * max(0, block_count - len(block_ids))
+            seq_block_ids_vals.extend(padded)
+
+        return token_vals, seq_lens_vals, seq_block_ids_vals
 
     async def get_args(
         self,
@@ -163,24 +219,15 @@ class PrefillDataHandler(LlmDataHandler):
         seq_lens = array_cache.allocate([batch_size], int_dtype)
         seq_block_ids = array_cache.allocate([batch_size, block_count], int_dtype)
 
-        (token_vals, seq_lens_vals, seq_block_ids_vals) = [], [], []
-        for req in exec_requests:
-            # Populate tokens.
-            seq = req.input_token_ids
-            padded = seq + [0] * max(0, bsl - len(seq))
-            token_vals.extend(padded)
-
-            # Populate sequence lengths.
-            seq_lens_vals.append(len(req.input_token_ids))
-
-            # Populate cache pages.
-            block_ids = req.cache_page_indices(block_count)
-            padded = block_ids + [0] * max(0, block_count - len(block_ids))
-            seq_block_ids_vals.extend(padded)
+        arg_data = self.get_args_data(
+            exec_requests=exec_requests,
+            batch_seq_len=bsl,
+            block_count=block_count,
+        )
 
         args = create_argument_buffers(
             buffers=[tokens, seq_lens, seq_block_ids],
-            data=[token_vals, seq_lens_vals, seq_block_ids_vals],
+            data=arg_data,
             defaults=[0, 1, 0],
         )
 
@@ -238,7 +285,55 @@ class DecodeDataHandler(LlmDataHandler):
             exec_requests=exec_requests,
             array_cache=array_cache,
             seq_stride=seq_stride,
-            is_prefill=False,
+        )
+
+    def get_args_data(
+        self,
+        exec_requests: List[LlmInferenceExecRequest],
+        block_count: int,
+    ) -> Tuple[List[int | float] | List[List[int | float]]]:
+        """Get the invocation data for the given requests.
+
+        Prepare the data that will be used to create the argument_buffers
+        for the invocation.
+
+        Args:
+            exec_requests (List[LlmInferenceExecRequest]): List of execution requests.
+            block_count (int): The number of blocks in the sequence.
+
+        Returns:
+            Tuple[List[int | float] | List[List[int | float]]]: A tuple containing:
+                - A list of token IDs for the invocation.
+                - A list of sequence lengths.
+                - A list of start positions.
+                - A list of sequence block IDs.
+        """
+        (token_data, seq_lens_data, start_positions_data, seq_block_ids_data,) = (
+            [],
+            [],
+            [],
+            [],
+        )
+        for req in exec_requests:
+            # Populate tokens.
+            token_data.extend(req.input_token_ids[-1:])
+
+            # Populate sequence lengths.
+            seq_lens_data.append(req.start_position + 1)
+
+            # Populate start positions.
+            start_positions_data.append(req.start_position)
+
+            # Populate cache pages.
+            batch_ids = req.cache_page_indices(block_count)
+            seq_block_ids_data.extend(batch_ids)
+            seq_block_ids_data.extend([0] * (block_count - len(batch_ids)))
+
+        return (
+            token_data,
+            seq_lens_data,
+            start_positions_data,
+            seq_block_ids_data,
         )
 
     async def get_args(
@@ -287,30 +382,14 @@ class DecodeDataHandler(LlmDataHandler):
         seq_block_ids = array_cache.allocate([batch_size, block_count], int_dtype)
 
         # Populate data for args.
-        (token_data, seq_lens_data, start_positions_data, seq_block_ids_data,) = (
-            [],
-            [],
-            [],
-            [],
+        args_data = self.get_args_data(
+            exec_requests=exec_requests,
+            block_count=block_count,
         )
-        for req in exec_requests:
-            # Populate tokens.
-            token_data.extend(req.input_token_ids[-1:])
-
-            # Populate sequence lengths.
-            seq_lens_data.append(req.start_position + 1)
-
-            # Populate start positions.
-            start_positions_data.append(req.start_position)
-
-            # Populate cache pages.
-            batch_ids = req.cache_page_indices(block_count)
-            seq_block_ids_data.extend(batch_ids)
-            seq_block_ids_data.extend([0] * (block_count - len(batch_ids)))
 
         args = create_argument_buffers(
             buffers=[tokens, seq_lens, start_positions, seq_block_ids],
-            data=[token_data, seq_lens_data, start_positions_data, seq_block_ids_data],
+            data=args_data,
             defaults=[0, 1, 0, 0],
         )
 
@@ -379,8 +458,7 @@ class LlmInvocationProcess(sf.Process):
             RuntimeError: No available entry point for given batch size.
         """
         try:
-            exec_requests = self.data_handler.exec_requests
-            req_bs = len(exec_requests)
+            req_bs = len(self.data_handler.exec_requests)
 
             # Select an entrypoint for the batch.
             entrypoints = self.functions
@@ -395,6 +473,7 @@ class LlmInvocationProcess(sf.Process):
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
             args_device = [arg.device for arg in args]
             result = await fn(*args_device, fiber=self.fiber)
+
             await self.data_handler.post_process_logits(
                 args,
                 req_count,

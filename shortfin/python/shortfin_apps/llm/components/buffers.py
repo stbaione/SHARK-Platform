@@ -1,6 +1,6 @@
 import logging
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import shortfin as sf
 import shortfin.array as sfnp
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def create_argument_buffers(
     buffers: List[Allocation],
-    data: List[int | float | List[int | float]],
+    data: Sequence[List[int | float] | List[List[int | float]]],
     defaults: List[Optional[int | float]],
 ) -> List[Allocation]:
     """Create argument buffers to submit to VMFB for prefill or decode.
@@ -22,7 +22,7 @@ def create_argument_buffers(
 
     Args:
         buffers (List[Allocation]): Buffers to passed to VMFB.
-        data (List[int | float | List[int | float]]): Data to set buffer items to.
+        data (Sequence[List[int | float] | List[List[int | float]]]): Data to fill the buffers with.
         defaults (List[Optional[int  |  float]]): Defaults to fill the buffers with.
 
     Returns:
