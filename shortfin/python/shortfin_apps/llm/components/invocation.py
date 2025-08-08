@@ -14,7 +14,7 @@ from .messages import LlmInferenceExecRequest
 logger = logging.getLogger(__name__)
 
 
-class LlmDataHandler:
+class LlmTask:
     """Handles the transfer and preparation of data for VMFB invocation."""
 
     def __init__(
@@ -65,7 +65,7 @@ class LlmDataHandler:
             NotImplementedError: This method must be implemented in subclasses.
         """
         raise NotImplementedError(
-            "get_args must be implemented in subclasses of LlmDataHandler"
+            "get_args must be implemented in subclasses of LlmTask"
         )
 
     async def post_process_logits(
@@ -118,7 +118,7 @@ class LlmDataHandler:
         """
 
 
-class PrefillDataHandler(LlmDataHandler):
+class PrefillTask(LlmTask):
     """Handles the transfer and preparation of data for VMFB invocation."""
 
     def __init__(
@@ -138,7 +138,7 @@ class PrefillDataHandler(LlmDataHandler):
         exec_requests: List[LlmInferenceExecRequest],
         batch_seq_len: int,
         block_count: int,
-    ) -> Tuple[List[int | float] | List[List[int | float]]]:
+    ) -> Tuple[List[int | float]]:
         """Get the invocation data for the given requests.
 
         Prepare the data that will be used to create the argument_buffers
@@ -150,23 +150,26 @@ class PrefillDataHandler(LlmDataHandler):
             block_count (int): The number of blocks in the sequence.
 
         Returns:
-            Tuple[List[int | float] | List[List[int | float]]]: A tuple containing:
+            Tuple[List[int | float]: A tuple containing:
                 - A list of token IDs for the invocation.
                 - A list of sequence lengths.
                 - A list of sequence block IDs.
         """
-        (token_vals, seq_lens_vals, seq_block_ids_vals) = [], [], []
+        token_vals = [
+            input_tokens
+            for req in exec_requests
+            for input_tokens in (
+                req.input_token_ids
+                + [0] * max(0, batch_seq_len - len(req.input_token_ids))
+            )
+        ]
+
+        seq_lens_vals = [len(req.input_token_ids) for req in exec_requests]
+
+        seq_block_ids_vals = []
         for req in exec_requests:
-            # Populate tokens.
-            seq = req.input_token_ids
-            padded = seq + [0] * max(0, batch_seq_len - len(seq))
-            token_vals.extend(padded)
-
-            # Populate sequence lengths.
-            seq_lens_vals.append(len(req.input_token_ids))
-
-            # Populate cache pages.
             block_ids = req.cache_page_indices(block_count)
+            # Pad the block IDs to match the block count.
             padded = block_ids + [0] * max(0, block_count - len(block_ids))
             seq_block_ids_vals.extend(padded)
 
@@ -271,7 +274,7 @@ class PrefillDataHandler(LlmDataHandler):
             req.done.set_success()
 
 
-class DecodeDataHandler(LlmDataHandler):
+class DecodeTask(LlmTask):
     """Handles the transfer and preparation of data for VMFB invocation."""
 
     def __init__(
@@ -307,26 +310,20 @@ class DecodeDataHandler(LlmDataHandler):
                 - A list of start positions.
                 - A list of sequence block IDs.
         """
-        (token_data, seq_lens_data, start_positions_data, seq_block_ids_data,) = (
-            [],
-            [],
-            [],
-            [],
-        )
+        token_data = [
+            input_tokens
+            for req in exec_requests
+            for input_tokens in (req.input_token_ids[-1:])
+        ]
+        seq_lens_data = [req.start_position + 1 for req in exec_requests]
+        start_positions_data = [req.start_position for req in exec_requests]
+
+        seq_block_ids_data = []
         for req in exec_requests:
-            # Populate tokens.
-            token_data.extend(req.input_token_ids[-1:])
-
-            # Populate sequence lengths.
-            seq_lens_data.append(req.start_position + 1)
-
-            # Populate start positions.
-            start_positions_data.append(req.start_position)
-
-            # Populate cache pages.
-            batch_ids = req.cache_page_indices(block_count)
-            seq_block_ids_data.extend(batch_ids)
-            seq_block_ids_data.extend([0] * (block_count - len(batch_ids)))
+            block_ids = req.cache_page_indices(block_count)
+            # Pad the block IDs to match the block count.
+            padded = block_ids + [0] * max(0, block_count - len(block_ids))
+            seq_block_ids_data.extend(padded)
 
         return (
             token_data,
@@ -422,7 +419,7 @@ class DecodeDataHandler(LlmDataHandler):
             req.done.set_success()
 
 
-class LlmInvocationProcess(sf.Process):
+class LlmInvoker(sf.Process):
     """Executes the invocation of LLM for a batch of requests."""
 
     def __init__(
@@ -430,7 +427,7 @@ class LlmInvocationProcess(sf.Process):
         name: str,
         fiber: sf.Fiber,
         array_cache: DeviceArrayCache,
-        data_handler: LlmDataHandler,
+        llm_task: LlmTask,
         functions: dict[int, sf.ProgramFunction],
         seq_stride: int,
         page_tables,
@@ -445,7 +442,7 @@ class LlmInvocationProcess(sf.Process):
 
         self.device0 = fiber.device(0)
         self.array_cache = array_cache
-        self.data_handler = data_handler
+        self.llm_task = llm_task
 
     async def run(self):
         """Invoke `prefill` or `decode` function, with IREE, on a batch of requests.
@@ -454,7 +451,7 @@ class LlmInvocationProcess(sf.Process):
             RuntimeError: No available entry point for given batch size.
         """
         try:
-            req_bs = len(self.data_handler.exec_requests)
+            req_bs = len(self.llm_task.exec_requests)
 
             # Select an entrypoint for the batch.
             entrypoints = self.functions
@@ -464,13 +461,13 @@ class LlmInvocationProcess(sf.Process):
             else:
                 raise RuntimeError(f"No available entry point for bs {req_bs}")
 
-            args, req_count = await self.data_handler.get_args(self.page_tables, bs)
+            args, req_count = await self.llm_task.get_args(self.page_tables, bs)
 
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
             args_device = [arg.device for arg in args]
             result = await fn(*args_device, fiber=self.fiber)
 
-            await self.data_handler.post_process_logits(
+            await self.llm_task.post_process_logits(
                 args,
                 req_count,
                 result,
@@ -480,7 +477,7 @@ class LlmInvocationProcess(sf.Process):
         except Exception:
             logger.exception("Fatal error in prefetch invocation")
             # TODO: Cancel and set error correctly
-            for req in self.data_handler.exec_requests:
+            for req in self.llm_task.exec_requests:
                 req.result_logits = None
                 req.free_cache_pages()
                 req.done.set_success()

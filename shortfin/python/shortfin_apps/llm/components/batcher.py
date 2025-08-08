@@ -17,9 +17,9 @@ from shortfin import Fiber
 from .config_struct import ModelParams
 from .device_array_cache import DeviceArrayCache
 from .invocation import (
-    LlmInvocationProcess,
-    PrefillDataHandler,
-    DecodeDataHandler,
+    LlmInvoker,
+    PrefillTask,
+    DecodeTask,
 )
 from .kvcache.base_attention_cache import (
     BasePagedAttentionCache,
@@ -120,13 +120,13 @@ class LlmBatcherProcess(BatcherProcess):
         pending = set(pending) - set(scheduled)
         self.pending = self.pending | pending
 
-    def make_process(
+    def make_invoker(
         self,
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
-    ) -> "LlmInvocationProcess":
-        """Create instance of `LlmInvocationProcess`.
+    ) -> "LlmInvoker":
+        """Create instance of `LlmInvoker`.
 
         Args:
             page_cache (BasePagedAttentionCache): KVCache instance.
@@ -134,7 +134,7 @@ class LlmBatcherProcess(BatcherProcess):
             exec_requests (list[LlmInferenceExecRequest]): Request batch for invocation.
 
         Returns:
-            LlmInvocationProcess: Process to handle execution of VMFB.
+            LlmInvoker: Process to handle execution of VMFB.
         """
         ...
 
@@ -170,7 +170,7 @@ class LlmBatcherProcess(BatcherProcess):
             if request is not None:
                 exec_requests.append(request)
 
-        exec_process = self.make_process(page_cache, fiber, exec_requests)
+        exec_process = self.make_invoker(page_cache, fiber, exec_requests)
 
         # We've filled our flight. Remove from the boarding area.
         if exec_requests:
@@ -205,13 +205,13 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             program_isolation=program_isolation,
         )
 
-    def make_process(
+    def make_invoker(
         self,
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
-    ) -> "PrefillInvocationProcess":
-        """Create instance of `PrefillInvocationProcess`.
+    ) -> "LlmInvoker":
+        """Create instance of `LlmInvoker`.
 
         Args:
             page_cache (BasePagedAttentionCache): KVCache instance.
@@ -219,18 +219,18 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             exec_requests (list[LlmInferenceExecRequest]): Request batch for invocation.
 
         Returns:
-            PrefillInvocationProcess: Process to handle execution of VMFB.
+            LlmInvoker: Process to handle execution of VMFB.
         """
-        data_handler = PrefillDataHandler(
+        llm_task = PrefillTask(
             exec_requests=exec_requests,
             array_cache=self.array_cache,
             seq_stride=self.page_seq_stride,
         )
-        return LlmInvocationProcess(
+        return LlmInvoker(
             name="prefill_invocation",
             fiber=fiber,
             array_cache=self.array_cache,
-            data_handler=data_handler,
+            llm_task=llm_task,
             functions=self.functions,
             seq_stride=self.page_seq_stride,
             page_tables=page_cache.page_pool.page_tables,
@@ -298,15 +298,15 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             program_isolation=program_isolation,
         )
 
-    def make_process(
+    def make_invoker(
         self,
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
-    ) -> "DecodeInvocationProcess":
-        """Create instance of `DecodeInvocationProcess`.
+    ) -> "LlmInvoker":
+        """Create instance of `LlmInvoker`.
 
-        This method creates an instance of `DecodeInvocationProcess` to handle the
+        This method creates an instance of `LlmInvoker` to handle the
         execution of the decode function for a batch of requests.
 
         Args:
@@ -315,18 +315,18 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             exec_requests (list[LlmInferenceExecRequest]): Request batch for invocation.
 
         Returns:
-            DecodeInvocationProcess: Process to handle execution of VMFB for decode requests.
+            LlmInvoker: Process to handle execution of VMFB for decode requests.
         """
-        data_handler = DecodeDataHandler(
+        llm_task = DecodeTask(
             exec_requests=exec_requests,
             array_cache=self.array_cache,
             seq_stride=self.page_seq_stride,
         )
-        return LlmInvocationProcess(
+        return LlmInvoker(
             name="decode_invocation",
             fiber=fiber,
             array_cache=self.array_cache,
-            data_handler=data_handler,
+            llm_task=llm_task,
             functions=self.functions,
             seq_stride=self.page_seq_stride,
             page_tables=page_cache.page_pool.page_tables,
