@@ -118,6 +118,14 @@ class LlmTask:
         """
 
 
+def _pad_list(
+    data: List[int | float],
+    target_length: int,
+) -> List[int | float]:
+    """Pad a list to a target length with a specified value."""
+    return data + [0] * max(0, target_length - len(data))
+
+
 class PrefillTask(LlmTask):
     """Handles the transfer and preparation of data for VMFB invocation."""
 
@@ -158,10 +166,7 @@ class PrefillTask(LlmTask):
         token_vals = [
             input_tokens
             for req in exec_requests
-            for input_tokens in (
-                req.input_token_ids
-                + [0] * max(0, batch_seq_len - len(req.input_token_ids))
-            )
+            for input_tokens in (_pad_list(req.input_token_ids, batch_seq_len))
         ]
 
         seq_lens_vals = [len(req.input_token_ids) for req in exec_requests]
@@ -170,8 +175,12 @@ class PrefillTask(LlmTask):
         for req in exec_requests:
             block_ids = req.cache_page_indices(block_count)
             # Pad the block IDs to match the block count.
-            padded = block_ids + [0] * max(0, block_count - len(block_ids))
-            seq_block_ids_vals.extend(padded)
+            block_ids = _pad_list(
+                block_ids,
+                target_length=block_count,
+            )
+            # Extend the sequence block IDs data with padded values.
+            seq_block_ids_vals.extend(block_ids)
 
         return token_vals, seq_lens_vals, seq_block_ids_vals
 
@@ -322,7 +331,11 @@ class DecodeTask(LlmTask):
         for req in exec_requests:
             block_ids = req.cache_page_indices(block_count)
             # Pad the block IDs to match the block count.
-            padded = block_ids + [0] * max(0, block_count - len(block_ids))
+            padded = _pad_list(
+                block_ids,
+                target_length=block_count,
+            )
+            # Extend the sequence block IDs data with padded values.
             seq_block_ids_data.extend(padded)
 
         return (
