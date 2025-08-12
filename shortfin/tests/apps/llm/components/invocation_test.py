@@ -1,10 +1,11 @@
 import asyncio
-from random import randint
+import logging
 import pytest
 
 import shortfin as sf
 import shortfin.array as sfnp
 
+from random import randint
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -29,6 +30,9 @@ from shortfin_apps.llm.components.messages import (
 from shortfin_apps.llm.components.kvcache.page_pool import (
     PageInfo,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class MockVoidFuture:
@@ -318,6 +322,7 @@ class TestPrefillTask:
                 req_count=len(prefill_task.exec_requests),
             )
 
+            await device0
             for req in prefill_task.exec_requests:
                 seq_len = len(req.input_token_ids) - 1
                 results = req.result_logits.items.tolist()
