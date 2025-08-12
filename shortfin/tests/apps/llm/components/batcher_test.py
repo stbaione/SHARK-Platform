@@ -150,8 +150,8 @@ class TestLlmBatcherProcess:
         mock_executor.launch = MagicMock()
         mock_executor_cls.return_value = mock_executor
 
-        llm_batcher_process.make_process = MagicMock(return_value=mock_executor)
-        llm_batcher_process.board_request = MagicMock(side_effect=lambda _, x: x)
+        llm_batcher_process.make_invoker = MagicMock(return_value=mock_executor)
+        llm_batcher_process.allocate_cache = MagicMock(side_effect=lambda _, x: x)
 
         llm_batcher_process.board(
             llm_batcher_process.array_cache,
@@ -159,5 +159,5 @@ class TestLlmBatcherProcess:
             to_schedule,
         )
 
-        assert llm_batcher_process.board_request.call_count == len(to_schedule)
+        assert llm_batcher_process.allocate_cache.call_count == len(to_schedule)
         assert mock_executor.launch.call_count == 1
