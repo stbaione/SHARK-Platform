@@ -138,19 +138,29 @@ def result_logits_none_indices(prefill_task, fiber):
         fiber.device(0), [batch_size, seq_len, vocab_size], dtype=sfnp.float16
     )
 
-    with logits.map(discard=True) as m:
-        m.fill(0)
+    # Prepare one flat buffer, zero-initialized
+    total = batch_size * seq_len * vocab_size
+    flat = [0] * total
 
-    # Fill the logits with a recognizable pattern for testing
+    # Helper: flatten (i, t, v) -> offset
+    def offset(i, t, v):
+        return ((i * seq_len) + t) * vocab_size + v
+
+    # Fill recognizable pattern: for each batch i, at timestep sl,
+    # set logits[i, sl, 0:sl] = [0, 1, ..., sl-1]
     for i, req in enumerate(prefill_task.exec_requests):
         sl = len(req.input_token_ids) - 1
-        with logits.view(i, sl).map(discard=True) as m:
-            m.items = [_ for _ in range(sl)]
+        if sl <= 0:
+            continue
+        upto = min(sl, vocab_size)
+        for v in range(upto):
+            flat[offset(i, sl, v)] = v
 
-    return (
-        logits,
-        None,  # indices
-    )
+    # Single map/write
+    with logits.map(discard=True) as m:
+        m.items = flat  # one bulk write
+
+    return logits, None  # indices
 
 
 @pytest.fixture(scope="function")
@@ -164,18 +174,26 @@ def result_logits_none_indices_decode(decode_task, fiber):
         fiber.device(0), [batch_size, seq_len, vocab_size], dtype=sfnp.float16
     )
 
+    # Flat zero-initialized buffer for the whole tensor
+    total = batch_size * seq_len * vocab_size
+    flat = [0] * total
+
+    # Helper to compute flat index for (batch i, timestep t, vocab v)
+    def offset(i, t, v):
+        return ((i * seq_len) + t) * vocab_size + v
+
+    # Fill recognizable pattern at t=0 for every batch:
+    # logits[i, 0, :] = [0, 1, 2, ..., vocab_size-1]
+    if seq_len > 0:
+        for i in range(batch_size):
+            for v in range(vocab_size):
+                flat[offset(i, 0, v)] = v
+
+    # Single map/write
     with logits.map(discard=True) as m:
-        m.fill(0)
+        m.items = flat
 
-    # Fill the logits with a recognizable pattern for testing
-    for i in range(batch_size):
-        with logits.view(i, 0).map(discard=True) as m:
-            m.items = [_ for _ in range(vocab_size)]
-
-    return (
-        logits,
-        None,  # indices
-    )
+    return logits, None  # indices
 
 
 @pytest.fixture(scope="function")
@@ -189,19 +207,30 @@ def result_logits_w_indices(prefill_task, fiber):
     logits = sfnp.device_array(device0, [batch_size, seq_len, k], dtype=sfnp.float16)
     indices = sfnp.device_array(device0, [batch_size, seq_len, k], dtype=sfnp.int32)
 
-    # For each request i, set the slice at sl = len(tokens)-1 to a recognizable vector
+    # Flat zero-filled buffers
+    logits_flat = [0] * (batch_size * seq_len * k)
+    indices_flat = [0] * (batch_size * seq_len * k)
+
+    # Helper to get flat index
+    def offset(i, t, v):
+        return ((i * seq_len) + t) * k + v
+
+    # Populate pattern
     for i, req in enumerate(prefill_task.exec_requests):
         sl = len(req.input_token_ids) - 1
-        with logits.view(i, sl).map(discard=True) as m:
-            # recognizable pattern per request
-            m.items = [i, i + 1, i + 2, i + 3]
-        with indices.view(i, sl).map(discard=True) as m:
-            m.items = [10 + i, 11 + i, 12 + i, 13 + i]
+        for v in range(k):
+            logits_flat[offset(i, sl, v)] = i + v
+            indices_flat[offset(i, sl, v)] = 10 + i + v
 
-    return (
-        logits,
-        indices,
-    )
+    # Single map for logits
+    with logits.map(discard=True) as m:
+        m.items = logits_flat
+
+    # Single map for indices
+    with indices.map(discard=True) as m:
+        m.items = indices_flat
+
+    return logits, indices
 
 
 @pytest.fixture(scope="function")
@@ -215,24 +244,30 @@ def result_logits_w_indices_decode(prefill_task, fiber):
     logits = sfnp.device_array(device0, [batch_size, seq_len, k], dtype=sfnp.float16)
     indices = sfnp.device_array(device0, [batch_size, seq_len, k], dtype=sfnp.int32)
 
+    # Zero-initialized flat buffers
+    logits_flat = [0] * (batch_size * seq_len * k)
+    indices_flat = [0] * (batch_size * seq_len * k)
+
+    # Helper to compute flat index
+    def offset(i, t, v):
+        return ((i * seq_len) + t) * k + v
+
+    # Fill pattern at t = 0 for each batch
+    if seq_len > 0:
+        for i in range(batch_size):
+            for v in range(k):
+                logits_flat[offset(i, 0, v)] = i + v
+                indices_flat[offset(i, 0, v)] = 10 + i + v
+
+    # Single map for logits
     with logits.map(discard=True) as m:
-        m.fill(0)
+        m.items = logits_flat
 
+    # Single map for indices
     with indices.map(discard=True) as m:
-        m.fill(0)
+        m.items = indices_flat
 
-    # For each request i, set the slice at sl = len(tokens)-1 to a recognizable vector
-    for i in range(len(prefill_task.exec_requests)):
-        with logits.view(i, 0).map(discard=True) as m:
-            # recognizable pattern per request
-            m.items = [i, i + 1, i + 2, i + 3]
-        with indices.view(i, 0).map(discard=True) as m:
-            m.items = [10 + i, 11 + i, 12 + i, 13 + i]
-
-    return (
-        logits,
-        indices,
-    )
+    return logits, indices
 
 
 @pytest.fixture(scope="function")
