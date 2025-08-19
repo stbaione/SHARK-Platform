@@ -19,6 +19,7 @@ from shortfin_apps.llm.components.kvcache.base_attention_cache import (
 from shortfin_apps.llm.components.config_struct import ModelParams, PagedKVCacheParams
 from shortfin_apps.llm.components.invocation import (
     LlmInvoker,
+    LlmTaskInput,
     PrefillTask,
     DecodeTask,
     _pad_list,
@@ -105,12 +106,22 @@ def staggered_exec_req_list(cache_ref_count, page_pool):
 
 
 @pytest.fixture(scope="function")
-def prefill_task(staggered_exec_req_list, device_array_cache) -> PrefillTask:
+def task_inputs(staggered_exec_req_list, device_array_cache, page_pool) -> LlmTaskInput:
+    page_tables = page_pool.acquire_free_pages(len(staggered_exec_req_list))
+    return LlmTaskInput(
+        array_cache=device_array_cache,
+        input_tokens=[req.input_token_ids for req in staggered_exec_req_list],
+        pages=[req.allocation.pages for req in staggered_exec_req_list],
+        seq_stride=2,
+        page_tables=page_tables,
+    )
+
+
+@pytest.fixture(scope="function")
+def prefill_task(task_inputs) -> PrefillTask:
     """Fixture to create an instance of LlmTask."""
     return PrefillTask(
-        exec_requests=staggered_exec_req_list,
-        array_cache=device_array_cache,
-        seq_stride=2,
+        task_inputs=task_inputs,
     )
 
 
@@ -131,32 +142,28 @@ def decode_task(staggered_exec_req_list, device_array_cache) -> DecodeTask:
 def result_logits_none_indices(prefill_task, fiber):
     """Fixture to create a result logits device array."""
     vocab_size = 16
-    batch_size = len(prefill_task.exec_requests)
-    seq_len = max(len(req.input_token_ids) for req in prefill_task.exec_requests)
+    task_inputs = prefill_task.task_inputs
+    batch_size = len(task_inputs.input_tokens)
+    seq_len = max(len(tokens) for tokens in task_inputs.input_tokens)
 
     logits = sfnp.device_array(
         fiber.device(0), [batch_size, seq_len, vocab_size], dtype=sfnp.float16
     )
 
-    # Prepare one flat buffer, zero-initialized
     total = batch_size * seq_len * vocab_size
     flat = [0] * total
 
-    # Helper: flatten (i, t, v) -> offset
     def offset(i, t, v):
         return ((i * seq_len) + t) * vocab_size + v
 
-    # Fill recognizable pattern: for each batch i, at timestep sl,
-    # set logits[i, sl, 0:sl] = [0, 1, ..., sl-1]
-    for i, req in enumerate(prefill_task.exec_requests):
-        sl = len(req.input_token_ids) - 1
+    for i, tokens in enumerate(prefill_task.task_inputs.input_tokens):
+        sl = len(tokens) - 1
         if sl <= 0:
             continue
         upto = min(sl, vocab_size)
         for v in range(upto):
             flat[offset(i, sl, v)] = v
 
-    # Single map/write
     with logits.map(discard=True) as m:
         m.items = flat  # one bulk write
 
@@ -199,8 +206,9 @@ def result_logits_none_indices_decode(decode_task, fiber):
 @pytest.fixture(scope="function")
 def result_logits_w_indices(prefill_task, fiber):
     """Fixture to create a result logits device array with indices."""
-    batch_size = len(prefill_task.exec_requests)
-    seq_len = max(len(req.input_token_ids) for req in prefill_task.exec_requests)
+    task_inputs = prefill_task.task_inputs
+    batch_size = len(task_inputs.input_tokens)
+    seq_len = max(len(tokens) for tokens in task_inputs.input_tokens)
     k = 4
     device0 = fiber.device(0)
 
@@ -216,8 +224,8 @@ def result_logits_w_indices(prefill_task, fiber):
         return ((i * seq_len) + t) * k + v
 
     # Populate pattern
-    for i, req in enumerate(prefill_task.exec_requests):
-        sl = len(req.input_token_ids) - 1
+    for i, tokens in enumerate(task_inputs.input_tokens):
+        sl = len(tokens) - 1
         for v in range(k):
             logits_flat[offset(i, sl, v)] = i + v
             indices_flat[offset(i, sl, v)] = 10 + i + v
@@ -289,57 +297,46 @@ def llm_invoker(prefill_task: PrefillTask, fiber, device_array_cache, page_pool)
 
 class TestPrefillTask:
     def test_get_args_data(self, prefill_task):
-        block_count = max(
-            len(req.allocation.pages) for req in prefill_task.exec_requests
-        )
-        batch_seq_len = max(
-            len(req.input_token_ids) for req in prefill_task.exec_requests
-        )
+        task_inputs = prefill_task.task_inputs
+        block_count = max(len(pages) for pages in task_inputs.pages)
 
         (token_vals, seq_len_vals, seq_block_ids_vals,) = prefill_task.get_args_data(
-            exec_requests=prefill_task.exec_requests,
-            batch_seq_len=batch_seq_len,
             block_count=block_count,
         )
 
-        max_token_len = max(
-            len(req.input_token_ids) for req in prefill_task.exec_requests
-        )
-        for i, req in enumerate(prefill_task.exec_requests):
+        max_token_len = max(len(tokens) for tokens in task_inputs.input_tokens)
+        for i, input_tokens in enumerate(task_inputs.input_tokens):
             offset = i * max_token_len
             results = token_vals[offset : offset + max_token_len]
-            expected = req.input_token_ids + [0] * (
-                max_token_len - len(req.input_token_ids)
-            )
+            expected = input_tokens + [0] * (max_token_len - len(input_tokens))
             assert results == expected
 
         assert seq_len_vals == [
-            len(req.input_token_ids) for req in prefill_task.exec_requests
+            len(input_tokens) for input_tokens in task_inputs.input_tokens
         ]
 
-        for i, req in enumerate(prefill_task.exec_requests):
+        for i, pages in enumerate(task_inputs.pages):
             offset = i * block_count
             results = seq_block_ids_vals[offset : offset + block_count]
 
             # mirror get_args_data logic
-            block_ids = req.cache_page_indices(block_count)
+            block_ids = [page.index for page in pages]
             expected = block_ids + [0] * (block_count - len(block_ids))
 
             assert results == expected
 
     def test_get_args(self, lsys, prefill_task: PrefillTask, page_pool):
         async def _test():
-            batch_size = len(prefill_task.exec_requests)
-            page_tables = page_pool.acquire_free_pages(batch_size)
+            task_inputs = prefill_task.task_inputs
+            batch_size = len(task_inputs.input_tokens)
 
             (args, req_count) = await prefill_task.get_args(
-                page_tables=page_tables,
                 batch_size=batch_size,
             )
 
             assert all(isinstance(arg, Allocation) for arg in args[:3])
             assert isinstance(args[-1], WrappedAllocation)
-            assert req_count == len(prefill_task.exec_requests)
+            assert req_count == len(task_inputs.input_tokens)
 
         lsys.run(_test())
 
@@ -351,16 +348,18 @@ class TestPrefillTask:
             logits, indices = result_logits_none_indices
             await device0
 
-            await prefill_task.get_result(
+            task_inputs = prefill_task.task_inputs
+            logits, indices = await prefill_task.get_result(
                 logits=logits,
                 indices=indices,
-                req_count=len(prefill_task.exec_requests),
+                req_count=len(task_inputs.input_tokens),
             )
 
             await device0
-            for req in prefill_task.exec_requests:
-                seq_len = len(req.input_token_ids) - 1
-                results = req.result_logits.items.tolist()
+            for i, tokens in enumerate(task_inputs.input_tokens):
+                result_logits = logits[i]
+                seq_len = len(tokens) - 1
+                results = result_logits.items.tolist()
 
                 assert results == [_ for _ in range(seq_len)] + [0] * (16 - seq_len)
 
@@ -371,10 +370,10 @@ class TestPrefillTask:
     ):
         async def _test():
             device0 = fiber.device(0)
-            batch_size = len(prefill_task.exec_requests)
+            batch_size = len(prefill_task.task_inputs.input_tokens)
 
             logits, indices = result_logits_w_indices
-            await prefill_task.get_result(
+            result_logits, result_indices = await prefill_task.get_result(
                 logits=logits,
                 indices=indices,
                 req_count=batch_size,
@@ -382,9 +381,9 @@ class TestPrefillTask:
             await device0
 
             # Verify get_result picked the exact [i, sl, :] vectors
-            for i, req in enumerate(prefill_task.exec_requests):
-                assert req.result_logits.items.tolist() == [i, i + 1, i + 2, i + 3]
-                assert req.result_indices.items.tolist() == [
+            for i in range(len(prefill_task.task_inputs.input_tokens)):
+                assert result_logits[i].items.tolist() == [i, i + 1, i + 2, i + 3]
+                assert result_indices[i].items.tolist() == [
                     10 + i,
                     11 + i,
                     12 + i,
@@ -402,19 +401,17 @@ class TestPrefillTask:
         result_logits_none_indices,
     ):
         async def _test():
-            batch_size = len(prefill_task.exec_requests)
+            batch_size = len(prefill_task.task_inputs.input_tokens)
             device0 = fiber.device(0)
-            page_tables = page_pool.acquire_free_pages(batch_size)
             await device0
 
             args, _ = await prefill_task.get_args(
-                page_tables=page_tables,
                 batch_size=batch_size,
             )
 
             logits, _ = result_logits_none_indices
             vocab_size = logits.shape[-1]
-            await prefill_task.post_process_logits(
+            result_logits, _ = await prefill_task.post_process_logits(
                 args=args,
                 req_count=batch_size,
                 result=(logits,),
@@ -422,13 +419,13 @@ class TestPrefillTask:
             )
 
             # Verify that the logits were processed correctly
-            for req in prefill_task.exec_requests:
-                sl = len(req.input_token_ids) - 1
+            for i, tokens in enumerate(prefill_task.task_inputs.input_tokens):
+                sl = len(tokens) - 1
                 expected = _pad_list(
                     [i for i in range(sl)],
                     vocab_size,
                 )
-                result = req.result_logits.items.tolist()
+                result = result_logits[i].items.tolist()
                 assert result == expected
 
         lsys.run(_test())

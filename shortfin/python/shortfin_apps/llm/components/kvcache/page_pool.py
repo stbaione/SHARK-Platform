@@ -79,7 +79,7 @@ class PagePool:
         self._lock = threading.Lock()
         self.devices = list(devices)
         self.config = config
-        self.page_tables: list[sf.array.device_array] = []
+        self.page_tables: list[sfnp.device_array] = []
 
         # Setup accounting structs.
         self.attn_page_entries = [

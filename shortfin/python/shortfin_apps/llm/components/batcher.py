@@ -7,6 +7,7 @@
 import logging
 import math
 from typing import List, Optional, Tuple, Union
+from uuid import uuid4
 
 
 import shortfin as sf
@@ -18,6 +19,7 @@ from .config_struct import ModelParams
 from .device_array_cache import DeviceArrayCache
 from .invocation import (
     LlmInvoker,
+    LlmTaskInput,
     PrefillTask,
     DecodeTask,
 )
@@ -70,6 +72,8 @@ class LlmBatcherProcess(BatcherProcess):
 
         self.program_isolation = program_isolation
         self.use_new_decoder = use_new_decoder
+
+        self.active_requests: dict[str, List[LlmInferenceExecRequest]] = {}
 
     def handle_inference_request(self, request):
         """Handle an inference request."""
@@ -127,6 +131,8 @@ class LlmBatcherProcess(BatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
+        group_id: str,
+        completion_callback,
     ) -> "LlmInvoker":
         """Create instance of `LlmInvoker`.
 
@@ -176,12 +182,35 @@ class LlmBatcherProcess(BatcherProcess):
             if request is not None:
                 exec_requests.append(request)
 
-        exec_process = self.make_invoker(page_cache, fiber, exec_requests)
+        group_id = str(uuid4())
+        self.active_requests[group_id] = exec_requests
+        exec_process = self.make_invoker(
+            page_cache, fiber, exec_requests, group_id, self.complete
+        )
 
         # We've filled our flight. Remove from the boarding area.
         if exec_requests:
             # And takeoff.
             exec_process.launch()
+
+    def complete(
+        self,
+        group_id: str,
+        results_logits: List[sfnp.device_array],
+        result_indices: List[sfnp.device_array],
+    ):
+        requests = self.active_requests[group_id]
+        del self.active_requests[group_id]
+
+        for i, req in enumerate(requests):
+            req.result_logits = results_logits[i]
+            req.result_indices = result_indices[i]
+
+            total_tokens = req.start_position + len(req.input_token_ids)
+            number_of_complete_pages = total_tokens // self.page_seq_stride
+            req.publish_allocated_pages(number_of_complete_pages)
+
+            req.done.set_success()
 
 
 class PrefillBatcherProcess(LlmBatcherProcess):
@@ -218,6 +247,8 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
+        group_id: str,
+        completion_callback,
     ) -> "LlmInvoker":
         """Create instance of `LlmInvoker`.
 
@@ -229,20 +260,24 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         Returns:
             LlmInvoker: Process to handle execution of VMFB.
         """
-        llm_task = PrefillTask(
-            exec_requests=exec_requests,
+        llm_task_input = LlmTaskInput(
             array_cache=self.array_cache,
+            input_tokens=[req.input_token_ids for req in exec_requests],
+            pages=[req.allocation.pages for req in exec_requests],
             seq_stride=self.page_seq_stride,
+            page_tables=page_cache.page_pool.page_tables,
+        )
+        llm_task = PrefillTask(
+            task_inputs=llm_task_input,
         )
         return LlmInvoker(
             name="prefill_invocation",
             fiber=fiber,
-            array_cache=self.array_cache,
             llm_task=llm_task,
             functions=self.functions,
-            seq_stride=self.page_seq_stride,
-            page_tables=page_cache.page_pool.page_tables,
             program_isolation=self.program_isolation,
+            group_id=group_id,
+            completion_callback=completion_callback,
         )
 
     def allocate_cache(
@@ -314,6 +349,8 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
+        group_id: str,
+        completion_callback,
     ) -> "LlmInvoker":
         """Create instance of `LlmInvoker`.
 
@@ -328,20 +365,25 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         Returns:
             LlmInvoker: Process to handle execution of VMFB for decode requests.
         """
-        llm_task = DecodeTask(
-            exec_requests=exec_requests,
+        task_inputs = LlmTaskInput(
             array_cache=self.array_cache,
+            input_tokens=[req.input_token_ids for req in exec_requests],
+            start_positions=[req.start_position for req in exec_requests],
+            pages=[req.allocation.pages for req in exec_requests],
             seq_stride=self.page_seq_stride,
+            page_tables=page_cache.page_pool.page_tables,
+        )
+        llm_task = DecodeTask(
+            task_inputs=task_inputs,
         )
         return LlmInvoker(
             name="decode_invocation",
             fiber=fiber,
-            array_cache=self.array_cache,
             llm_task=llm_task,
             functions=self.functions,
-            seq_stride=self.page_seq_stride,
-            page_tables=page_cache.page_pool.page_tables,
             program_isolation=self.program_isolation,
+            group_id=group_id,
+            completion_callback=completion_callback,
         )
 
     def allocate_cache(

@@ -4,14 +4,27 @@ import math
 import shortfin as sf
 import shortfin.array as sfnp
 
+from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
 from .buffers import copy_buffers_to_host, create_argument_buffers
 from .device_array_cache import Allocation, DeviceArrayCache, WrappedAllocation
+from .kvcache.page_pool import PageInfo
 from .messages import LlmInferenceExecRequest
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LlmTaskInput:
+    array_cache: DeviceArrayCache
+    input_tokens: List[List[int]]
+    pages: List[List[PageInfo]]
+    seq_stride: int
+    page_tables: List[sfnp.device_array]
+
+    start_positions: Optional[List[int]] = None
 
 
 class LlmTask:
@@ -19,13 +32,12 @@ class LlmTask:
 
     def __init__(
         self,
-        exec_requests: List[LlmInferenceExecRequest],
-        array_cache: DeviceArrayCache,
-        seq_stride: int,
+        task_inputs: LlmTaskInput,
     ):
-        self.exec_requests: List[LlmInferenceExecRequest] = exec_requests
-        self._array_cache: DeviceArrayCache = array_cache
-        self._seq_stride: int = seq_stride
+        self.task_inputs = task_inputs
+        self._batch_seq_len = max(
+            len(input_tokens) for input_tokens in task_inputs.input_tokens
+        )
 
     def get_args_data(
         self,
@@ -90,25 +102,12 @@ class LlmTask:
         if len(result) > 1:
             indices = result[1]
 
-        # TODO (stbaione): Move this to the `decoder`
-        # publish cache pages
-        for r in self.exec_requests:
-            total_tokens = r.start_position + len(r.input_token_ids)
-            number_of_complete_pages = total_tokens // self._seq_stride
-            r.publish_allocated_pages(number_of_complete_pages)
-
-        exec_requests = self.exec_requests
         buffers = (logits, indices)
-        transfer = any([req.return_host_array for req in exec_requests])
-
-        if not transfer:
-            return buffers
-
         logits, indices = await copy_buffers_to_host(buffers, device0)
 
         [arg.release() for arg in args]
 
-        await self.get_result(logits, indices, req_count)
+        return await self.get_result(logits, indices, req_count)
 
     async def get_result(
         self,
@@ -138,20 +137,15 @@ class PrefillTask(LlmTask):
 
     def __init__(
         self,
-        exec_requests: list[LlmInferenceExecRequest],
-        array_cache: DeviceArrayCache,
-        seq_stride: int,
+        task_inputs: LlmTaskInput,
     ):
         super().__init__(
-            exec_requests=exec_requests,
-            array_cache=array_cache,
-            seq_stride=seq_stride,
+            task_inputs=task_inputs,
         )
+        self._block_count = max(len(pages) for pages in task_inputs.pages)
 
     def get_args_data(
         self,
-        exec_requests: List[LlmInferenceExecRequest],
-        batch_seq_len: int,
         block_count: int,
     ) -> Tuple[List[int | float]]:
         """Get the invocation data for the given requests.
@@ -170,20 +164,21 @@ class PrefillTask(LlmTask):
                 - A list of sequence lengths.
                 - A list of sequence block IDs.
         """
+        task_inputs = self.task_inputs
+        input_tokens = task_inputs.input_tokens
+        logger.info(f"SNB Input Tokens: {input_tokens}")
         token_vals = [
-            input_tokens
-            for req in exec_requests
-            for input_tokens in (_pad_list(req.input_token_ids, batch_seq_len))
+            padded_tokens
+            for tokens in input_tokens
+            for padded_tokens in (_pad_list(tokens, self._batch_seq_len))
         ]
 
-        seq_lens_vals = [len(req.input_token_ids) for req in exec_requests]
+        seq_lens_vals = [len(tokens) for tokens in input_tokens]
 
         seq_block_ids_vals = []
-        for req in exec_requests:
-            block_ids = req.cache_page_indices(block_count)
-            # Pad the block IDs to match the block count.
+        for pages in task_inputs.pages:
             block_ids = _pad_list(
-                block_ids,
+                [page.index for page in pages],
                 target_length=block_count,
             )
             # Extend the sequence block IDs data with padded values.
@@ -193,7 +188,6 @@ class PrefillTask(LlmTask):
 
     async def get_args(
         self,
-        page_tables: sfnp.device_array,
         batch_size: int,
     ) -> Tuple[list[sfnp.device_array], int]:
         """Get the arguments for the prefill invocation.
@@ -213,22 +207,17 @@ class PrefillTask(LlmTask):
                 - A list of arguments for the invocation.
                 - The number of requests in the batch.
         """
-        exec_requests = self.exec_requests
-        req_count = len(exec_requests)
-        seq_stride = self._seq_stride
-
-        for r in exec_requests:
-            assert r.start_position == 0
+        task_inputs = self.task_inputs
+        req_count = len(task_inputs.input_tokens)
+        seq_stride = task_inputs.seq_stride
 
         # Compute block sequence length as maximum sequence length, rounded
         # up to the seq_stride.
-        bsl = max((len(r.input_token_ids)) for r in exec_requests)
+        bsl = max((len(tokens)) for tokens in task_inputs.input_tokens)
         bsl = int(math.ceil(bsl / seq_stride) * seq_stride)
-        block_count = bsl // seq_stride
-        req_count = len(exec_requests)
-        logger.debug("Prefill bs=%d, bsl=%d", batch_size, bsl)
+        block_count = self._block_count
 
-        array_cache = self._array_cache
+        array_cache = task_inputs.array_cache
         int_dtype = sfnp.int64
 
         # Acquire buffers for the arguments.
@@ -238,8 +227,6 @@ class PrefillTask(LlmTask):
 
         # Populate data for args.
         arg_data = self.get_args_data(
-            exec_requests=exec_requests,
-            batch_seq_len=bsl,
             block_count=block_count,
         )
 
@@ -249,7 +236,7 @@ class PrefillTask(LlmTask):
             defaults=[0, 1, 0],
         )
 
-        for page_table in page_tables:
+        for page_table in task_inputs.page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
         return args, req_count
@@ -267,9 +254,11 @@ class PrefillTask(LlmTask):
             indices (Optional[sfnp.device_array]): The indices output from prefill, if any.
             req_count (int): The number of requests in the batch.
         """
+        result_logits: List[sfnp.device_array] = []
+        result_indices: List[sfnp.device_array] = []
         for i in range(req_count):
-            req = self.exec_requests[i]
-            sl = len(req.input_token_ids) - 1
+            input_tokens = self.task_inputs.input_tokens[i]
+            sl = len(input_tokens) - 1
 
             if logits.shape[1] == 1:
                 logits_item = logits.view(i)
@@ -283,11 +272,14 @@ class PrefillTask(LlmTask):
                 else:
                     index_item = indices.view(i, sl)
 
-            req.result_logits = logits_item
-            req.result_indices = index_item
+            result_logits.append(
+                logits_item,
+            )
+            result_indices.append(
+                index_item,
+            )
 
-        for req in self.exec_requests:
-            req.done.set_success()
+        return result_logits, result_indices
 
 
 class DecodeTask(LlmTask):
@@ -295,19 +287,14 @@ class DecodeTask(LlmTask):
 
     def __init__(
         self,
-        exec_requests: list[LlmInferenceExecRequest],
-        array_cache: DeviceArrayCache,
-        seq_stride: int,
+        task_inputs: LlmTaskInput,
     ):
         super().__init__(
-            exec_requests=exec_requests,
-            array_cache=array_cache,
-            seq_stride=seq_stride,
+            task_inputs=task_inputs,
         )
 
     def get_args_data(
         self,
-        exec_requests: List[LlmInferenceExecRequest],
         block_count: int,
     ) -> Tuple[List[int | float] | List[List[int | float]]]:
         """Get the invocation data for the given requests.
@@ -326,35 +313,32 @@ class DecodeTask(LlmTask):
                 - A list of start positions.
                 - A list of sequence block IDs.
         """
+        task_inputs = self.task_inputs
+        input_tokens = task_inputs.input_tokens
         token_data = [
-            input_tokens
-            for req in exec_requests
-            for input_tokens in (req.input_token_ids[-1:])
+            last_token for tokens in input_tokens for last_token in (tokens[-1:])
         ]
-        seq_lens_data = [req.start_position + 1 for req in exec_requests]
-        start_positions_data = [req.start_position for req in exec_requests]
+        seq_lens_data = [pos + 1 for pos in task_inputs.start_positions]
 
         seq_block_ids_data = []
-        for req in exec_requests:
-            block_ids = req.cache_page_indices(block_count)
+        for pages in task_inputs.pages:
             # Pad the block IDs to match the block count.
-            padded = _pad_list(
-                block_ids,
+            block_ids = _pad_list(
+                [page.index for page in pages],
                 target_length=block_count,
             )
             # Extend the sequence block IDs data with padded values.
-            seq_block_ids_data.extend(padded)
+            seq_block_ids_data.extend(block_ids)
 
         return (
             token_data,
             seq_lens_data,
-            start_positions_data,
+            task_inputs.start_positions,
             seq_block_ids_data,
         )
 
     async def get_args(
         self,
-        page_tables: sfnp.device_array,
         batch_size: int,
     ) -> Tuple[List[Union[Allocation, WrappedAllocation]], int]:
         """Get the arguments for the decode invocation.
@@ -377,15 +361,16 @@ class DecodeTask(LlmTask):
         """
         # Compute block sequence length as maximum sequence length, rounded
         # up to the seq_stride.
-        exec_requests = self.exec_requests
-        seq_stride = self._seq_stride
-        bsl = max((1 + len(r.input_token_ids)) for r in exec_requests)
+        task_inputs = self.task_inputs
+        req_count = len(task_inputs.input_tokens)
+        seq_stride = task_inputs.seq_stride
+
+        bsl = max((1 + len(tokens)) for tokens in task_inputs.input_tokens)
         bsl = int(math.ceil(bsl / seq_stride) * seq_stride)
         block_count = bsl // seq_stride
-        req_count = len(exec_requests)
         logger.debug("Decode bs=%d, bsl=%d", batch_size, bsl)
 
-        array_cache = self._array_cache
+        array_cache = task_inputs.array_cache
         int_dtype = sfnp.int64
 
         # Acquire buffers for the arguments.
@@ -396,7 +381,6 @@ class DecodeTask(LlmTask):
 
         # Populate data for args.
         args_data = self.get_args_data(
-            exec_requests=exec_requests,
             block_count=block_count,
         )
 
@@ -406,7 +390,7 @@ class DecodeTask(LlmTask):
             defaults=[0, 1, 0, 0],
         )
 
-        for page_table in page_tables:
+        for page_table in task_inputs.page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
         return args, req_count
@@ -424,19 +408,23 @@ class DecodeTask(LlmTask):
             indices (Optional[sfnp.device_array]): The indices output from prefill, if any.
             req_count (int): The number of requests in the batch.
         """
+        result_logits: List[sfnp.device_array] = []
+        result_indices: List[sfnp.device_array] = []
         for i in range(req_count):
-            req = self.exec_requests[i]
             logits_item = logits.view(i, 0)
 
             index_item = None
             if indices is not None:
                 index_item = indices.view(i, 0)
 
-            req.result_logits = logits_item
-            req.result_indices = index_item
+            result_logits.append(
+                logits_item,
+            )
+            result_indices.append(
+                index_item,
+            )
 
-        for req in self.exec_requests:
-            req.done.set_success()
+        return result_logits, result_indices
 
 
 class LlmInvoker(sf.Process):
@@ -446,23 +434,22 @@ class LlmInvoker(sf.Process):
         self,
         name: str,
         fiber: sf.Fiber,
-        array_cache: DeviceArrayCache,
         llm_task: LlmTask,
         functions: dict[int, sf.ProgramFunction],
-        seq_stride: int,
-        page_tables,
         program_isolation: sf.ProgramIsolation,
+        group_id: str,
+        completion_callback,
     ):
         super().__init__(fiber=fiber)
         self.name = name
-        self.seq_stride = seq_stride
-        self.page_tables = page_tables
         self.functions = functions
         self.program_isolation = program_isolation
 
         self.device0 = fiber.device(0)
-        self.array_cache = array_cache
         self.llm_task = llm_task
+
+        self.group_id = group_id
+        self.completion_callback = completion_callback
 
     async def run(self):
         """Invoke `prefill` or `decode` function, with IREE, on a batch of requests.
@@ -471,7 +458,8 @@ class LlmInvoker(sf.Process):
             RuntimeError: No available entry point for given batch size.
         """
         try:
-            req_bs = len(self.llm_task.exec_requests)
+            task_input = self.llm_task.task_inputs
+            req_bs = len(task_input.input_tokens)
 
             # Select an entrypoint for the batch.
             entrypoints = self.functions
@@ -481,17 +469,22 @@ class LlmInvoker(sf.Process):
             else:
                 raise RuntimeError(f"No available entry point for bs {req_bs}")
 
-            args, req_count = await self.llm_task.get_args(self.page_tables, bs)
+            args, req_count = await self.llm_task.get_args(bs)
 
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
             args_device = [arg.device for arg in args]
             result = await fn(*args_device, fiber=self.fiber)
 
-            await self.llm_task.post_process_logits(
+            result_logits, result_indices = await self.llm_task.post_process_logits(
                 args,
                 req_count,
                 result,
                 self.device0,
+            )
+            self.completion_callback(
+                self.group_id,
+                result_logits,
+                result_indices,
             )
 
         except Exception:
