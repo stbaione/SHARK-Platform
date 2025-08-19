@@ -6,7 +6,8 @@
 
 import logging
 import math
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
+from uuid import uuid4
 
 
 import shortfin as sf
@@ -17,7 +18,9 @@ from shortfin import Fiber
 from .config_struct import ModelParams
 from .device_array_cache import DeviceArrayCache
 from .invocation import (
+    InvocationResult,
     LlmInvoker,
+    LlmTaskInput,
     PrefillTask,
     DecodeTask,
 )
@@ -68,6 +71,8 @@ class LlmBatcherProcess(BatcherProcess):
         self.array_cache: DeviceArrayCache = DeviceArrayCache(fiber.device(0))
 
         self.program_isolation = program_isolation
+
+        self.active_requests: Dict[str, List[LlmInferenceExecRequest]] = {}
 
     def handle_inference_request(self, request):
         """Handle an inference request."""
@@ -125,6 +130,7 @@ class LlmBatcherProcess(BatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
+        group_id: str,
     ) -> "LlmInvoker":
         """Create instance of `LlmInvoker`.
 
@@ -168,12 +174,52 @@ class LlmBatcherProcess(BatcherProcess):
             if request is not None:
                 exec_requests.append(request)
 
-        exec_process = self.make_invoker(page_cache, fiber, exec_requests)
+        group_id = str(uuid4())
+        self.active_requests[group_id] = exec_requests
+        exec_process = self.make_invoker(page_cache, fiber, exec_requests, group_id)
 
         # We've filled our flight. Remove from the boarding area.
         if exec_requests:
             # And takeoff.
             exec_process.launch()
+
+    def completion_callback(
+        self,
+        result_logits: Optional[List[sfnp.device_array]],
+        result_indices: Optional[List[sfnp.device_array]],
+        invocation_result: InvocationResult,
+        group_id: str,
+    ):
+        """Callback for after the `LlmInvoker` completes the assigned task.
+
+        Args:
+            result_logits (List[sfnp.device_array]): Logits from Llm invocation.
+            result_indices (List[sfnp.device_array]): Indices from Llm invocation.
+            invocation_result (InvocationResult): Success or Failure.
+            group_id (str): Group ID for storing results.
+        """
+        exec_requests = self.active_requests[group_id]
+        del self.active_requests[group_id]
+
+        if invocation_result == InvocationResult.SUCCESS:
+            assert result_logits is not None
+            assert result_indices is not None
+
+            for i, req in enumerate(exec_requests):
+                req.result_logits = result_logits[i]
+                req.result_indices = result_indices[i]
+
+                total_tokens = req.start_position + len(req.input_token_ids)
+                number_of_complete_pages = total_tokens // self.page_seq_stride
+                req.publish_allocated_pages(number_of_complete_pages)
+
+                req.done.set_success()
+
+        else:
+            for req in exec_requests:
+                req.result_logits = None
+                req.free_cache_pages()
+                req.done.set_success()
 
 
 class PrefillBatcherProcess(LlmBatcherProcess):
@@ -208,6 +254,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
+        group_id: str,
     ) -> "LlmInvoker":
         """Create instance of `LlmInvoker`.
 
@@ -219,20 +266,25 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         Returns:
             LlmInvoker: Process to handle execution of VMFB.
         """
-        llm_task = PrefillTask(
-            exec_requests=exec_requests,
+        task_input = LlmTaskInput(
             array_cache=self.array_cache,
             seq_stride=self.page_seq_stride,
+            block_count=max(req.block_count for req in exec_requests),
+            input_tokens=[req.input_token_ids for req in exec_requests],
+            page_ids=[req.allocation.pages for req in exec_requests],
+        )
+        llm_task = PrefillTask(
+            task_input=task_input,
         )
         return LlmInvoker(
             name="prefill_invocation",
             fiber=fiber,
-            array_cache=self.array_cache,
             llm_task=llm_task,
             functions=self.functions,
-            seq_stride=self.page_seq_stride,
             page_tables=page_cache.page_pool.page_tables,
             program_isolation=self.program_isolation,
+            completion_callback=self.completion_callback,
+            group_id=group_id,
         )
 
     def allocate_cache(
@@ -302,6 +354,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
+        group_id: str,
     ) -> "LlmInvoker":
         """Create instance of `LlmInvoker`.
 
@@ -316,20 +369,26 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         Returns:
             LlmInvoker: Process to handle execution of VMFB for decode requests.
         """
-        llm_task = DecodeTask(
-            exec_requests=exec_requests,
+        task_input = LlmTaskInput(
             array_cache=self.array_cache,
             seq_stride=self.page_seq_stride,
+            block_count=max(req.block_count for req in exec_requests),
+            input_tokens=[req.input_token_ids for req in exec_requests],
+            page_ids=[req.page_ids for req in exec_requests],
+            start_positions=[req.start_position for req in exec_requests],
+        )
+        llm_task = DecodeTask(
+            task_input=task_input,
         )
         return LlmInvoker(
             name="decode_invocation",
             fiber=fiber,
-            array_cache=self.array_cache,
             llm_task=llm_task,
             functions=self.functions,
-            seq_stride=self.page_seq_stride,
             page_tables=page_cache.page_pool.page_tables,
             program_isolation=self.program_isolation,
+            completion_callback=self.completion_callback,
+            group_id=group_id,
         )
 
     def allocate_cache(
