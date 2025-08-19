@@ -53,6 +53,7 @@ class LlmBatcherProcess(BatcherProcess):
         functions: dict[int, sf.ProgramFunction],
         ideal_batch_size: int,
         program_isolation: str,
+        use_new_decoder: bool = False,
     ):
         super().__init__(fiber=fiber)
         self.name = name
@@ -68,6 +69,7 @@ class LlmBatcherProcess(BatcherProcess):
         self.array_cache: DeviceArrayCache = DeviceArrayCache(fiber.device(0))
 
         self.program_isolation = program_isolation
+        self.use_new_decoder = use_new_decoder
 
     def handle_inference_request(self, request):
         """Handle an inference request."""
@@ -164,7 +166,11 @@ class LlmBatcherProcess(BatcherProcess):
 
         exec_requests = []
         for request in to_schedule:
-            request = self.allocate_cache(page_cache, request)
+            if not self.use_new_decoder:
+                logger.debug(
+                    f"Not using new decoder, therefore still allocate KV cache pages in board_request"
+                )
+                request = self.board_request(page_cache, request)
 
             # Can flight this request.
             if request is not None:
@@ -194,6 +200,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         model_params: ModelParams,
         prefill_functions: dict[int, sf.ProgramFunction],
         program_isolation: str,
+        use_new_decoder: bool = False,
     ):
         super().__init__(
             name="prefill",
@@ -203,6 +210,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             functions=prefill_functions,
             ideal_batch_size=max(model_params.prefill_batch_sizes),
             program_isolation=program_isolation,
+            use_new_decoder=use_new_decoder,
         )
 
     def make_invoker(
@@ -255,6 +263,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         """
         needed_pages = math.ceil(len(request.input_token_ids) / self.page_seq_stride)
         # allocate kv cache pages
+
         try:
             allocation = page_cache.acquire_pages_for_tokens(
                 request.input_token_ids,
@@ -287,6 +296,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         model_params: ModelParams,
         decode_functions: dict[int, sf.ProgramFunction],
         program_isolation: str,
+        use_new_decoder: bool = False,
     ):
         super().__init__(
             name="decode",
@@ -296,6 +306,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             functions=decode_functions,
             ideal_batch_size=max(model_params.decode_batch_sizes),
             program_isolation=program_isolation,
+            use_new_decoder=use_new_decoder,
         )
 
     def make_invoker(
