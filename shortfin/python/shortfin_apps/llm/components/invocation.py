@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class LlmTaskInput:
     array_cache: DeviceArrayCache
     input_tokens: List[List[int]]
-    pages: List[List[PageInfo]]
+    page_ids: List[List[int]]
     seq_stride: int
     page_tables: List[sfnp.device_array]
 
@@ -142,7 +142,7 @@ class PrefillTask(LlmTask):
         super().__init__(
             task_inputs=task_inputs,
         )
-        self._block_count = max(len(pages) for pages in task_inputs.pages)
+        self._block_count = max(len(pages) for pages in task_inputs.page_ids)
 
     def get_args_data(
         self,
@@ -176,7 +176,7 @@ class PrefillTask(LlmTask):
         seq_lens_vals = [len(tokens) for tokens in input_tokens]
 
         seq_block_ids_vals = []
-        for pages in task_inputs.pages:
+        for pages in task_inputs.page_ids:
             block_ids = _pad_list(
                 [page.index for page in pages],
                 target_length=block_count,
@@ -321,7 +321,7 @@ class DecodeTask(LlmTask):
         seq_lens_data = [pos + 1 for pos in task_inputs.start_positions]
 
         seq_block_ids_data = []
-        for pages in task_inputs.pages:
+        for pages in task_inputs.page_ids:
             # Pad the block IDs to match the block count.
             block_ids = _pad_list(
                 [page.index for page in pages],
