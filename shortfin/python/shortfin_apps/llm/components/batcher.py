@@ -170,7 +170,7 @@ class LlmBatcherProcess(BatcherProcess):
                 logger.debug(
                     f"Not using new decoder, therefore still allocate KV cache pages in board_request"
                 )
-                request = self.board_request(page_cache, request)
+                request = self.allocate_cache(page_cache, request)
 
             # Can flight this request.
             if request is not None:
