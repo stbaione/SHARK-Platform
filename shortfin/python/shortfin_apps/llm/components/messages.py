@@ -69,7 +69,6 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         self._cache: BasePagedAttentionCache | None = None
         self.allocation: PageAllocation | None = None
         self.page_ids: list[int] = page_ids
-        self.status_tracker: RequestStatusTracker | None = status_tracker
         self.allocated_cache_info: CacheInfo | None = None
 
     @property
