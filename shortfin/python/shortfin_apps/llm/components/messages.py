@@ -11,7 +11,12 @@ import shortfin as sf
 import shortfin.array as sfnp
 from shortfin.interop.fastapi import RequestStatusTracker
 
-from .kvcache.base_attention_cache import BasePagedAttentionCache, PageAllocation
+from .kvcache.attention_cach_abstract import CacheInfo
+from .kvcache.base_attention_cache import (
+    PageInfo,
+    BasePagedAttentionCache,
+    PageAllocation,
+)
 from .kvcache.trie_attention_cache import TriePagedAttentionCache
 from ...utils import InferenceExecRequest
 
@@ -136,6 +141,14 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         if self.allocation:
             self.allocation.release_pages()
             self.allocation = None
+
+    def release_pages(self):
+        """Release the pages allocated for this request."""
+        pages = []
+        for i in self.page_ids:
+            pages.append(PageInfo(i, self._cache.page_pool))
+        self._cache.free_pages(pages)
+        self.page_ids = []
 
     def __repr__(self) -> str:
         """

@@ -26,6 +26,9 @@ from _shortfin import lib as _sfl
 from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     CacheAllocationFailure,
 )
+from shortfin_apps.llm.components.kvcache.attention_cach_abstract import (
+    CacheInfo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -371,29 +374,17 @@ class LlmDecoder:
         )
         prefill_req._cache = self._page_cache
         # Allocate pages for the prefill request
-        needed_pages = math.ceil(
-            len(prefill_req.input_token_ids) / self._prefill_batcher.page_seq_stride
-        )
-        # allocate kv cache pages
-        try:
-            allocation = prefill_req._cache.acquire_pages_for_tokens(
-                prefill_req.input_token_ids,
-                extra_token_slots=0,  # prefill needs no extra kvcache slots to write to
-            )
-        except CacheAllocationFailure:
-            raise RuntimeError(
-                "Failed to allocate %d pages for prefill request. ", needed_pages
-            )
-        logger.debug(f"Successfully acquired allocation: {allocation}")
-        prefill_req.free_cache_pages()
-        prefill_req.allocation = allocation
+        allocated_cache_info = prefill_req._cache.allocate(prefill_req.input_token_ids)
+        prefill_req.page_ids = allocated_cache_info.page_ids
 
         # Run Prefill:
         self._prefill_batcher.submit(prefill_req)
         await prefill_req.done
 
         token_selector = TokenSelector(self._decode_config)
-        initial_pages = [p.index for p in prefill_req.allocation.pages]
+        initial_pages = (
+            allocated_cache_info.page_ids
+        )  # [p.index for p in prefill_req.allocation.pages]
         initial_length = len(prefill_req.input_token_ids)
         page_manager = PageManager(
             self._page_pool,
@@ -449,5 +440,6 @@ class LlmDecoder:
         # Return Results:
         self._results_callback(completed)
 
-        prefill_req.free_cache_pages()
+        # prefill_req.free_cache_pages()
+        prefill_req.release_pages()
         page_manager.release_pages()
