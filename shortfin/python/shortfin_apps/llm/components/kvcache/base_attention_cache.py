@@ -16,7 +16,7 @@ import threading
 from typing import List, Iterable
 
 from .page_pool import PageInfo, PagePool
-from .attention_cach_abstract import CacheInfo, AttentionCacheAbstract
+from .attention_cache_abstract import CacheInfo, AttentionCacheAbstract
 
 
 logger = logging.getLogger(__name__)
