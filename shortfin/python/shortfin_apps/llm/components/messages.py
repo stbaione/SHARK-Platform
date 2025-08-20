@@ -11,7 +11,7 @@ import shortfin as sf
 import shortfin.array as sfnp
 from shortfin.interop.fastapi import RequestStatusTracker
 
-from .kvcache.attention_cach_abstract import CacheInfo
+from .kvcache.attention_cache_abstract import CacheInfo
 from .kvcache.base_attention_cache import (
     PageInfo,
     BasePagedAttentionCache,

@@ -26,7 +26,7 @@ from _shortfin import lib as _sfl
 from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     CacheAllocationFailure,
 )
-from shortfin_apps.llm.components.kvcache.attention_cach_abstract import (
+from shortfin_apps.llm.components.kvcache.attention_cache_abstract import (
     CacheInfo,
 )
 

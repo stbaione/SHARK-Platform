@@ -5,7 +5,7 @@ import logging
 import shortfin as sf
 import shortfin.array as sfnp
 from dataclasses import dataclass
-from .attention_cach_abstract import CacheStoreAbstract
+from .attention_cache_abstract import CacheStoreAbstract
 
 import math
 
