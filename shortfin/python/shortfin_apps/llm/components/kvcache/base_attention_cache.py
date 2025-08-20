@@ -259,17 +259,18 @@ class BasePagedAttentionCache:
             self.increment_pages(pages)
 
         slot_ids = []
-        page_ids = []
+        block_ids = []
         allocated_ids = []
         for i in range(token_count):
             slot_index = i % self.tokens_per_page
             slot_ids.append(slot_index)
-        for page in pages:
-            page_ids.append(page.index)
+            idx = i // self.tokens_per_page
+            block_ids.append(pages[idx].index)
 
         return CacheInfo(
             num_tokens=token_count,
             slot_ids=slot_ids,
-            page_ids=page_ids,
+            block_ids=block_ids,
+            pages=pages,
             pool=self.page_pool,
         )

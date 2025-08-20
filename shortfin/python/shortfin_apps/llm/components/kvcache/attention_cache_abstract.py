@@ -12,7 +12,7 @@ foundation for implementing various types of attention caches, including those t
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List
+from typing import List, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,14 +30,20 @@ class CacheStoreAbstract(ABC):
 @dataclass
 class CacheInfo:
     """
-    cache information with some metadata about its contents.
+    Metadata about the allocated cache space.
+    - num_tokens: Number of tokens allocated in the cache.
+    - slot_ids: the index in the allocated block for each token .
+    - block_ids: the allocated block ids, one block id corresponds to number of tokens defined by tokens_per_page.
+    - pages: The actual pages allocated in the cache.
+    - pool: The cache store where this information is stored.
     """
 
     num_tokens: int
     ## slot_ids stores the index in the allocated block for each token.
     ## block_ids stores the allocated block ids, one block id corresponds to number of tokens defined by tokens_per_page.
     slot_ids: list[int]
-    page_ids: list[int]
+    block_ids: list[int]
+    pages: Any  # This should be a list of PageInfo or similar objects.
     pool: CacheStoreAbstract
 
 

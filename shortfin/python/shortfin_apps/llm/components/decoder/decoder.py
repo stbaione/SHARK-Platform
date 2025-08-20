@@ -377,17 +377,14 @@ class LlmDecoder:
         )
         prefill_req._cache = self._page_cache
         # Allocate pages for the prefill request
-        allocated_cache_info = prefill_req._cache.allocate(prefill_req.input_token_ids)
-        prefill_req.page_ids = allocated_cache_info.page_ids
+        prefill_req.acquire_pages()
 
         # Run Prefill:
         self._prefill_batcher.submit(prefill_req)
         await prefill_req.done
 
         token_selector = TokenSelector(self._decode_config)
-        initial_pages = (
-            allocated_cache_info.page_ids
-        )  # [p.index for p in prefill_req.allocation.pages]
+        initial_pages = [p.index for p in prefill_req.allocated_cache_info.pages]
         initial_length = len(prefill_req.input_token_ids)
         page_manager = PageManager(
             self._page_pool,
@@ -440,6 +437,5 @@ class LlmDecoder:
         # Return Results:
         self._results_callback(completed)
 
-        # prefill_req.free_cache_pages()
-        prefill_req.release_pages()
+        prefill_req.free_cache_pages()
         page_manager.release_pages()

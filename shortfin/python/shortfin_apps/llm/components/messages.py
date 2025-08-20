@@ -71,6 +71,7 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         self.allocation: PageAllocation | None = None
         self.page_ids: list[int] = page_ids
         self.status_tracker: RequestStatusTracker | None = status_tracker
+        self.allocated_cache_info: CacheInfo | None = None
 
     @property
     def block_count(self):
@@ -125,6 +126,11 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         indices = [p.index for p in self.allocation.pages[:max_len]]
         return indices
 
+    def acquire_pages(self):
+        """Acquire pages for this request."""
+        self.allocated_cache_info = self._cache.allocate(self.input_token_ids)
+        self.page_ids = [p.index for p in self.allocated_cache_info.pages]
+
     def publish_allocated_pages(self, up_to_page_index: int):
         if self.allocation is not None:
             self.allocation.publish_pages_for_tokens(
@@ -135,14 +141,10 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         if self.allocation:
             self.allocation.release_pages()
             self.allocation = None
-
-    def release_pages(self):
-        """Release the pages allocated for this request."""
-        pages = []
-        for i in self.page_ids:
-            pages.append(PageInfo(i, self._cache.page_pool))
-        self._cache.free_pages(pages)
-        self.page_ids = []
+        elif self.allocated_cache_info:
+            # If we have allocated cache info, we can release the pages.
+            self._cache.free_pages(self.allocated_cache_info.pages)
+            self.allocated_cache_info = None
 
     def __repr__(self) -> str:
         """
