@@ -16,6 +16,7 @@ import threading
 from typing import List, Iterable
 
 from .page_pool import PageInfo, PagePool
+from .attention_cache_abstract import CacheInfo, AttentionCacheAbstract
 
 
 logger = logging.getLogger(__name__)
@@ -236,3 +237,40 @@ class BasePagedAttentionCache:
         new_pages.append(new_page)
         self.increment_pages(new_pages)
         return BasePagedAttentionCacheAllocation(new_pages, cache=self)
+
+    def allocate(self, tokens: List[int]) -> CacheInfo:
+        """
+        Given a list of tokens, return a CacheInfo object with metadata about the cache allocation.
+        """
+        token_count = len(tokens)
+        pages_needed = math.ceil(token_count / self.tokens_per_page)
+        pages = self.page_pool.acquire_free_pages(pages_needed)
+
+        if pages is None:
+            msg = (
+                f"FATAL CacheAllocationFailure: Failed to allocate {pages_needed} pages from `PagePool`.\n"
+                f"Required pages: {pages_needed}, Available pages: {len(self.page_pool.available_pages)}, Total pages: {self.page_pool.config.alloc_page_count}\n"
+                f"Consider re-exporting the model with a higher `--device-block-count` value."
+            )
+            logger.error(msg)
+            raise CacheAllocationFailure(msg)
+
+        if self.use_ref_counts:
+            self.increment_pages(pages)
+
+        slot_ids = []
+        block_ids = []
+        allocated_ids = []
+        for i in range(token_count):
+            slot_index = i % self.tokens_per_page
+            slot_ids.append(slot_index)
+            idx = i // self.tokens_per_page
+            block_ids.append(pages[idx].index)
+
+        return CacheInfo(
+            num_tokens=token_count,
+            slot_ids=slot_ids,
+            block_ids=block_ids,
+            pages=pages,
+            pool=self.page_pool,
+        )

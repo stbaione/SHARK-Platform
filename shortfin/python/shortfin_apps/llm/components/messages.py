@@ -11,7 +11,12 @@ import shortfin as sf
 import shortfin.array as sfnp
 from shortfin.interop.fastapi import RequestStatusTracker
 
-from .kvcache.base_attention_cache import BasePagedAttentionCache, PageAllocation
+from .kvcache.attention_cache_abstract import CacheInfo
+from .kvcache.base_attention_cache import (
+    PageInfo,
+    BasePagedAttentionCache,
+    PageAllocation,
+)
 from .kvcache.trie_attention_cache import TriePagedAttentionCache
 from ...utils import InferenceExecRequest
 
@@ -64,6 +69,7 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         self._cache: BasePagedAttentionCache | None = None
         self.allocation: PageAllocation | None = None
         self.page_ids: list[int] = page_ids
+        self.allocated_cache_info: CacheInfo | None = None
 
     @property
     def block_count(self):
@@ -91,6 +97,11 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         indices = [p.index for p in self.allocation.pages[:max_len]]
         return indices
 
+    def acquire_pages(self):
+        """Acquire pages for this request."""
+        self.allocated_cache_info = self._cache.allocate(self.input_token_ids)
+        self.page_ids = [p.index for p in self.allocated_cache_info.pages]
+
     def publish_allocated_pages(self, up_to_page_index: int):
         if self.allocation is not None:
             self.allocation.publish_pages_for_tokens(
@@ -101,6 +112,10 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         if self.allocation:
             self.allocation.release_pages()
             self.allocation = None
+        elif self.allocated_cache_info:
+            # If we have allocated cache info, we can release the pages.
+            self._cache.free_pages(self.allocated_cache_info.pages)
+            self.allocated_cache_info = None
 
     def __repr__(self) -> str:
         """
