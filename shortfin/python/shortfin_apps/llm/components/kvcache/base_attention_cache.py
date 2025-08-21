@@ -238,7 +238,7 @@ class BasePagedAttentionCache:
         self.increment_pages(new_pages)
         return BasePagedAttentionCacheAllocation(new_pages, cache=self)
 
-    def allocate(self, tokens: List[int]) -> CacheInfo:
+    def allocate(self, tokens: List[int], lookup: bool = True, evict: bool = True) -> CacheInfo:
         """
         Given a list of tokens, return a CacheInfo object with metadata about the cache allocation.
         """
@@ -260,7 +260,6 @@ class BasePagedAttentionCache:
 
         slot_ids = []
         block_ids = []
-        allocated_ids = []
         for i in range(token_count):
             slot_index = i % self.tokens_per_page
             slot_ids.append(slot_index)

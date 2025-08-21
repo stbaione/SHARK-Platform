@@ -12,6 +12,7 @@ from .base_attention_cache import (
     PageAllocation,
 )
 from .kvcache_utils import RefCount
+from .attention_cache_abstract import CacheInfo
 
 
 @dataclass
@@ -77,6 +78,24 @@ class TrieNode:
         """Sort nodes by their memory address."""
         return id(self) < id(other)
 
+@dataclass
+class TriCacheInfo(CacheInfo):
+    """Metadata about the trie-based cache allocation.
+
+    Contains information about the tokens, pages, and last cached node.
+
+    Attributes:
+        tokens: List of tokens in the allocation
+        last_cached_node: Last node in the trie that was cached
+        cached_pages: List of pages that were already cached
+        newly_acquired_pages: List of pages that were newly acquired for this allocation
+        number_of_published_pages: Number of pages that have been published to the cache
+    """
+    tokens: List[int]
+    cached_pages: List[PageInfo]
+    newly_acquired_pages: List[PageInfo]
+    last_cached_node: TrieNode
+    number_of_published_pages: int
 
 class TriePagedAttentionCacheAllocation(PageAllocation):
     """Represents a page allocation in the trie-based cache.
@@ -464,3 +483,150 @@ class TriePagedAttentionCache(BasePagedAttentionCache):
             self.page_pool.free_pages(pages_to_evict)
 
         return len(pages_to_evict)
+
+    def lookup(self, tokens: List[int]) -> Tuple[TrieNode, List[PageInfo]]:
+        """
+        Find the longest prefix match in the trie.
+
+        Walks the trie following the token sequence as far as possible,
+        collecting matched pages along the way.
+
+        Args:
+            tokens: Sequence of tokens to match
+
+        Returns:
+            Tuple of (last matched node, list of matched pages)
+        """
+        tokens = tuple(tokens)
+        matched_pages = []
+        cur = self.root
+
+        for i in range(0, len(tokens), self.tokens_per_page):
+            token_block = tokens[i : i + self.tokens_per_page]
+
+            if token_block not in cur.children:
+                break
+            cur = cur.children[token_block]
+            cur.access_time = time.monotonic()
+            matched_pages.append(cur.page)
+
+        return cur, matched_pages
+
+    def evict_pages(self, max_pages: int) -> int:
+        """Evict up to max_pages pages using LRU strategy.
+
+        Evicts from unreferenced leaf nodes first, working up the trie
+        as nodes become childless.
+
+        Args:
+            max_pages: Maximum number of pages to evict
+
+        Returns:
+            Number of pages actually evicted
+        """
+        pages_to_evict = []
+
+        # Initialize heap with unreferenced leaves
+        unused_leaf_heap = [
+            (leaf.access_time, leaf)
+            for leaf in self.leaves
+            if leaf.ref_count.is_empty()
+        ]
+        heapq.heapify(unused_leaf_heap)
+
+        # Evict least recently used nodes
+        while unused_leaf_heap and len(pages_to_evict) < max_pages:
+            _, leaf = heapq.heappop(unused_leaf_heap)
+            pages_to_evict.append(leaf.page)
+            parent = leaf.parent
+
+            leaf.unlink()
+            self.leaves.remove(leaf)
+
+            # If parent becomes childless, it becomes a leaf
+            if (
+                parent is not self.root
+                and not parent.children
+                and parent not in self.leaves
+            ):
+                self.leaves.add(parent)
+                if parent.ref_count.is_empty():
+                    heapq.heappush(unused_leaf_heap, (parent.access_time, parent))
+
+        if pages_to_evict:
+            self.page_pool.free_pages(pages_to_evict)
+
+        return len(pages_to_evict)
+    
+    def allocate(
+        self,
+        tokens: List[int],
+        lookup: bool = True, evict: bool = True,
+    ) -> TriCacheInfo:
+        """Acquire pages for a sequence of tokens.
+
+        Attempts to reuse existing cached pages where possible through
+        prefix matching, allocating new pages only for the uncached suffix.
+
+        Args:
+            tokens: Sequence of tokens needing pages
+            lookup: Whether to look up existing tokens in the cache.
+            evict: Whether to evict old tokens if the cache is full.
+
+        Returns:
+            PageAllocation containing both cached and newly allocated pages
+
+        Raises:
+            CacheAllocationFailure: If unable to allocate required pages
+        """
+        with self._lock:
+            tokens = tuple(tokens)
+            n_empty_pages = 0
+            cached_pages = []
+            pages = []
+            cur_node = self.root
+            if lookup:
+                cur_node, matched_pages = self.lookup(tokens)
+
+                cached_pages = matched_pages
+                n_cached_tokens = len(matched_pages) * self.tokens_per_page
+                remaining_length = len(tokens) - n_cached_tokens
+                n_empty_pages = math.ceil(remaining_length / self.tokens_per_page)
+            else:
+                n_empty_pages = math.ceil(len(tokens) / self.tokens_per_page)
+
+            cur_node.ref_count.increment()
+            new_pages = self.page_pool.acquire_free_pages(n_empty_pages)
+
+            if new_pages is None and evict:
+                # Try eviction
+                self.evict_pages(n_empty_pages - len(self.page_pool.available_pages))
+                new_pages = self.page_pool.acquire_free_pages(n_empty_pages)
+
+                if new_pages is None:
+                    raise CacheAllocationFailure(
+                        "Failed to acquire pages even after attempting eviction from LRU leaves"
+                    )
+                
+            pages = cached_pages + new_pages   
+            slot_ids = []
+            block_ids = []
+            for i in range(token_count):
+                slot_index = i % self.tokens_per_page
+                slot_ids.append(slot_index)
+                idx = i // self.tokens_per_page
+                block_ids.append(pages[idx].index)
+
+            return TriCacheInfo(
+                num_tokens=len(tokens),
+                tokens=tokens,
+                slot_ids=slot_ids,
+                block_ids=block_ids,
+                pages=pages,
+                cached_pages=cached_pages,
+                newly_acquired_pages=new_pages,
+                last_cached_node=cur_node,
+                number_of_published_pages=len(cached_pages)
+            )
+
+
