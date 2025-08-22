@@ -355,11 +355,16 @@ class TestPrefillTask:
 
             logits, _ = result_logits_none_indices
             vocab_size = logits.shape[-1]
-            await prefill_task.process_results(
+            logits, indices = await prefill_task.process_results(
                 args=args,
                 logits=logits,
                 indices=None,
                 device0=device0,
+            )
+
+            prefill_task.responder.set_success(
+                logits,
+                indices,
             )
 
             # Verify that the logits were processed correctly
@@ -388,12 +393,14 @@ class TestPrefillTask:
             )
 
             logits, indices = result_logits_w_indices
-            await prefill_task.process_results(
+            logits, indices = await prefill_task.process_results(
                 args=args,
                 logits=logits,
                 indices=indices,
                 device0=device0,
             )
+
+            prefill_task.responder.set_success(logits, indices)
 
             # Verify that the logits were processed correctly
             for i, req in enumerate(prefill_task._exec_requests):
@@ -460,12 +467,14 @@ class TestDecodeTask:
                 batch_size=decode_task.req_count,
             )
 
-            await decode_task.process_results(
+            logits, indices = await decode_task.process_results(
                 args=args,
                 logits=logits,
                 indices=None,
                 device0=device0,
             )
+
+            decode_task.responder.set_success(logits, indices)
 
             for req in decode_task._exec_requests:
                 results = req.result_logits.items.tolist()
@@ -492,12 +501,14 @@ class TestDecodeTask:
             )
 
             logits, indices = result_logits_w_indices_decode
-            await decode_task.process_results(
+            logits, indices = await decode_task.process_results(
                 args=args,
                 logits=logits,
                 indices=indices,
                 device0=device0,
             )
+
+            decode_task.responder.set_success(logits, indices)
 
             # Verify get_result picked the exact [i, sl, :] vectors
             for i, req in enumerate(decode_task._exec_requests):
