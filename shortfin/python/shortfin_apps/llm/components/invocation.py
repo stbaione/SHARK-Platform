@@ -69,7 +69,6 @@ class LlmTask:
     async def process_results(
         self,
         args: List[Union[Allocation, WrappedAllocation]],
-        req_count: int,
         result: Tuple[sfnp.device_array, Optional[sfnp.device_array]],
         device0: sf.ScopedDevice,
     ):
@@ -99,13 +98,12 @@ class LlmTask:
 
         [arg.release() for arg in args]
 
-        await self._set_results(logits, indices, req_count)
+        await self._set_results(logits, indices)
 
     async def _set_results(
         self,
         logits: sfnp.device_array,
         indices: Optional[sfnp.device_array],
-        req_count: int,
     ):
         """Get the results after a prefill invocation.
 
@@ -247,7 +245,6 @@ class PrefillTask(LlmTask):
         self,
         logits: sfnp.device_array,
         indices: Optional[sfnp.device_array],
-        req_count: int,
     ):
         """Get the results after a prefill invocation.
 
@@ -256,6 +253,7 @@ class PrefillTask(LlmTask):
             indices (Optional[sfnp.device_array]): The indices output from prefill, if any.
             req_count (int): The number of requests in the batch.
         """
+        req_count = len(self.exec_requests)
         for i in range(req_count):
             req = self.exec_requests[i]
             sl = len(req.input_token_ids) - 1
@@ -401,7 +399,6 @@ class DecodeTask(LlmTask):
         self,
         logits: sfnp.device_array,
         indices: Optional[sfnp.device_array],
-        req_count: int,
     ):
         """Get the results after a prefill invocation.
 
@@ -410,6 +407,7 @@ class DecodeTask(LlmTask):
             indices (Optional[sfnp.device_array]): The indices output from prefill, if any.
             req_count (int): The number of requests in the batch.
         """
+        req_count = len(self.exec_requests)
         for i in range(req_count):
             req = self.exec_requests[i]
             logits_item = logits.view(i, 0)
@@ -469,7 +467,6 @@ class LlmInvoker(sf.Process):
 
             await self.llm_task.process_results(
                 args,
-                req_bs,
                 result,
                 self.device0,
             )
