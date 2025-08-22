@@ -17,6 +17,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class CacheStoreAbstract(ABC):
     """
     Abstract base class for attention cache storage.
@@ -34,6 +35,7 @@ class CacheInfo:
     - pages: The actual pages allocated in the cache.
     - pool: The cache store where this information is stored.
     """
+
     num_tokens: int
     pages: Any  # This should be a list of PageInfo or similar objects.
     pool: CacheStoreAbstract
@@ -59,7 +61,9 @@ class AttentionCacheAbstract(ABC):
     """
 
     @abstractmethod
-    def allocate(self, tokens: List[int], lookup: bool = True, evict: bool = True) -> CacheInfo:
+    def allocate(
+        self, tokens: List[int], lookup: bool = True, evict: bool = True
+    ) -> CacheInfo:
         """
         This method should allocate space in the cache for the given tokens and return their indices.
         Parameters:
@@ -69,5 +73,21 @@ class AttentionCacheAbstract(ABC):
 
         Returns:
         - CacheInfo: An object containing metadata about the allocated cache space.
+        """
+        pass
+
+    @abstractmethod
+    def extend_pages(
+        self, tokens: List[int], cache_info: CacheInfo, extra_token_slots: int
+    ) -> CacheInfo:
+        """
+        This method should extend the allocated cache space for the given tokens by the specified number of extra token slots.
+        Parameters:
+        - tokens: List of token IDs to extend space for.
+        - cache_info: Existing CacheInfo object containing current allocation details.
+        - extra_token_slots: Number of additional token slots to allocate.
+
+        Returns:
+        - CacheInfo: An updated object containing metadata about the extended cache space.
         """
         pass
