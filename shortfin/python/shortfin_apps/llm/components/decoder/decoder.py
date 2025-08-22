@@ -366,14 +366,6 @@ class LlmDecoder:
 
         return decode_reqs
 
-    def _allocate_prefill_cache(self, prefill_req: LlmInferenceExecRequest):
-        prefill_req._cache = self._page_cache
-        # Allocate pages for the prefill request
-        prefill_req.acquire_pages()
-
-    def _allocate_decode_cache(self, request: LlmInferenceExecRequest):
-        request.extend_pages(request.input_token_ids, extra_token_slots=1)
-
     async def run(self, input_ids):
         input_length = len(input_ids)
         prefill_req = LlmInferenceExecRequest(
@@ -381,7 +373,7 @@ class LlmDecoder:
             input_token_ids=input_ids,
             rid=self._rid,
         )
-        self._allocate_prefill_cache(prefill_req)
+        prefill_req.acquire_pages()
         # Run Prefill:
         self._prefill_batcher.submit(prefill_req)
         await prefill_req.done
@@ -421,7 +413,7 @@ class LlmDecoder:
 
             for req in to_run:
                 req.reset(InferencePhase.DECODE)
-                self._allocate_decode_cache(req)
+                req.extend_pages(req.input_token_ids, extra_token_slots=1)
                 self._decode_batcher.submit(req)
 
             gathered = asyncio.gather(*[req.done for req in to_run])
