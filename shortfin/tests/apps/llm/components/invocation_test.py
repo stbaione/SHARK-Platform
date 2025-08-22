@@ -20,7 +20,7 @@ from shortfin_apps.llm.components.kvcache.base_attention_cache import (
 )
 from shortfin_apps.llm.components.config_struct import ModelParams, PagedKVCacheParams
 from shortfin_apps.llm.components.invocation import (
-    LlmInvoker,
+    LlmInvocationProcess,
     PrefillTask,
     DecodeTask,
     _pad_list,
@@ -280,7 +280,7 @@ def llm_invoker(prefill_task: PrefillTask, fiber, device_array_cache, page_pool)
     async def invocation_fn(*args, fiber=None):
         return tuple(args)
 
-    return LlmInvoker(
+    return LlmInvocationProcess(
         name="test-invoker",
         fiber=fiber,
         llm_task=prefill_task,
@@ -512,9 +512,13 @@ class TestDecodeTask:
         lsys.run(_test())
 
 
-class TestLlmInvoker:
+class TestLlmInvocationProcess:
     def test_run_none_indices(
-        self, lsys, llm_invoker: LlmInvoker, prefill_task, result_logits_none_indices
+        self,
+        lsys,
+        llm_invoker: LlmInvocationProcess,
+        prefill_task,
+        result_logits_none_indices,
     ):
         async def _test():
             async def entrypoint(*args, fiber=None):

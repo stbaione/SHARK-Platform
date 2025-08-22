@@ -369,7 +369,7 @@ class DecodeTask(LlmTask):
             req.done.set_success()
 
 
-class LlmInvoker(sf.Process):
+class LlmInvocationProcess(sf.Process):
     """Executes the invocation of LLM for a batch of requests."""
 
     def __init__(

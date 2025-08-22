@@ -17,7 +17,7 @@ from shortfin import Fiber
 from .config_struct import ModelParams
 from .device_array_cache import DeviceArrayCache
 from .invocation import (
-    LlmInvoker,
+    LlmInvocationProcess,
     PrefillTask,
     DecodeTask,
 )
@@ -125,7 +125,7 @@ class LlmBatcherProcess(BatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
-    ) -> "LlmInvoker":
+    ) -> "LlmInvocationProcess":
         """Create instance of `LlmInvoker`.
 
         Args:
@@ -198,7 +198,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
-    ) -> "LlmInvoker":
+    ) -> "LlmInvocationProcess":
         """Create instance of `LlmInvoker`.
 
         Args:
@@ -215,7 +215,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             seq_stride=self.page_seq_stride,
             page_tables=page_cache.page_pool.page_tables,
         )
-        return LlmInvoker(
+        return LlmInvocationProcess(
             name="prefill_invocation",
             fiber=fiber,
             llm_task=llm_task,
@@ -256,7 +256,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         exec_requests: list[LlmInferenceExecRequest],
-    ) -> "LlmInvoker":
+    ) -> "LlmInvocationProcess":
         """Create instance of `LlmInvoker`.
 
         This method creates an instance of `LlmInvoker` to handle the
@@ -276,7 +276,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             seq_stride=self.page_seq_stride,
             page_tables=page_cache.page_pool.page_tables,
         )
-        return LlmInvoker(
+        return LlmInvocationProcess(
             name="decode_invocation",
             fiber=fiber,
             llm_task=llm_task,
