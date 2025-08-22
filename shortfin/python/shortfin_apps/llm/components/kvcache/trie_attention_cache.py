@@ -613,9 +613,67 @@ class TriePagedAttentionCache(BasePagedAttentionCache):
                 tokens=tokens,
                 pages=pages,
                 last_cached_node=cur_node,
-                number_of_published_pages=len(cached_pages)
+                number_of_published_pages=len(cached_pages),
+                is_released=False,
             )
-        
+
+    def extend_allocation(self, tokens: List[int], cache_info: TrieCacheInfo, *, extra_token_slots=0) -> TrieCacheInfo:
+        """Extend the current allocation to accommodate additional tokens.
+
+        Args:
+            tokens: New token sequence to extend the allocation to
+            extra_token_slots: Additional token slots to allocate.
+                - This allows us to allocate additional space for future token(s).
+
+        Raises:
+            ValueError: If new tokens don't extend current allocation's tokens
+        """
+        # Verify new tokens extend current tokens
+        if len(tokens) < len(cache_info.tokens):
+            raise ValueError("New tokens must be longer than current tokens")
+
+        # Check that current tokens are a prefix of new tokens
+        if tokens[: len(cache_info.tokens)] != cache_info.tokens:
+            raise ValueError("New tokens must extend current token sequence")
+
+        # If tokens are identical, no extension needed
+        if len(tokens) == len(cache_info.tokens):
+            return cache_info
+
+        # Calculate how many new pages we need
+        tokens_per_page = self.tokens_per_page
+        current_pages = len(cache_info.pages)
+        total_tokens = len(tokens) + extra_token_slots
+        total_pages_needed = math.ceil(total_tokens / tokens_per_page)
+        new_pages_needed = total_pages_needed - current_pages
+            
+        pages = cache_info.pages
+        if new_pages_needed > 0:
+            # Acquire new pages
+            new_pages = self.page_pool.acquire_free_pages(new_pages_needed)
+
+            if new_pages is None:
+                # Try eviction if initial allocation fails
+                self.evict_pages(
+                    new_pages_needed - len(self.page_pool.available_pages)
+                )
+                new_pages = self.page_pool.acquire_free_pages(new_pages_needed)
+
+                if new_pages is None:
+                    raise CacheAllocationFailure(
+                        "Failed to acquire pages for allocation extension even after attempting eviction"
+                    )
+
+            # Extend our page list
+            pages.extend(new_pages)
+        return CacheInfo(
+                num_tokens=len(tokens),
+                tokens=deepcopy(tokens),
+                pages=cache_info.pages,
+                pool=cache_info.page_pool,
+                is_released=False,
+        )
+  
     def publish_pages_for_tokens(
         self, tokens, cache_info, *, publish_incomplete_page=False
     ) -> TrieCacheInfo:
@@ -701,8 +759,29 @@ class TriePagedAttentionCache(BasePagedAttentionCache):
                 tokens=updated_tokens,
                 pages=cache_info.pages,
                 last_cached_node=last_cached_node,
-                number_of_published_pages=number_of_pages_to_publish
+                number_of_published_pages=number_of_pages_to_publish,
+                is_released=False,
             )
 
+    def release_pages(self, cache_info: TrieCacheInfo) -> TrieCacheInfo:
+        """Release the allocation's reference to its pages.
 
+        Decrements reference count of the last cached node. When count
+        reaches zero, the node becomes eligible for eviction.
+        """
+        if cache_info is None:
+            return cache_info
+        if cache_info.is_released:
+            return cache_info
+
+        last_cached_node = cache_info.last_cached_node
+        last_cached_node.ref_count.decrement()
+        return TrieCacheInfo(
+                num_tokens=cache_info.num_tokens,
+                tokens=cache_info.tokens,
+                pages=cache_info.pages,
+                last_cached_node=last_cached_node,
+                number_of_published_pages=cache_info.number_of_published_pages,
+                is_released=True,
+        )
 

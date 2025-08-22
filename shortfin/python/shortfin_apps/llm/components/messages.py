@@ -102,20 +102,30 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         self.allocated_cache_info = self._cache.allocate(self.input_token_ids)
         self.page_ids = [p.index for p in self.allocated_cache_info.pages]
 
+    def extend_pages(self, extra_token_slots: int):
+        self.allocated_cache_info = self._cache.extend_pages(
+            self.input_token_ids,
+            self.allocated_cache_info,
+            extra_token_slots=extra_token_slots,
+        )
+        self.page_ids = [p.index for p in self.allocated_cache_info.pages]
+
     def publish_allocated_pages(self, up_to_page_index: int):
-        if self.allocation is not None:
-            self.allocation.publish_pages_for_tokens(
-                self.input_token_ids, publish_incomplete_page=False
-            )
+        self.allocated_cache_info = self.cache.publish_pages_for_tokens(
+            self.input_token_ids,
+            self.allocated_cache_info,
+            publish_incomplete_page=False,
+        )
+        self.page_ids = [p.index for p in self.allocated_cache_info.pages]
 
     def free_cache_pages(self):
-        if self.allocation:
-            self.allocation.release_pages()
-            self.allocation = None
-        elif self.allocated_cache_info:
+        if self.allocated_cache_info:
             # If we have allocated cache info, we can release the pages.
-            self._cache.free_pages(self.allocated_cache_info.pages)
-            self.allocated_cache_info = None
+            self.allocated_cache_info = self._cache.release_pages(self.allocated_cache_info)
+            if self.allocated_cache_info is None:
+                self.page_ids = []
+            else:
+                self.page_ids = [p.index for p in self.allocated_cache_info.pages]
 
     def __repr__(self) -> str:
         """

@@ -261,6 +261,7 @@ class BasePagedAttentionCache:
             num_tokens=token_count,
             pages=pages,
             pool=self.page_pool,
+            is_released=False,
         )
     
     def extend_allocation(self, tokens, cache_info, *, extra_token_slots=0) -> CacheInfo:
@@ -287,6 +288,7 @@ class BasePagedAttentionCache:
                 num_tokens=token_count,
                 pages=cache_info.pages + tuple(new_pages),
                 pool=self.page_pool,
+                is_released=False,
             )
             self._pages += tuple(new_pages)
 
@@ -294,3 +296,8 @@ class BasePagedAttentionCache:
         self, tokens, cache_info, *, publish_incomplete_page=False
     ) -> CacheInfo:
         pass
+
+    def release_pages(self, cache_info: CacheInfo) -> CacheInfo:
+        if cache_info is not None:        
+            self.free_pages(cache_info.pages)
+        return None
