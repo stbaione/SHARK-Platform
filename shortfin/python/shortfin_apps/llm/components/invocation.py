@@ -29,7 +29,7 @@ class LlmTask:
         self._seq_stride: int = seq_stride
         self._page_tables = page_tables
 
-    def get_args_data(
+    def _get_args_data(
         self,
         exec_requests: List[LlmInferenceExecRequest],
         *args,
@@ -69,7 +69,7 @@ class LlmTask:
             "get_args must be implemented in subclasses of LlmTask"
         )
 
-    async def post_process_logits(
+    async def process_results(
         self,
         args: List[Union[Allocation, WrappedAllocation]],
         req_count: int,
@@ -102,9 +102,9 @@ class LlmTask:
 
         [arg.release() for arg in args]
 
-        await self.get_result(logits, indices, req_count)
+        await self._set_results(logits, indices, req_count)
 
-    async def get_result(
+    async def _set_results(
         self,
         logits: sfnp.device_array,
         indices: Optional[sfnp.device_array],
@@ -144,7 +144,7 @@ class PrefillTask(LlmTask):
             page_tables=page_tables,
         )
 
-    def get_args_data(
+    def _get_args_data(
         self,
         exec_requests: List[LlmInferenceExecRequest],
         batch_seq_len: int,
@@ -231,7 +231,7 @@ class PrefillTask(LlmTask):
         seq_block_ids = array_cache.allocate([batch_size, block_count], int_dtype)
 
         # Populate data for args.
-        arg_data = self.get_args_data(
+        arg_data = self._get_args_data(
             exec_requests=exec_requests,
             batch_seq_len=bsl,
             block_count=block_count,
@@ -248,7 +248,7 @@ class PrefillTask(LlmTask):
 
         return args, req_count
 
-    async def get_result(
+    async def _set_results(
         self,
         logits: sfnp.device_array,
         indices: Optional[sfnp.device_array],
@@ -301,7 +301,7 @@ class DecodeTask(LlmTask):
             page_tables=page_tables,
         )
 
-    def get_args_data(
+    def _get_args_data(
         self,
         exec_requests: List[LlmInferenceExecRequest],
         block_count: int,
@@ -386,7 +386,7 @@ class DecodeTask(LlmTask):
         seq_block_ids = array_cache.allocate([batch_size, block_count], int_dtype)
 
         # Populate data for args.
-        args_data = self.get_args_data(
+        args_data = self._get_args_data(
             exec_requests=exec_requests,
             block_count=block_count,
         )
@@ -402,7 +402,7 @@ class DecodeTask(LlmTask):
 
         return args, req_count
 
-    async def get_result(
+    async def _set_results(
         self,
         logits: sfnp.device_array,
         indices: Optional[sfnp.device_array],
@@ -472,7 +472,7 @@ class LlmInvoker(sf.Process):
             args_device = [arg.device for arg in args]
             result = await fn(*args_device, fiber=self.fiber)
 
-            await self.llm_task.post_process_logits(
+            await self.llm_task.process_results(
                 args,
                 req_count,
                 result,
