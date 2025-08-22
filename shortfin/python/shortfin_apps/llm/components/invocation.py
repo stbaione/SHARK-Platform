@@ -1,5 +1,6 @@
 import logging
 import math
+import traceback
 
 import shortfin as sf
 import shortfin.array as sfnp
@@ -24,7 +25,9 @@ class LlmTask:
         seq_stride: int,
         page_tables: List[sfnp.device_array],
     ):
-        self.exec_requests: List[LlmInferenceExecRequest] = exec_requests
+        self.req_count = len(exec_requests)
+
+        self._exec_requests: List[LlmInferenceExecRequest] = exec_requests
         self._array_cache: DeviceArrayCache = array_cache
         self._seq_stride: int = seq_stride
         self._page_tables = page_tables
@@ -87,7 +90,7 @@ class LlmTask:
         if len(result) > 1:
             indices = result[1]
 
-        exec_requests = self.exec_requests
+        exec_requests = self._exec_requests
         buffers = (logits, indices)
         transfer = any([req.return_host_array for req in exec_requests])
 
@@ -96,6 +99,7 @@ class LlmTask:
 
         logits, indices = await copy_buffers_to_host(buffers, device0)
 
+        # Release arg allocations
         [arg.release() for arg in args]
 
         await self._set_results(logits, indices)
@@ -202,7 +206,7 @@ class PrefillTask(LlmTask):
                 - A list of arguments for the invocation.
                 - The number of requests in the batch.
         """
-        exec_requests = self.exec_requests
+        exec_requests = self._exec_requests
         seq_stride = self._seq_stride
 
         for r in exec_requests:
@@ -239,7 +243,6 @@ class PrefillTask(LlmTask):
         for page_table in self._page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
-        args = [arg.device for arg in args]
         return args
 
     async def _set_results(
@@ -254,9 +257,8 @@ class PrefillTask(LlmTask):
             indices (Optional[sfnp.device_array]): The indices output from prefill, if any.
             req_count (int): The number of requests in the batch.
         """
-        req_count = len(self.exec_requests)
-        for i in range(req_count):
-            req = self.exec_requests[i]
+        for i in range(self.req_count):
+            req = self._exec_requests[i]
             sl = len(req.input_token_ids) - 1
 
             if logits.shape[1] == 1:
@@ -274,7 +276,7 @@ class PrefillTask(LlmTask):
             req.result_logits = logits_item
             req.result_indices = index_item
 
-        for req in self.exec_requests:
+        for req in self._exec_requests:
             req.done.set_success()
 
 
@@ -365,7 +367,7 @@ class DecodeTask(LlmTask):
         """
         # Compute block sequence length as maximum sequence length, rounded
         # up to the seq_stride.
-        exec_requests = self.exec_requests
+        exec_requests = self._exec_requests
         block_count = max(r.block_count for r in exec_requests)
         req_count = len(exec_requests)
         logger.debug("Decode bs=%d", req_count)
@@ -394,7 +396,6 @@ class DecodeTask(LlmTask):
         for page_table in self._page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
-        args = [arg.device for arg in args]
         return args
 
     async def _set_results(
@@ -409,9 +410,8 @@ class DecodeTask(LlmTask):
             indices (Optional[sfnp.device_array]): The indices output from prefill, if any.
             req_count (int): The number of requests in the batch.
         """
-        req_count = len(self.exec_requests)
-        for i in range(req_count):
-            req = self.exec_requests[i]
+        for i in range(self.req_count):
+            req = self._exec_requests[i]
             logits_item = logits.view(i, 0)
 
             index_item = None
@@ -421,7 +421,7 @@ class DecodeTask(LlmTask):
             req.result_logits = logits_item
             req.result_indices = index_item
 
-        for req in self.exec_requests:
+        for req in self._exec_requests:
             req.done.set_success()
 
 
@@ -451,31 +451,37 @@ class LlmInvoker(sf.Process):
             RuntimeError: No available entry point for given batch size.
         """
         try:
-            req_bs = len(self.llm_task.exec_requests)
+            req_count = self.llm_task.req_count
 
             # Select an entrypoint for the batch.
             entrypoints = self.functions
             for bs, fn in entrypoints.items():
-                if bs >= req_bs:
+                if bs >= req_count:
                     break
             else:
-                raise RuntimeError(f"No available entry point for bs {req_bs}")
+                raise RuntimeError(f"No available entry point for bs {req_count}")
 
             args = await self.llm_task.prepare_args(bs)
+            args_device = [arg.device for arg in args]
 
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
-            result = await fn(*args, fiber=self.fiber)
+            result = await fn(*args_device, fiber=self.fiber)
 
+            # TODO (stbaione): Move process_results logic into responder
             await self.llm_task.process_results(
                 args,
                 result,
                 self.device0,
             )
 
+        # TODO (stbaione): Move error handling logic into responder
         except Exception:
-            logger.exception("Fatal error in prefetch invocation")
-            # TODO: Cancel and set error correctly
-            for req in self.llm_task.exec_requests:
+            logger.error(
+                f"""Fatal error in prefetch invocation:
+                {traceback.format_exc()}
+                """
+            )
+            for req in self.llm_task._exec_requests:
                 req.result_logits = None
                 req.free_cache_pages()
                 req.done.set_success()
