@@ -22,10 +22,12 @@ class LlmTask:
         exec_requests: List[LlmInferenceExecRequest],
         array_cache: DeviceArrayCache,
         seq_stride: int,
+        page_tables: List[sfnp.device_array],
     ):
         self.exec_requests: List[LlmInferenceExecRequest] = exec_requests
         self._array_cache: DeviceArrayCache = array_cache
         self._seq_stride: int = seq_stride
+        self._page_tables = page_tables
 
     def get_args_data(
         self,
@@ -47,7 +49,6 @@ class LlmTask:
 
     async def get_args(
         self,
-        page_tables: sfnp.device_array,
         batch_size: int,
     ) -> Tuple[list[sfnp.device_array], int]:
         """Get the arguments for the invocation.
@@ -134,11 +135,13 @@ class PrefillTask(LlmTask):
         exec_requests: list[LlmInferenceExecRequest],
         array_cache: DeviceArrayCache,
         seq_stride: int,
+        page_tables: List[sfnp.device_array],
     ):
         super().__init__(
             exec_requests=exec_requests,
             array_cache=array_cache,
             seq_stride=seq_stride,
+            page_tables=page_tables,
         )
 
     def get_args_data(
@@ -186,7 +189,6 @@ class PrefillTask(LlmTask):
 
     async def get_args(
         self,
-        page_tables: sfnp.device_array,
         batch_size: int,
     ) -> Tuple[list[sfnp.device_array], int]:
         """Get the arguments for the prefill invocation.
@@ -198,8 +200,7 @@ class PrefillTask(LlmTask):
             - cache_slabs: ...
 
         Args:
-            page_tables (sfnp.device_array): Page tables in KVCache.
-            batch_size (int): Size of the `exec_requests` batch.
+            batch_size (int): Size of the invocation function batch.
 
         Returns:
             Tuple[list[sfnp.device_array], int]: A tuple containing:
@@ -242,7 +243,7 @@ class PrefillTask(LlmTask):
             defaults=[0, 1, 0],
         )
 
-        for page_table in page_tables:
+        for page_table in self._page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
         return args, req_count
@@ -291,11 +292,13 @@ class DecodeTask(LlmTask):
         exec_requests: list[LlmInferenceExecRequest],
         array_cache: DeviceArrayCache,
         seq_stride: int,
+        page_tables: List[sfnp.device_array],
     ):
         super().__init__(
             exec_requests=exec_requests,
             array_cache=array_cache,
             seq_stride=seq_stride,
+            page_tables=page_tables,
         )
 
     def get_args_data(
@@ -347,7 +350,6 @@ class DecodeTask(LlmTask):
 
     async def get_args(
         self,
-        page_tables: sfnp.device_array,
         batch_size: int,
     ) -> Tuple[List[Union[Allocation, WrappedAllocation]], int]:
         """Get the arguments for the decode invocation.
@@ -360,7 +362,6 @@ class DecodeTask(LlmTask):
             - cache_slabs: ...
 
         Args:
-            page_tables (sfnp.device_array): Page tables in KVCache.
             batch_size (int): Size of the `exec_requests` batch.
 
         Returns:
@@ -396,7 +397,7 @@ class DecodeTask(LlmTask):
             defaults=[0, 1, 0, 0],
         )
 
-        for page_table in page_tables:
+        for page_table in self._page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
         return args, req_count
@@ -436,22 +437,16 @@ class LlmInvoker(sf.Process):
         self,
         name: str,
         fiber: sf.Fiber,
-        array_cache: DeviceArrayCache,
         llm_task: LlmTask,
         functions: dict[int, sf.ProgramFunction],
-        seq_stride: int,
-        page_tables,
         program_isolation: sf.ProgramIsolation,
     ):
         super().__init__(fiber=fiber)
         self.name = name
-        self.seq_stride = seq_stride
-        self.page_tables = page_tables
         self.functions = functions
         self.program_isolation = program_isolation
 
         self.device0 = fiber.device(0)
-        self.array_cache = array_cache
         self.llm_task = llm_task
 
     async def run(self):
@@ -471,7 +466,7 @@ class LlmInvoker(sf.Process):
             else:
                 raise RuntimeError(f"No available entry point for bs {req_bs}")
 
-            args, req_count = await self.llm_task.get_args(self.page_tables, bs)
+            args, req_count = await self.llm_task.get_args(bs)
 
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
             args_device = [arg.device for arg in args]

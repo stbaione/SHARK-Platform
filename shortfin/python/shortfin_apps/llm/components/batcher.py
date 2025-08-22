@@ -213,15 +213,13 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             exec_requests=exec_requests,
             array_cache=self.array_cache,
             seq_stride=self.page_seq_stride,
+            page_tables=page_cache.page_pool.page_tables,
         )
         return LlmInvoker(
             name="prefill_invocation",
             fiber=fiber,
-            array_cache=self.array_cache,
             llm_task=llm_task,
             functions=self.functions,
-            seq_stride=self.page_seq_stride,
-            page_tables=page_cache.page_pool.page_tables,
             program_isolation=self.program_isolation,
         )
 
@@ -276,14 +274,12 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             exec_requests=exec_requests,
             array_cache=self.array_cache,
             seq_stride=self.page_seq_stride,
+            page_tables=page_cache.page_pool.page_tables,
         )
         return LlmInvoker(
             name="decode_invocation",
             fiber=fiber,
-            array_cache=self.array_cache,
             llm_task=llm_task,
             functions=self.functions,
-            seq_stride=self.page_seq_stride,
-            page_tables=page_cache.page_pool.page_tables,
             program_isolation=self.program_isolation,
         )
