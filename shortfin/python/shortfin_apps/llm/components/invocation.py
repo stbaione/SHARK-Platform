@@ -1,11 +1,11 @@
 import logging
 import math
-import traceback
 
 import shortfin as sf
 import shortfin.array as sfnp
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
 from .buffers import copy_buffers_to_host, create_argument_buffers
@@ -14,6 +14,43 @@ from .messages import LlmInferenceExecRequest
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LlmTaskInput:
+    seq_stride: int
+    input_tokens: List[List[int]]
+    page_ids: List[List[int]]
+
+    start_positions: Optional[List[int]] = None
+
+    @property
+    def batch_seq_len(self):
+        seq_stride = self.seq_stride
+        bsl = max(len(tokens) for tokens in self.input_tokens)
+        return int(math.ceil(bsl / seq_stride) * seq_stride)
+
+    @property
+    def req_count(self):
+        return len(self.input_tokens)
+
+    @staticmethod
+    def from_exec_requests(
+        exec_requests: List[LlmInferenceExecRequest], seq_stride: int
+    ) -> "LlmTaskInput":
+        tokens = [req.input_token_ids for req in exec_requests]
+        page_ids = [req.page_ids for req in exec_requests]
+
+        start_positions = None
+        if all(req.start_position is not None for req in exec_requests):
+            start_positions = [req.start_position for req in exec_requests]
+
+        return LlmTaskInput(
+            seq_stride=seq_stride,
+            input_tokens=tokens,
+            page_ids=page_ids,
+            start_positions=start_positions,
+        )
 
 
 class LlmTaskResponder(ABC):
@@ -44,6 +81,7 @@ class LlmTask:
 
     def __init__(
         self,
+        task_inputs: LlmTaskInput,
         exec_requests: List[LlmInferenceExecRequest],
         array_cache: DeviceArrayCache,
         seq_stride: int,
@@ -53,6 +91,7 @@ class LlmTask:
         self.req_count = len(exec_requests)
         self.responder = responder
 
+        self._task_input = task_inputs
         self._exec_requests: List[LlmInferenceExecRequest] = exec_requests
         self._array_cache: DeviceArrayCache = array_cache
         self._seq_stride: int = seq_stride
@@ -174,12 +213,14 @@ class PrefillTask(LlmTask):
 
     def __init__(
         self,
+        task_inputs: LlmTaskInput,
         exec_requests: list[LlmInferenceExecRequest],
         array_cache: DeviceArrayCache,
         seq_stride: int,
         page_tables: List[sfnp.device_array],
     ):
         super().__init__(
+            task_inputs=task_inputs,
             exec_requests=exec_requests,
             array_cache=array_cache,
             seq_stride=seq_stride,
@@ -300,12 +341,14 @@ class DecodeTask(LlmTask):
 
     def __init__(
         self,
+        task_inputs: LlmTaskInput,
         exec_requests: list[LlmInferenceExecRequest],
         array_cache: DeviceArrayCache,
         seq_stride: int,
         page_tables: List[sfnp.device_array],
     ):
         super().__init__(
+            task_inputs=task_inputs,
             exec_requests=exec_requests,
             array_cache=array_cache,
             seq_stride=seq_stride,

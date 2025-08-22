@@ -18,6 +18,7 @@ from .config_struct import ModelParams
 from .device_array_cache import DeviceArrayCache
 from .invocation import (
     LlmInvocationProcess,
+    LlmTaskInput,
     PrefillTask,
     DecodeTask,
 )
@@ -209,7 +210,13 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         Returns:
             LlmInvoker: Process to handle execution of VMFB.
         """
+        # TODO (stbaione): Make this a builder function w/ minimal args
+        task_inputs = LlmTaskInput.from_exec_requests(
+            exec_requests,
+            self.page_seq_stride,
+        )
         llm_task = PrefillTask(
+            task_inputs=task_inputs,
             exec_requests=exec_requests,
             array_cache=self.array_cache,
             seq_stride=self.page_seq_stride,
@@ -270,7 +277,12 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         Returns:
             LlmInvoker: Process to handle execution of VMFB for decode requests.
         """
+        task_inputs = LlmTaskInput.from_exec_requests(
+            exec_requests,
+            self.page_seq_stride,
+        )
         llm_task = DecodeTask(
+            task_inputs=task_inputs,
             exec_requests=exec_requests,
             array_cache=self.array_cache,
             seq_stride=self.page_seq_stride,
