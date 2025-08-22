@@ -15,7 +15,6 @@ from .kvcache.attention_cache_abstract import CacheInfo
 from .kvcache.base_attention_cache import (
     PageInfo,
     BasePagedAttentionCache,
-    PageAllocation,
 )
 from .kvcache.trie_attention_cache import TriePagedAttentionCache
 from ...utils import InferenceExecRequest
@@ -67,7 +66,6 @@ class LlmInferenceExecRequest(InferenceExecRequest):
 
         # Cache pages that have been locked for this request.
         self._cache: BasePagedAttentionCache | None = None
-        self.allocation: PageAllocation | None = None
         self.page_ids: list[int] = page_ids
         self.allocated_cache_info: CacheInfo | None = None
 
