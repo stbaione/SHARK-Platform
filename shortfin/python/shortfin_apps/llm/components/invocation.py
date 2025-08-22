@@ -437,7 +437,13 @@ class LlmInvocationProcess(sf.Process):
             args_device = [arg.device for arg in args]
 
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
-            logits, indices = await fn(*args_device, fiber=self.fiber)
+            results = await fn(*args_device, fiber=self.fiber)
+
+            logits = results[0]
+            indices = None
+            if len(results) > 1:
+                indices = results[1]
+
             logits, indices = await self.llm_task.process_results(
                 args,
                 logits,
