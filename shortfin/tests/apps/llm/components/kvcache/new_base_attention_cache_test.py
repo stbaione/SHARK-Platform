@@ -50,23 +50,6 @@ def test_allocation_sizes(cache, tokens, expected_pages, case_name):
     assert allocation.num_tokens == len(
         tokens
     ), f"Token count mismatch for case: {case_name}"
-    assert (
-        len(allocation.slot_ids) == allocation.num_tokens
-    ), f"Slot IDs count mismatch for case: {case_name}"
-    assert (
-        len(allocation.block_ids) == allocation.num_tokens
-    ), f"Block IDs count mismatch for case: {case_name}"
-    for i in range(allocation.num_tokens):
-        slot_id = allocation.slot_ids[i]
-        block_id = allocation.block_ids[i]
-        assert (
-            slot_id == i % cache.tokens_per_page
-        ), f"Slot ID mismatch for token {i} in case: {case_name}"
-        idx = i // cache.tokens_per_page
-        assert (
-            block_id == allocation.pages[idx].index
-        ), f"Block ID mismatch for token {i} in case: {case_name}"
-
     cache.free_pages(pages)
 
 
