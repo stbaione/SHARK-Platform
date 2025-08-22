@@ -372,10 +372,7 @@ class LlmDecoder:
         prefill_req.acquire_pages()
 
     def _allocate_decode_cache(self, request: LlmInferenceExecRequest):
-        if request.allocation is not None:
-            request.allocation.extend_allocation(
-                request.input_token_ids, extra_token_slots=1
-            )
+        request.extend_pages(request.input_token_ids, extra_token_slots=1)
 
     async def run(self, input_ids):
         input_length = len(input_ids)

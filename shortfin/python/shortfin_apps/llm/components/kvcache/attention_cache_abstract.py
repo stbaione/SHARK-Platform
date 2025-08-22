@@ -32,19 +32,14 @@ class CacheInfo:
     """
     Metadata about the allocated cache space.
     - num_tokens: Number of tokens allocated in the cache.
-    - slot_ids: the index in the allocated block for each token .
-    - block_ids: the allocated block ids, one block id corresponds to number of tokens defined by tokens_per_page.
     - pages: The actual pages allocated in the cache.
     - pool: The cache store where this information is stored.
     """
 
     num_tokens: int
-    ## slot_ids stores the index in the allocated block for each token.
-    ## block_ids stores the allocated block ids, one block id corresponds to number of tokens defined by tokens_per_page.
-    slot_ids: list[int]
-    block_ids: list[int]
     pages: Any  # This should be a list of PageInfo or similar objects.
     pool: CacheStoreAbstract
+    is_released: bool  # Track if the cache has been released
 
 
 @dataclass
@@ -66,13 +61,33 @@ class AttentionCacheAbstract(ABC):
     """
 
     @abstractmethod
-    def allocate(self, tokens: List[int]) -> CacheInfo:
+    def allocate(
+        self, tokens: List[int], lookup: bool = True, evict: bool = True
+    ) -> CacheInfo:
         """
         This method should allocate space in the cache for the given tokens and return their indices.
         Parameters:
         - tokens: List of token IDs to allocate space for.
+        - lookup: Whether to look up existing tokens in the cache.
+        - evict: Whether to evict old tokens if the cache is full.
 
         Returns:
         - CacheInfo: An object containing metadata about the allocated cache space.
+        """
+        pass
+
+    @abstractmethod
+    def extend_pages(
+        self, tokens: List[int], cache_info: CacheInfo, extra_token_slots: int
+    ) -> CacheInfo:
+        """
+        This method should extend the allocated cache space for the given tokens by the specified number of extra token slots.
+        Parameters:
+        - tokens: List of token IDs to extend space for.
+        - cache_info: Existing CacheInfo object containing current allocation details.
+        - extra_token_slots: Number of additional token slots to allocate.
+
+        Returns:
+        - CacheInfo: An updated object containing metadata about the extended cache space.
         """
         pass
