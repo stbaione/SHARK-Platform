@@ -16,6 +16,7 @@ from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     BasePagedAttentionCache,
     BasePagedAttentionCacheAllocation,
 )
+from shortfin_apps.llm.components.kvcache.attention_cache_abstract import CacheInfo
 
 
 @pytest.fixture(scope="function")
@@ -89,9 +90,13 @@ def test_free_cache_pages(mock_void_future, mock_base_cache, dummy_pages):
     assert not release_called
 
     req._cache = mock_base_cache
-    allocation = BasePagedAttentionCacheAllocation(dummy_pages, cache=mock_base_cache)
-    req.allocation = allocation
-    with patch.object(req.allocation, "release_pages") as mock_release_pages:
+    req.allocated_cache_info = CacheInfo(4, dummy_pages, None, False)
+    # req.allocated_cache_info =
+    # allocation = BasePagedAttentionCacheAllocation(dummy_pages, cache=mock_base_cache)
+    # req.allocation = allocation
+    with patch.object(req._cache, "release_pages") as mock_release_pages:
         req.free_cache_pages()
-        assert req.allocation is None
+
+        # assert req.allocation is None
+        assert req.allocated_cache_info is None
         mock_release_pages.assert_called_once()
