@@ -5,12 +5,9 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import logging
-import math
-from typing import List, Optional, Tuple, Union
 
 
 import shortfin as sf
-import shortfin.array as sfnp
 
 from shortfin import Fiber
 
@@ -18,16 +15,10 @@ from .config_struct import ModelParams
 from .device_array_cache import DeviceArrayCache
 from .invocation import (
     build_invocation_process,
-    DecodeTask,
-    DecodeTaskResponder,
     LlmInvocationProcess,
-    LlmTaskInput,
-    PrefillTask,
-    PrefillTaskResponder,
 )
 from .kvcache.base_attention_cache import (
     BasePagedAttentionCache,
-    CacheAllocationFailure,
 )
 from .messages import LlmInferenceExecRequest, InferencePhase
 from .scheduler import Scheduler
