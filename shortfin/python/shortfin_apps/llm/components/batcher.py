@@ -17,6 +17,7 @@ from shortfin import Fiber
 from .config_struct import ModelParams
 from .device_array_cache import DeviceArrayCache
 from .invocation import (
+    build_invocation_process,
     DecodeTask,
     DecodeTaskResponder,
     LlmInvocationProcess,
@@ -28,7 +29,7 @@ from .kvcache.base_attention_cache import (
     BasePagedAttentionCache,
     CacheAllocationFailure,
 )
-from .messages import LlmInferenceExecRequest
+from .messages import LlmInferenceExecRequest, InferencePhase
 from .scheduler import Scheduler
 
 from ...utils import BatcherProcess
@@ -212,22 +213,12 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         Returns:
             LlmInvoker: Process to handle execution of VMFB.
         """
-        # TODO (stbaione): Make this a builder function w/ minimal args
-        task_inputs = LlmTaskInput.from_exec_requests(
-            exec_requests,
-            self.page_seq_stride,
-        )
-        llm_task = PrefillTask(
-            task_inputs=task_inputs,
-            array_cache=self.array_cache,
-            seq_stride=self.page_seq_stride,
-            page_tables=page_cache.page_pool.page_tables,
-        )
-        return LlmInvocationProcess(
-            name="prefill_invocation",
+        return build_invocation_process(
+            phase=InferencePhase.PREFILL,
+            exec_requests=exec_requests,
             fiber=fiber,
-            llm_task=llm_task,
-            llm_task_responder=PrefillTaskResponder(exec_requests),
+            array_cache=self.array_cache,
+            page_cache=page_cache,
             functions=self.functions,
             program_isolation=self.program_isolation,
         )
@@ -279,21 +270,12 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         Returns:
             LlmInvoker: Process to handle execution of VMFB for decode requests.
         """
-        task_inputs = LlmTaskInput.from_exec_requests(
-            exec_requests,
-            self.page_seq_stride,
-        )
-        llm_task = DecodeTask(
-            task_inputs=task_inputs,
-            array_cache=self.array_cache,
-            seq_stride=self.page_seq_stride,
-            page_tables=page_cache.page_pool.page_tables,
-        )
-        return LlmInvocationProcess(
-            name="decode_invocation",
+        return build_invocation_process(
+            phase=InferencePhase.DECODE,
+            exec_requests=exec_requests,
             fiber=fiber,
-            llm_task=llm_task,
-            llm_task_responder=DecodeTaskResponder(exec_requests),
+            array_cache=self.array_cache,
+            page_cache=page_cache,
             functions=self.functions,
             program_isolation=self.program_isolation,
         )

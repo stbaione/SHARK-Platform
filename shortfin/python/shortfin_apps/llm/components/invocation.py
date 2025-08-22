@@ -11,8 +11,9 @@ from itertools import chain
 from typing import List, Optional, Tuple, Union
 
 from .buffers import copy_buffers_to_host, create_argument_buffers
+from .kvcache.base_attention_cache import BasePagedAttentionCache
 from .device_array_cache import Allocation, DeviceArrayCache, WrappedAllocation
-from .messages import LlmInferenceExecRequest
+from .messages import LlmInferenceExecRequest, InferencePhase
 
 
 logger = logging.getLogger(__name__)
@@ -91,14 +92,12 @@ class LlmTask:
         self,
         task_inputs: LlmTaskInput,
         array_cache: DeviceArrayCache,
-        seq_stride: int,
         page_tables: List[sfnp.device_array],
     ):
         self.req_count = len(task_inputs.input_tokens)
 
         self._task_input = task_inputs
         self._array_cache: DeviceArrayCache = array_cache
-        self._seq_stride: int = seq_stride
         self._page_tables = page_tables
 
     async def prepare_args(
@@ -195,13 +194,11 @@ class PrefillTask(LlmTask):
         self,
         task_inputs: LlmTaskInput,
         array_cache: DeviceArrayCache,
-        seq_stride: int,
         page_tables: List[sfnp.device_array],
     ):
         super().__init__(
             task_inputs=task_inputs,
             array_cache=array_cache,
-            seq_stride=seq_stride,
             page_tables=page_tables,
         )
 
@@ -299,7 +296,6 @@ class DecodeTask(LlmTask):
         self,
         task_inputs: LlmTaskInput,
         array_cache: DeviceArrayCache,
-        seq_stride: int,
         page_tables: List[sfnp.device_array],
     ):
         assert (
@@ -308,7 +304,6 @@ class DecodeTask(LlmTask):
         super().__init__(
             task_inputs=task_inputs,
             array_cache=array_cache,
-            seq_stride=seq_stride,
             page_tables=page_tables,
         )
 
@@ -435,3 +430,41 @@ class LlmInvocationProcess(sf.Process):
 
         except Exception as exception:
             self._responder.set_failure(exception)
+
+
+def build_invocation_process(
+    phase: InferencePhase,
+    exec_requests: List[LlmInferenceExecRequest],
+    fiber: sf.Fiber,
+    array_cache: DeviceArrayCache,
+    page_cache: BasePagedAttentionCache,
+    functions: dict[int, sf.ProgramFunction],
+    program_isolation: sf.ProgramIsolation,
+) -> LlmInvocationProcess:
+    task_inputs = LlmTaskInput.from_exec_requests(
+        exec_requests=exec_requests,
+        seq_stride=page_cache.tokens_per_page,
+    )
+
+    llm_task_cls = PrefillTask if phase == InferencePhase.PREFILL else DecodeTask
+    llm_task = llm_task_cls(
+        task_inputs=task_inputs,
+        array_cache=array_cache,
+        page_tables=page_cache.page_pool.page_tables,
+    )
+
+    responder_cls = (
+        PrefillTaskResponder if phase == InferencePhase.PREFILL else DecodeTaskResponder
+    )
+    responder = responder_cls(
+        exec_requests=exec_requests,
+    )
+
+    return LlmInvocationProcess(
+        name=f"{phase.name.lower()}_invocation",
+        fiber=fiber,
+        llm_task=llm_task,
+        llm_task_responder=responder,
+        functions=functions,
+        program_isolation=program_isolation,
+    )
