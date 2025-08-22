@@ -17,10 +17,12 @@ from shortfin import Fiber
 from .config_struct import ModelParams
 from .device_array_cache import DeviceArrayCache
 from .invocation import (
+    DecodeTask,
+    DecodeTaskResponder,
     LlmInvocationProcess,
     LlmTaskInput,
     PrefillTask,
-    DecodeTask,
+    PrefillTaskResponder,
 )
 from .kvcache.base_attention_cache import (
     BasePagedAttentionCache,
@@ -226,6 +228,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             name="prefill_invocation",
             fiber=fiber,
             llm_task=llm_task,
+            llm_task_responder=PrefillTaskResponder(exec_requests),
             functions=self.functions,
             program_isolation=self.program_isolation,
         )
@@ -292,6 +295,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             name="decode_invocation",
             fiber=fiber,
             llm_task=llm_task,
+            llm_task_responder=DecodeTaskResponder(exec_requests),
             functions=self.functions,
             program_isolation=self.program_isolation,
         )

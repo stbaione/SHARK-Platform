@@ -98,10 +98,8 @@ class LlmTask:
         array_cache: DeviceArrayCache,
         seq_stride: int,
         page_tables: List[sfnp.device_array],
-        responder: LlmTaskResponder,
     ):
         self.req_count = len(exec_requests)
-        self.responder = responder
 
         self._task_input = task_inputs
         self._exec_requests: List[LlmInferenceExecRequest] = exec_requests
@@ -148,13 +146,7 @@ class LlmTask:
                 - First item is logits
                 - Seconds items is optional indices
         """
-        exec_requests = self._exec_requests
         buffers = (logits, indices)
-        transfer = any([req.return_host_array for req in exec_requests])
-
-        if not transfer:
-            return buffers
-
         logits, indices = await copy_buffers_to_host(buffers, device0)
 
         # Release arg allocations
@@ -219,7 +211,6 @@ class PrefillTask(LlmTask):
             array_cache=array_cache,
             seq_stride=seq_stride,
             page_tables=page_tables,
-            responder=PrefillTaskResponder(exec_requests),
         )
 
     async def prepare_args(
@@ -326,7 +317,6 @@ class DecodeTask(LlmTask):
             array_cache=array_cache,
             seq_stride=seq_stride,
             page_tables=page_tables,
-            responder=DecodeTaskResponder(exec_requests),
         )
 
     async def prepare_args(
@@ -351,6 +341,7 @@ class DecodeTask(LlmTask):
         # Compute block sequence length as maximum sequence length, rounded
         # up to the seq_stride.
         task_inputs = self._task_input
+        block_count = task_inputs.block_count
         logger.debug("Decode bs=%d", task_inputs.req_count)
 
         array_cache = self._array_cache
@@ -360,9 +351,7 @@ class DecodeTask(LlmTask):
         tokens = array_cache.allocate([batch_size, 1], int_dtype)
         start_positions = array_cache.allocate([batch_size], int_dtype)
         seq_lens = array_cache.allocate([batch_size], int_dtype)
-        seq_block_ids = array_cache.allocate(
-            [batch_size, task_inputs.block_count], int_dtype
-        )
+        seq_block_ids = array_cache.allocate([batch_size, block_count], int_dtype)
 
         # Prepare data for argument buffers
         tokens_data = list(
@@ -372,8 +361,7 @@ class DecodeTask(LlmTask):
 
         seq_block_ids_data = list(
             chain.from_iterable(
-                _pad_list(pages, task_inputs.block_count)
-                for pages in task_inputs.page_ids
+                _pad_list(pages, block_count) for pages in task_inputs.page_ids
             )
         )
 
@@ -402,16 +390,18 @@ class LlmInvocationProcess(sf.Process):
         name: str,
         fiber: sf.Fiber,
         llm_task: LlmTask,
+        llm_task_responder: LlmTaskResponder,
         functions: dict[int, sf.ProgramFunction],
         program_isolation: sf.ProgramIsolation,
     ):
         super().__init__(fiber=fiber)
-        self.name = name
-        self.functions = functions
-        self.program_isolation = program_isolation
+        self._name = name
+        self._functions = functions
+        self._program_isolation = program_isolation
 
-        self.device0 = fiber.device(0)
-        self.llm_task = llm_task
+        self._device0 = fiber.device(0)
+        self._llm_task = llm_task
+        self._responder = llm_task_responder
 
     async def run(self):
         """Invoke `prefill` or `decode` function, with IREE, on a batch of requests.
@@ -420,17 +410,17 @@ class LlmInvocationProcess(sf.Process):
             RuntimeError: No available entry point for given batch size.
         """
         try:
-            req_count = self.llm_task.req_count
+            req_count = self._llm_task.req_count
 
             # Select an entrypoint for the batch.
-            entrypoints = self.functions
+            entrypoints = self._functions
             for bs, fn in entrypoints.items():
                 if bs >= req_count:
                     break
             else:
                 raise RuntimeError(f"No available entry point for bs {req_count}")
 
-            args = await self.llm_task.prepare_args(bs)
+            args = await self._llm_task.prepare_args(bs)
             args_device = [arg.device for arg in args]
 
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
@@ -441,14 +431,14 @@ class LlmInvocationProcess(sf.Process):
             if len(results) > 1:
                 indices = results[1]
 
-            logits, indices = await self.llm_task.process_results(
+            logits, indices = await self._llm_task.process_results(
                 args,
                 logits,
                 indices,
-                self.device0,
+                self._device0,
             )
 
-            self.llm_task.responder.set_success(logits, indices)
+            self._responder.set_success(logits, indices)
 
         except Exception as exception:
-            self.llm_task.responder.set_failure(exception)
+            self._responder.set_failure(exception)
