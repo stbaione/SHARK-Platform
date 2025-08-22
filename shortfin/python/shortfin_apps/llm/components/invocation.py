@@ -50,17 +50,14 @@ class LlmTask:
     async def get_args(
         self,
         batch_size: int,
-    ) -> Tuple[list[sfnp.device_array], int]:
+    ) -> List[Union[Allocation, WrappedAllocation]]:
         """Get the arguments for the invocation.
 
         Args:
-            page_tables (sfnp.device_array): Page tables in KVCache.
-            batch_size (int): Size of the `exec_requests` batch.
+            batch_size (int): Batch size of the invocation function.
 
         Returns:
-            Tuple[list[sfnp.device_array], int]: A tuple containing:
-                - A list of arguments for the invocation.
-                - The number of requests in the batch.
+            List[sfnp.device_array]: A list of arguments for the invocation.
 
         Raises:
             NotImplementedError: This method must be implemented in subclasses.
@@ -149,7 +146,7 @@ class PrefillTask(LlmTask):
         exec_requests: List[LlmInferenceExecRequest],
         batch_seq_len: int,
         block_count: int,
-    ) -> Tuple[List[int | float]]:
+    ) -> Tuple[List[int]]:
         """Get the invocation data for the given requests.
 
         Prepare the data that will be used to create the argument_buffers
@@ -190,7 +187,7 @@ class PrefillTask(LlmTask):
     async def get_args(
         self,
         batch_size: int,
-    ) -> Tuple[list[sfnp.device_array], int]:
+    ) -> List[Union[Allocation, WrappedAllocation]]:
         """Get the arguments for the prefill invocation.
 
         The prefill args that are created are:
@@ -208,7 +205,6 @@ class PrefillTask(LlmTask):
                 - The number of requests in the batch.
         """
         exec_requests = self.exec_requests
-        req_count = len(exec_requests)
         seq_stride = self._seq_stride
 
         for r in exec_requests:
@@ -219,7 +215,6 @@ class PrefillTask(LlmTask):
         bsl = max((len(r.input_token_ids)) for r in exec_requests)
         bsl = int(math.ceil(bsl / seq_stride) * seq_stride)
         block_count = max(r.block_count for r in exec_requests)
-        req_count = len(exec_requests)
         logger.debug("Prefill bs=%d, bsl=%d", batch_size, bsl)
 
         array_cache = self._array_cache
@@ -246,7 +241,7 @@ class PrefillTask(LlmTask):
         for page_table in self._page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
-        return args, req_count
+        return args
 
     async def _set_results(
         self,
@@ -351,7 +346,7 @@ class DecodeTask(LlmTask):
     async def get_args(
         self,
         batch_size: int,
-    ) -> Tuple[List[Union[Allocation, WrappedAllocation]], int]:
+    ) -> List[Union[Allocation, WrappedAllocation]]:
         """Get the arguments for the decode invocation.
 
         The decode args that are created are:
@@ -400,7 +395,7 @@ class DecodeTask(LlmTask):
         for page_table in self._page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
-        return args, req_count
+        return args
 
     async def _set_results(
         self,
@@ -466,7 +461,7 @@ class LlmInvoker(sf.Process):
             else:
                 raise RuntimeError(f"No available entry point for bs {req_bs}")
 
-            args, req_count = await self.llm_task.get_args(bs)
+            args = await self.llm_task.get_args(bs)
 
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
             args_device = [arg.device for arg in args]
@@ -474,7 +469,7 @@ class LlmInvoker(sf.Process):
 
             await self.llm_task.process_results(
                 args,
-                req_count,
+                req_bs,
                 result,
                 self.device0,
             )
