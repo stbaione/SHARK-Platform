@@ -109,24 +109,6 @@ class LlmTask:
         self._seq_stride: int = seq_stride
         self._page_tables = page_tables
 
-    def _get_args_data(
-        self,
-        exec_requests: List[LlmInferenceExecRequest],
-        *args,
-    ) -> Tuple[List[int | float] | List[List[int | float]]]:
-        """Prepare the invocation data for the given requests.
-
-        Prepare the data that will be used to create the argument_buffers
-        for the invocation.
-
-        Args:
-            exec_requests (List[LlmInferenceExecRequest]): List of execution requests.
-            *args: Additional arguments that may be needed for specific implementations.
-
-        Returns:
-            Tuple[List[int | float] | List[List[int | float]]]: A tuple containing argument data.
-        """
-
     async def prepare_args(
         self,
         batch_size: int,
@@ -240,32 +222,6 @@ class PrefillTask(LlmTask):
             responder=PrefillTaskResponder(exec_requests),
         )
 
-    def _get_args_data(
-        self,
-        exec_requests: List[LlmInferenceExecRequest],
-        batch_seq_len: int,
-        block_count: int,
-    ) -> Tuple[List[int]]:
-        task_input = self._task_input
-
-        tokens = list(
-            chain.from_iterable(
-                _pad_list(tokens, task_input.batch_seq_len)
-                for tokens in task_input.input_tokens
-            )
-        )
-
-        seq_lens = [len(tokens) for tokens in task_input.input_tokens]
-
-        seq_block_ids = list(
-            chain.from_iterable(
-                _pad_list(pages, target_length=task_input.block_count)
-                for pages in task_input.page_ids
-            )
-        )
-
-        return tokens, seq_lens, seq_block_ids
-
     async def prepare_args(
         self,
         batch_size: int,
@@ -284,37 +240,43 @@ class PrefillTask(LlmTask):
         Returns:
             List[sfnp.device_array]: A list of arguments for the invocation.
         """
-        exec_requests = self._exec_requests
-        seq_stride = self._seq_stride
-
-        for r in exec_requests:
-            assert r.start_position == 0
+        task_inputs = self._task_input
 
         # Compute block sequence length as maximum sequence length, rounded
         # up to the seq_stride.
-        bsl = max((len(r.input_token_ids)) for r in exec_requests)
-        bsl = int(math.ceil(bsl / seq_stride) * seq_stride)
-        block_count = max(r.block_count for r in exec_requests)
-        logger.debug("Prefill bs=%d, bsl=%d", batch_size, bsl)
+        batch_seq_len = task_inputs.batch_seq_len
+        logger.debug(f"Prefill bs={batch_size}, bsl={batch_seq_len}")
 
         array_cache = self._array_cache
         int_dtype = sfnp.int64
 
         # Acquire buffers for the arguments.
-        tokens = array_cache.allocate([batch_size, bsl], int_dtype)
+        tokens = array_cache.allocate([batch_size, batch_seq_len], int_dtype)
         seq_lens = array_cache.allocate([batch_size], int_dtype)
-        seq_block_ids = array_cache.allocate([batch_size, block_count], int_dtype)
+        seq_block_ids = array_cache.allocate(
+            [batch_size, task_inputs.block_count], int_dtype
+        )
 
-        # Populate data for args.
-        arg_data = self._get_args_data(
-            exec_requests=exec_requests,
-            batch_seq_len=bsl,
-            block_count=block_count,
+        # Prepare data for argument buffers
+        tokens_data = list(
+            chain.from_iterable(
+                _pad_list(tokens, task_inputs.batch_seq_len)
+                for tokens in task_inputs.input_tokens
+            )
+        )
+
+        seq_lens_data = [len(tokens) for tokens in task_inputs.input_tokens]
+
+        seq_block_ids_data = list(
+            chain.from_iterable(
+                _pad_list(pages, target_length=task_inputs.block_count)
+                for pages in task_inputs.page_ids
+            )
         )
 
         args = create_argument_buffers(
             buffers=[tokens, seq_lens, seq_block_ids],
-            data=arg_data,
+            data=[tokens_data, seq_lens_data, seq_block_ids_data],
             defaults=[0, 1, 0],
         )
 
@@ -367,32 +329,6 @@ class DecodeTask(LlmTask):
             responder=DecodeTaskResponder(exec_requests),
         )
 
-    def _get_args_data(
-        self,
-        exec_requests: List[LlmInferenceExecRequest],
-        block_count: int,
-    ) -> Tuple[List[int | float] | List[List[int | float]]]:
-        task_input = self._task_input
-
-        tokens = list(
-            chain.from_iterable(tokens[-1:] for tokens in task_input.input_tokens)
-        )
-        seq_lens = [pos + 1 for pos in task_input.start_positions]
-
-        seq_block_ids = list(
-            chain.from_iterable(
-                _pad_list(pages, task_input.block_count)
-                for pages in task_input.page_ids
-            )
-        )
-
-        return (
-            tokens,
-            seq_lens,
-            task_input.start_positions,
-            seq_block_ids,
-        )
-
     async def prepare_args(
         self,
         batch_size: int,
@@ -414,10 +350,8 @@ class DecodeTask(LlmTask):
         """
         # Compute block sequence length as maximum sequence length, rounded
         # up to the seq_stride.
-        exec_requests = self._exec_requests
-        block_count = max(r.block_count for r in exec_requests)
-        req_count = len(exec_requests)
-        logger.debug("Decode bs=%d", req_count)
+        task_inputs = self._task_input
+        logger.debug("Decode bs=%d", task_inputs.req_count)
 
         array_cache = self._array_cache
         int_dtype = sfnp.int64
@@ -426,17 +360,31 @@ class DecodeTask(LlmTask):
         tokens = array_cache.allocate([batch_size, 1], int_dtype)
         start_positions = array_cache.allocate([batch_size], int_dtype)
         seq_lens = array_cache.allocate([batch_size], int_dtype)
-        seq_block_ids = array_cache.allocate([batch_size, block_count], int_dtype)
+        seq_block_ids = array_cache.allocate(
+            [batch_size, task_inputs.block_count], int_dtype
+        )
 
-        # Populate data for args.
-        args_data = self._get_args_data(
-            exec_requests=exec_requests,
-            block_count=block_count,
+        # Prepare data for argument buffers
+        tokens_data = list(
+            chain.from_iterable(tokens[-1:] for tokens in task_inputs.input_tokens)
+        )
+        seq_lens_data = [pos + 1 for pos in task_inputs.start_positions]
+
+        seq_block_ids_data = list(
+            chain.from_iterable(
+                _pad_list(pages, task_inputs.block_count)
+                for pages in task_inputs.page_ids
+            )
         )
 
         args = create_argument_buffers(
             buffers=[tokens, seq_lens, start_positions, seq_block_ids],
-            data=args_data,
+            data=[
+                tokens_data,
+                seq_lens_data,
+                task_inputs.start_positions,
+                seq_block_ids_data,
+            ],
             defaults=[0, 1, 0, 0],
         )
 
@@ -488,8 +436,8 @@ class LlmInvocationProcess(sf.Process):
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
             results = await fn(*args_device, fiber=self.fiber)
 
-            logits = results[0]
             indices = None
+            logits = results[0]
             if len(results) > 1:
                 indices = results[1]
 
