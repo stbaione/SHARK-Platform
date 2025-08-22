@@ -1,11 +1,13 @@
 import logging
 import math
+import traceback
 
 import shortfin as sf
 import shortfin.array as sfnp
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from itertools import chain
 from typing import List, Optional, Tuple, Union
 
 from .buffers import copy_buffers_to_host, create_argument_buffers
@@ -18,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class LlmTaskInput:
+    block_count: int
     seq_stride: int
     input_tokens: List[List[int]]
     page_ids: List[List[int]]
@@ -38,14 +41,23 @@ class LlmTaskInput:
     def from_exec_requests(
         exec_requests: List[LlmInferenceExecRequest], seq_stride: int
     ) -> "LlmTaskInput":
+        block_count = max(req.block_count for req in exec_requests)
         tokens = [req.input_token_ids for req in exec_requests]
-        page_ids = [req.page_ids for req in exec_requests]
+        page_ids = []
+        for req in exec_requests:
+            if req.allocation is None:
+                page_ids.append(req.page_ids)
+                continue
+
+            pages = req.allocation.pages
+            page_ids.append([page.index for page in pages])
 
         start_positions = None
         if all(req.start_position is not None for req in exec_requests):
             start_positions = [req.start_position for req in exec_requests]
 
         return LlmTaskInput(
+            block_count=block_count,
             seq_stride=seq_stride,
             input_tokens=tokens,
             page_ids=page_ids,
@@ -65,8 +77,8 @@ class LlmTaskResponder(ABC):
 
     def set_failure(self, exception):
         logger.error(
-            f"""Fatal error in prefetch invocation:
-            {exception!r}
+            f"""Fatal error in prefetch invocation: {exception!r}
+            {traceback.format_exc()}
             """
         )
 
@@ -234,26 +246,25 @@ class PrefillTask(LlmTask):
         batch_seq_len: int,
         block_count: int,
     ) -> Tuple[List[int]]:
-        token_vals = [
-            input_tokens
-            for req in exec_requests
-            for input_tokens in (_pad_list(req.input_token_ids, batch_seq_len))
-        ]
+        task_input = self._task_input
 
-        seq_lens_vals = [len(req.input_token_ids) for req in exec_requests]
-
-        seq_block_ids_vals = []
-        for req in exec_requests:
-            block_ids = req.cache_page_indices(block_count)
-            # Pad the block IDs to match the block count.
-            block_ids = _pad_list(
-                block_ids,
-                target_length=block_count,
+        tokens = list(
+            chain.from_iterable(
+                _pad_list(tokens, task_input.batch_seq_len)
+                for tokens in task_input.input_tokens
             )
-            # Extend the sequence block IDs data with padded values.
-            seq_block_ids_vals.extend(block_ids)
+        )
 
-        return token_vals, seq_lens_vals, seq_block_ids_vals
+        seq_lens = [len(tokens) for tokens in task_input.input_tokens]
+
+        seq_block_ids = list(
+            chain.from_iterable(
+                _pad_list(pages, target_length=task_input.block_count)
+                for pages in task_input.page_ids
+            )
+        )
+
+        return tokens, seq_lens, seq_block_ids
 
     async def prepare_args(
         self,
@@ -361,30 +372,25 @@ class DecodeTask(LlmTask):
         exec_requests: List[LlmInferenceExecRequest],
         block_count: int,
     ) -> Tuple[List[int | float] | List[List[int | float]]]:
-        token_data = [
-            input_tokens
-            for req in exec_requests
-            for input_tokens in (req.input_token_ids[-1:])
-        ]
-        seq_lens_data = [req.start_position + 1 for req in exec_requests]
-        start_positions_data = [req.start_position for req in exec_requests]
+        task_input = self._task_input
 
-        seq_block_ids_data = []
-        for req in exec_requests:
-            block_ids = req.cache_page_indices(block_count)
-            # Pad the block IDs to match the block count.
-            padded = _pad_list(
-                block_ids,
-                target_length=block_count,
+        tokens = list(
+            chain.from_iterable(tokens[-1:] for tokens in task_input.input_tokens)
+        )
+        seq_lens = [pos + 1 for pos in task_input.start_positions]
+
+        seq_block_ids = list(
+            chain.from_iterable(
+                _pad_list(pages, task_input.block_count)
+                for pages in task_input.page_ids
             )
-            # Extend the sequence block IDs data with padded values.
-            seq_block_ids_data.extend(padded)
+        )
 
         return (
-            token_data,
-            seq_lens_data,
-            start_positions_data,
-            seq_block_ids_data,
+            tokens,
+            seq_lens,
+            task_input.start_positions,
+            seq_block_ids,
         )
 
     async def prepare_args(
