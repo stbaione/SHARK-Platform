@@ -79,7 +79,7 @@ class TrieNode:
         return id(self) < id(other)
 
 @dataclass
-class TriCacheInfo(CacheInfo):
+class TrieCacheInfo(CacheInfo):
     """Metadata about the trie-based cache allocation.
 
     Contains information about the tokens, pages, and last cached node.
@@ -92,8 +92,6 @@ class TriCacheInfo(CacheInfo):
         number_of_published_pages: Number of pages that have been published to the cache
     """
     tokens: List[int]
-    cached_pages: List[PageInfo]
-    newly_acquired_pages: List[PageInfo]
     last_cached_node: TrieNode
     number_of_published_pages: int
 
@@ -562,7 +560,7 @@ class TriePagedAttentionCache(BasePagedAttentionCache):
         self,
         tokens: List[int],
         lookup: bool = True, evict: bool = True,
-    ) -> TriCacheInfo:
+    ) -> TrieCacheInfo:
         """Acquire pages for a sequence of tokens.
 
         Attempts to reuse existing cached pages where possible through
@@ -609,24 +607,102 @@ class TriePagedAttentionCache(BasePagedAttentionCache):
                     )
                 
             pages = cached_pages + new_pages   
-            slot_ids = []
-            block_ids = []
-            for i in range(token_count):
-                slot_index = i % self.tokens_per_page
-                slot_ids.append(slot_index)
-                idx = i // self.tokens_per_page
-                block_ids.append(pages[idx].index)
 
-            return TriCacheInfo(
+            return TrieCacheInfo(
                 num_tokens=len(tokens),
                 tokens=tokens,
-                slot_ids=slot_ids,
-                block_ids=block_ids,
                 pages=pages,
-                cached_pages=cached_pages,
-                newly_acquired_pages=new_pages,
                 last_cached_node=cur_node,
                 number_of_published_pages=len(cached_pages)
             )
+        
+    def publish_pages_for_tokens(
+        self, tokens, cache_info, *, publish_incomplete_page=False
+    ) -> TrieCacheInfo:
+        """Make pages available in the cache for the specified tokens.
+
+        Args:
+            tokens_to_publish: Tokens to publish to the cache
+            cache_info: TrieCacheInfo object containing allocation metadata
+
+        Raises:
+            ValueError: If tokens don't match allocation or exceed available pages
+        """
+        with self._lock:
+            # If we have more tokens, publish pages up to the incoming tokens.
+            # If incoming has more tokens, replace our tokens with incoming tokens and publish pages up to the incoming tokens.
+            min_len = min(len(cache_info.tokens), len(tokens))
+            if cache_info.tokens[:min_len] != tokens[:min_len]:
+                raise ValueError(
+                    "Tokens provided in publish_pages do not match tokens in allocation"
+                )
+
+            updated_tokens = []
+            if len(tokens) > len(cache_info.tokens):
+                updated_tokens = deepcopy(tokens)
+            else:
+                updated_tokens = deepcopy(cache_info.tokens)
+
+            tokens_per_page = self.tokens_per_page
+            matched_node, matched_pages = self.lookup(tokens)
+            last_number_of_published_pages = cache_info.number_of_published_pages
+            if len(matched_pages) > last_number_of_published_pages:
+                last_number_of_published_pages = len(matched_pages)
+
+            if publish_incomplete_page:
+                number_of_pages_to_publish = -(
+                    len(tokens) // -tokens_per_page
+                )  # ceil division
+            else:
+                number_of_pages_to_publish = len(tokens) // tokens_per_page
+
+            # Create token blocks for unpublished pages
+            start_token_index = last_number_of_published_pages * tokens_per_page
+            unpublished_tokens = [
+                tuple(updated_tokens[i : i + tokens_per_page])
+                for i in range(start_token_index, len(updated_tokens), tokens_per_page)
+            ]
+
+            unpublished_pages = cache_inf.pages[
+                last_number_of_published_pages : number_of_pages_to_publish
+            ]
+
+            # Add unpublished pages to trie
+            if publish_incomplete_page:
+                raise NotImplementedError(
+                    "Additional work needed here to support publishing incomplete pages to ensure that we finish up a page before attaching child nodes to it."
+                )
+
+            cur_node = matched_node
+            for token_block, page in zip(unpublished_tokens, unpublished_pages):
+                new_node = cur_node.create_child(token_block, page)
+
+                # remove parent node from the leaves.
+                # No need to delete if it was deleted earlier.
+                if cur_node in self.leaves:
+                    self.leaves.remove(cur_node)
+                cur_node = new_node
+
+                if (
+                    cur_node is not self.root
+                    and cur_node not in self.leaves
+                ):
+                    self.leaves.add(cur_node)
+
+            # Update reference counts
+            last_cached_node = cache_info.last_cached_node
+            if unpublished_tokens:
+                cur_node.ref_count.increment()
+                last_cached_node.ref_count.decrement()
+                last_cached_node = cur_node
+
+            return TrieCacheInfo(
+                num_tokens=len(tokens),
+                tokens=updated_tokens,
+                pages=cache_info.pages,
+                last_cached_node=last_cached_node,
+                number_of_published_pages=number_of_pages_to_publish
+            )
+
 
 
