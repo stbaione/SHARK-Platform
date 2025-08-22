@@ -33,10 +33,6 @@ class LlmTaskInput:
         bsl = max(len(tokens) for tokens in self.input_tokens)
         return int(math.ceil(bsl / seq_stride) * seq_stride)
 
-    @property
-    def req_count(self):
-        return len(self.input_tokens)
-
     @staticmethod
     def from_exec_requests(
         exec_requests: List[LlmInferenceExecRequest], seq_stride: int
@@ -311,6 +307,9 @@ class DecodeTask(LlmTask):
         seq_stride: int,
         page_tables: List[sfnp.device_array],
     ):
+        assert (
+            task_inputs.start_positions is not None
+        ), "`start_positions` must be defined for `Decode`."
         super().__init__(
             task_inputs=task_inputs,
             exec_requests=exec_requests,
@@ -342,7 +341,7 @@ class DecodeTask(LlmTask):
         # up to the seq_stride.
         task_inputs = self._task_input
         block_count = task_inputs.block_count
-        logger.debug("Decode bs=%d", task_inputs.req_count)
+        logger.debug("Decode bs=%d", self.req_count)
 
         array_cache = self._array_cache
         int_dtype = sfnp.int64
