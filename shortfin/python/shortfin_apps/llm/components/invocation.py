@@ -47,10 +47,10 @@ class LlmTask:
             Tuple[List[int | float] | List[List[int | float]]]: A tuple containing argument data.
         """
 
-    async def get_args(
+    async def prepare_args(
         self,
         batch_size: int,
-    ) -> List[Union[Allocation, WrappedAllocation]]:
+    ) -> List[sfnp.device_array]:
         """Get the arguments for the invocation.
 
         Args:
@@ -182,10 +182,10 @@ class PrefillTask(LlmTask):
 
         return token_vals, seq_lens_vals, seq_block_ids_vals
 
-    async def get_args(
+    async def prepare_args(
         self,
         batch_size: int,
-    ) -> List[Union[Allocation, WrappedAllocation]]:
+    ) -> List[sfnp.device_array]:
         """Get the arguments for the prefill invocation.
 
         The prefill args that are created are:
@@ -239,6 +239,7 @@ class PrefillTask(LlmTask):
         for page_table in self._page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
+        args = [arg.device for arg in args]
         return args
 
     async def _set_results(
@@ -341,10 +342,10 @@ class DecodeTask(LlmTask):
             seq_block_ids_data,
         )
 
-    async def get_args(
+    async def prepare_args(
         self,
         batch_size: int,
-    ) -> List[Union[Allocation, WrappedAllocation]]:
+    ) -> List[sfnp.device_array]:
         """Get the arguments for the decode invocation.
 
         The decode args that are created are:
@@ -393,6 +394,7 @@ class DecodeTask(LlmTask):
         for page_table in self._page_tables:
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
+        args = [arg.device for arg in args]
         return args
 
     async def _set_results(
@@ -459,11 +461,10 @@ class LlmInvoker(sf.Process):
             else:
                 raise RuntimeError(f"No available entry point for bs {req_bs}")
 
-            args = await self.llm_task.get_args(bs)
+            args = await self.llm_task.prepare_args(bs)
 
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
-            args_device = [arg.device for arg in args]
-            result = await fn(*args_device, fiber=self.fiber)
+            result = await fn(*args, fiber=self.fiber)
 
             await self.llm_task.process_results(
                 args,
