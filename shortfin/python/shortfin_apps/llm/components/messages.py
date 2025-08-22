@@ -76,8 +76,8 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         if self.page_ids:
             return len(self.page_ids)
 
-        if self.allocation:
-            return len(self.allocation.pages)
+        if self.allocated_cache_info:
+            return len(self.allocated_cache_info.pages)
 
         return 0
 
@@ -92,9 +92,9 @@ class LlmInferenceExecRequest(InferenceExecRequest):
         if self.page_ids:
             return self.page_ids
 
-        if not self.allocation:
+        if not self.allocated_cache_info:
             return []
-        indices = [p.index for p in self.allocation.pages[:max_len]]
+        indices = [p.index for p in self.allocated_cache_info.pages[:max_len]]
         return indices
 
     def acquire_pages(self):

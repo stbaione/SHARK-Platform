@@ -74,8 +74,7 @@ def test_inference_exec_request_reset(mock_void_future):
 def test_cache_page_indices(mock_void_future, mock_base_cache, dummy_pages):
     req = LlmInferenceExecRequest(InferencePhase.PREFILL, [1, 2, 3, 4], rid="test123")
     req._cache = mock_base_cache
-    allocation = BasePagedAttentionCacheAllocation(dummy_pages, cache=mock_base_cache)
-    req.allocation = allocation
+    req.allocated_cache_info = CacheInfo(4, dummy_pages, None, False)
 
     cache_page_indices = req.cache_page_indices(2)
     assert len(cache_page_indices) == 2
