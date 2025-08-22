@@ -37,7 +37,7 @@ class LlmTask:
         exec_requests: List[LlmInferenceExecRequest],
         *args,
     ) -> Tuple[List[int | float] | List[List[int | float]]]:
-        """Get the invocation data for the given requests.
+        """Prepare the invocation data for the given requests.
 
         Prepare the data that will be used to create the argument_buffers
         for the invocation.
@@ -54,7 +54,7 @@ class LlmTask:
         self,
         batch_size: int,
     ) -> List[sfnp.device_array]:
-        """Get the arguments for the invocation.
+        """Prepare the arguments for invocation.
 
         Args:
             batch_size (int): Batch size of the invocation function.
@@ -72,24 +72,18 @@ class LlmTask:
     async def process_results(
         self,
         args: List[Union[Allocation, WrappedAllocation]],
-        result: Tuple[sfnp.device_array, Optional[sfnp.device_array]],
+        logits: sfnp.device_array,
+        indices: Optional[sfnp.device_array],
         device0: sf.ScopedDevice,
     ):
-        """Handle the post-processing of logits after a prefill invocation.
+        """Process the results of the invocation.
 
         Args:
-            args (List[Union[Allocation, WrappedAllocation]]): The arguments used for the invocation.
-            req_count (int): The number of requests in the batch.
-            result (Tuple[sfnp.device_array, Optional[sfnp.device_array]]): The result from the invocation.
-                - The 0th element should be the `logits`
-                - The 1st element should be the `indices`, if any.
-            device0 (sf.ScopedDevice): The device used for invocation.
+            args (List[Union[Allocation, WrappedAllocation]]): Args used for invocation.
+            logits (sfnp.device_array): Logits from invocation.
+            indices (Optional[sfnp.device_array]): Indices from invocation.
+            device0 (sf.ScopedDevice): Device used for invocation.
         """
-        indices = None
-        logits = result[0]
-        if len(result) > 1:
-            indices = result[1]
-
         exec_requests = self._exec_requests
         buffers = (logits, indices)
         transfer = any([req.return_host_array for req in exec_requests])
@@ -149,22 +143,6 @@ class PrefillTask(LlmTask):
         batch_seq_len: int,
         block_count: int,
     ) -> Tuple[List[int]]:
-        """Get the invocation data for the given requests.
-
-        Prepare the data that will be used to create the argument_buffers
-        for the invocation.
-
-        Args:
-            exec_requests (List[LlmInferenceExecRequest]): List of execution requests.
-            batch_seq_len (int): The maximum sequence length for the batch.
-            block_count (int): The number of blocks in the sequence.
-
-        Returns:
-            Tuple[List[int | float]: A tuple containing:
-                - A list of token IDs for the invocation.
-                - A list of sequence lengths.
-                - A list of sequence block IDs.
-        """
         token_vals = [
             input_tokens
             for req in exec_requests
@@ -202,9 +180,7 @@ class PrefillTask(LlmTask):
             batch_size (int): Size of the invocation function batch.
 
         Returns:
-            Tuple[list[sfnp.device_array], int]: A tuple containing:
-                - A list of arguments for the invocation.
-                - The number of requests in the batch.
+            List[sfnp.device_array]: A list of arguments for the invocation.
         """
         exec_requests = self._exec_requests
         seq_stride = self._seq_stride
@@ -250,13 +226,6 @@ class PrefillTask(LlmTask):
         logits: sfnp.device_array,
         indices: Optional[sfnp.device_array],
     ):
-        """Get the results after a prefill invocation.
-
-        Args:
-            logits (sfnp.device_array): The logits output from prefill.
-            indices (Optional[sfnp.device_array]): The indices output from prefill, if any.
-            req_count (int): The number of requests in the batch.
-        """
         for i in range(self.req_count):
             req = self._exec_requests[i]
             sl = len(req.input_token_ids) - 1
@@ -302,22 +271,6 @@ class DecodeTask(LlmTask):
         exec_requests: List[LlmInferenceExecRequest],
         block_count: int,
     ) -> Tuple[List[int | float] | List[List[int | float]]]:
-        """Get the invocation data for the given requests.
-
-        Prepare the data that will be used to create the argument_buffers
-        for the invocation.
-
-        Args:
-            exec_requests (List[LlmInferenceExecRequest]): List of execution requests.
-            block_count (int): The number of blocks in the sequence.
-
-        Returns:
-            Tuple[List[int | float] | List[List[int | float]]]: A tuple containing:
-                - A list of token IDs for the invocation.
-                - A list of sequence lengths.
-                - A list of start positions.
-                - A list of sequence block IDs.
-        """
         token_data = [
             input_tokens
             for req in exec_requests
@@ -361,9 +314,7 @@ class DecodeTask(LlmTask):
             batch_size (int): Size of the `exec_requests` batch.
 
         Returns:
-            Tuple[List[Union[Allocation, WrappedAllocation]], int]: A tuple containing:
-                - A list of arguments for the invocation.
-                - The number of requests in the batch.
+            List[sfnp.device_array]: A list of arguments for the invocation.
         """
         # Compute block sequence length as maximum sequence length, rounded
         # up to the seq_stride.
@@ -403,13 +354,6 @@ class DecodeTask(LlmTask):
         logits: sfnp.device_array,
         indices: Optional[sfnp.device_array],
     ):
-        """Get the results after a prefill invocation.
-
-        Args:
-            logits (sfnp.device_array): The logits output from prefill.
-            indices (Optional[sfnp.device_array]): The indices output from prefill, if any.
-            req_count (int): The number of requests in the batch.
-        """
         for i in range(self.req_count):
             req = self._exec_requests[i]
             logits_item = logits.view(i, 0)
@@ -465,12 +409,13 @@ class LlmInvoker(sf.Process):
             args_device = [arg.device for arg in args]
 
             # Invoke VMFB. Logits are of shape [bs, bsl, d].
-            result = await fn(*args_device, fiber=self.fiber)
+            (logits, indices) = await fn(*args_device, fiber=self.fiber)
 
             # TODO (stbaione): Move process_results logic into responder
             await self.llm_task.process_results(
                 args,
-                result,
+                logits,
+                indices,
                 self.device0,
             )
 
