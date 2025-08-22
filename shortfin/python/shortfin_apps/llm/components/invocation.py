@@ -90,15 +90,13 @@ class LlmTask:
     def __init__(
         self,
         task_inputs: LlmTaskInput,
-        exec_requests: List[LlmInferenceExecRequest],
         array_cache: DeviceArrayCache,
         seq_stride: int,
         page_tables: List[sfnp.device_array],
     ):
-        self.req_count = len(exec_requests)
+        self.req_count = len(task_inputs.input_tokens)
 
         self._task_input = task_inputs
-        self._exec_requests: List[LlmInferenceExecRequest] = exec_requests
         self._array_cache: DeviceArrayCache = array_cache
         self._seq_stride: int = seq_stride
         self._page_tables = page_tables
@@ -196,14 +194,12 @@ class PrefillTask(LlmTask):
     def __init__(
         self,
         task_inputs: LlmTaskInput,
-        exec_requests: list[LlmInferenceExecRequest],
         array_cache: DeviceArrayCache,
         seq_stride: int,
         page_tables: List[sfnp.device_array],
     ):
         super().__init__(
             task_inputs=task_inputs,
-            exec_requests=exec_requests,
             array_cache=array_cache,
             seq_stride=seq_stride,
             page_tables=page_tables,
@@ -302,7 +298,6 @@ class DecodeTask(LlmTask):
     def __init__(
         self,
         task_inputs: LlmTaskInput,
-        exec_requests: list[LlmInferenceExecRequest],
         array_cache: DeviceArrayCache,
         seq_stride: int,
         page_tables: List[sfnp.device_array],
@@ -312,7 +307,6 @@ class DecodeTask(LlmTask):
         ), "`start_positions` must be defined for `Decode`."
         super().__init__(
             task_inputs=task_inputs,
-            exec_requests=exec_requests,
             array_cache=array_cache,
             seq_stride=seq_stride,
             page_tables=page_tables,

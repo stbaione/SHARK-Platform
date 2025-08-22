@@ -219,7 +219,6 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         )
         llm_task = PrefillTask(
             task_inputs=task_inputs,
-            exec_requests=exec_requests,
             array_cache=self.array_cache,
             seq_stride=self.page_seq_stride,
             page_tables=page_cache.page_pool.page_tables,
@@ -286,7 +285,6 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         )
         llm_task = DecodeTask(
             task_inputs=task_inputs,
-            exec_requests=exec_requests,
             array_cache=self.array_cache,
             seq_stride=self.page_seq_stride,
             page_tables=page_cache.page_pool.page_tables,
