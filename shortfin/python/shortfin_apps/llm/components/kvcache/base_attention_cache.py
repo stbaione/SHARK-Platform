@@ -288,7 +288,6 @@ class BasePagedAttentionCache:
                 pages=cache_info.pages + tuple(new_pages),
                 pool=self.page_pool,
             )
-            self._pages += tuple(new_pages)
 
     def get_cache_info(self, tokens: List[int], page_ids: List[int]) -> CacheInfo:
         pages = [self.page_pool.attn_page_entries[pid] for pid in page_ids]
@@ -302,4 +301,3 @@ class BasePagedAttentionCache:
     def release_pages(self, cache_info: CacheInfo) -> CacheInfo:
         if cache_info is not None:
             self.free_pages(cache_info.pages)
-        return None

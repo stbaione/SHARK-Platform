@@ -76,7 +76,7 @@ class AttentionCacheAbstract(ABC):
         pass
 
     @abstractmethod
-    def extend_pages(
+    def extend_allocation(
         self, tokens: List[int], cache_info: CacheInfo, extra_token_slots: int
     ) -> CacheInfo:
         """

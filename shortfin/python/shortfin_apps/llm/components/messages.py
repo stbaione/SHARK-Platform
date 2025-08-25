@@ -13,7 +13,6 @@ from shortfin.interop.fastapi import RequestStatusTracker
 
 from .kvcache.attention_cache_abstract import CacheInfo
 from .kvcache.base_attention_cache import (
-    PageInfo,
     BasePagedAttentionCache,
 )
 from .kvcache.trie_attention_cache import TriePagedAttentionCache
