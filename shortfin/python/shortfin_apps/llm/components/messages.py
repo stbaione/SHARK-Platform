@@ -125,13 +125,9 @@ class LlmInferenceExecRequest(InferenceExecRequest):
     def free_cache_pages(self):
         if self.allocated_cache_info:
             # If we have allocated cache info, we can release the pages.
-            self.allocated_cache_info = self._cache.release_pages(
-                self.allocated_cache_info
-            )
-        if self.allocated_cache_info is not None:
-            self._cache.free_pages(self.allocated_cache_info.pages)
-        self.allocated_cache_info = None
-        self.page_ids = []
+            self._cache.release_pages(self.allocated_cache_info)
+            self.allocated_cache_info = None
+            self.page_ids = []
 
     def __repr__(self) -> str:
         """

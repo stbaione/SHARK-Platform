@@ -298,6 +298,6 @@ class BasePagedAttentionCache:
     ) -> CacheInfo:
         pass
 
-    def release_pages(self, cache_info: CacheInfo) -> CacheInfo:
+    def release_pages(self, cache_info: CacheInfo):
         if cache_info is not None:
             self.free_pages(cache_info.pages)
