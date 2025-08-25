@@ -259,12 +259,7 @@ class BasePagedAttentionCache:
 
         if self.use_ref_counts:
             self.increment_pages(pages)
-        return CacheInfo(
-            num_tokens=token_count,
-            pages=pages,
-            pool=self.page_pool,
-            is_released=False,
-        )
+        return CacheInfo(num_tokens=token_count, pages=pages, pool=self.page_pool)
 
     def extend_allocation(
         self, tokens, cache_info, *, extra_token_slots=0
@@ -292,9 +287,12 @@ class BasePagedAttentionCache:
                 num_tokens=token_count,
                 pages=cache_info.pages + tuple(new_pages),
                 pool=self.page_pool,
-                is_released=False,
             )
             self._pages += tuple(new_pages)
+
+    def get_cache_info(self, tokens: List[int], page_ids: List[int]) -> CacheInfo:
+        pages = [self.page_pool.attn_page_entries[pid] for pid in page_ids]
+        return CacheInfo(num_tokens=len(tokens), pages=pages, pool=self.page_pool)
 
     def publish_pages_for_tokens(
         self, tokens, cache_info, *, publish_incomplete_page=False

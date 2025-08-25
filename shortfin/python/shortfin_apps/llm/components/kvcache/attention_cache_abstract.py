@@ -39,7 +39,6 @@ class CacheInfo:
     num_tokens: int
     pages: Any  # This should be a list of PageInfo or similar objects.
     pool: CacheStoreAbstract
-    is_released: bool  # Track if the cache has been released
 
 
 @dataclass
