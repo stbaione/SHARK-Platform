@@ -357,6 +357,7 @@ class LlmDecoder:
                 rid=self._rid,
                 orig_instance_id=prefill_req.orig_instance_id,
                 page_ids=[],
+                page_cache=self._page_cache,
             )
             for _ in range(num_beams)
         ]
@@ -372,6 +373,7 @@ class LlmDecoder:
             phase=InferencePhase.PREFILL,
             input_token_ids=input_ids,
             rid=self._rid,
+            page_cache=self._prefill_batcher.page_cache,
         )
         prefill_req.acquire_pages()
         # Run Prefill:
