@@ -156,37 +156,6 @@ def _pad_list(
     return data + [0] * max(0, target_length - len(data))
 
 
-class PrefillTaskResponder(LlmTaskResponder):
-    def __init__(self, exec_requests):
-        super().__init__(exec_requests)
-
-    def set_success(
-        self, logits: sfnp.device_array, indices: Optional[sfnp.device_array]
-    ):
-        exec_requests = self._exec_requests
-        for i in range(len(self._exec_requests)):
-            req = exec_requests[i]
-            sl = len(req.input_token_ids) - 1
-
-            if logits.shape[1] == 1:
-                logits_item = logits.view(i)
-            else:
-                logits_item = logits.view(i, sl)
-
-            index_item = None
-            if indices is not None:
-                if indices.shape[1] == 1:
-                    index_item = indices.view(i)
-                else:
-                    index_item = indices.view(i, sl)
-
-            req.result_logits = logits_item
-            req.result_indices = index_item
-
-        for req in self._exec_requests:
-            req.done.set_success()
-
-
 class PrefillTask(LlmTask):
     """Handles the transfer and preparation of data for VMFB invocation."""
 
@@ -264,29 +233,6 @@ class PrefillTask(LlmTask):
             args.append(WrappedAllocation(sfnp.disable_barrier(page_table)))
 
         return args
-
-
-class DecodeTaskResponder(LlmTaskResponder):
-    def __init__(self, exec_requests):
-        super().__init__(exec_requests)
-
-    def set_success(
-        self, logits: sfnp.device_array, indices: Optional[sfnp.device_array]
-    ):
-        exec_requests = self._exec_requests
-        for i in range(len(exec_requests)):
-            req = exec_requests[i]
-            logits_item = logits.view(i, 0)
-
-            index_item = None
-            if indices is not None:
-                index_item = indices.view(i, 0)
-
-            req.result_logits = logits_item
-            req.result_indices = index_item
-
-        for req in exec_requests:
-            req.done.set_success()
 
 
 class DecodeTask(LlmTask):
@@ -378,9 +324,9 @@ class LlmInvocationProcess(sf.Process):
         name: str,
         fiber: sf.Fiber,
         llm_task: LlmTask,
-        llm_task_responder: LlmTaskResponder,
         functions: dict[int, sf.ProgramFunction],
         program_isolation: sf.ProgramIsolation,
+        responder: LlmTaskResponder,
     ):
         super().__init__(fiber=fiber)
         self._name = name
@@ -389,7 +335,7 @@ class LlmInvocationProcess(sf.Process):
 
         self._device0 = fiber.device(0)
         self._llm_task = llm_task
-        self._responder = llm_task_responder
+        self._responder = responder
 
     async def run(self):
         """Invoke `prefill` or `decode` function, with IREE, on a batch of requests.
@@ -440,6 +386,7 @@ def build_invocation_process(
     page_cache: BasePagedAttentionCache,
     functions: dict[int, sf.ProgramFunction],
     program_isolation: sf.ProgramIsolation,
+    responder: LlmTaskResponder,
 ) -> LlmInvocationProcess:
     task_inputs = LlmTaskInput.from_exec_requests(
         exec_requests=exec_requests,
@@ -453,18 +400,11 @@ def build_invocation_process(
         page_tables=page_cache.page_pool.page_tables,
     )
 
-    responder_cls = (
-        PrefillTaskResponder if phase == InferencePhase.PREFILL else DecodeTaskResponder
-    )
-    responder = responder_cls(
-        exec_requests=exec_requests,
-    )
-
     return LlmInvocationProcess(
         name=f"{phase.name.lower()}_invocation",
         fiber=fiber,
         llm_task=llm_task,
-        llm_task_responder=responder,
         functions=functions,
         program_isolation=program_isolation,
+        responder=responder,
     )

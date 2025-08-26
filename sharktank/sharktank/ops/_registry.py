@@ -15,7 +15,12 @@ import functools
 import inspect
 
 from torch import Tensor
-from sharktank.types import PrimitiveTensor, QuantizedTensor
+from sharktank.types import (
+    PrimitiveTensor,
+    QuantizedTensor,
+    ReplicatedTensor,
+    SplitPrimitiveTensor,
+)
 
 __all__ = [
     "AllOfExprs",
@@ -270,10 +275,12 @@ class SignatureDispatcher:
         salience: int = 0,
         auto_unbox: bool = True,
         auto_dequant: bool = False,
+        impl_name: str | None = None,
     ):
         def decorator(f):
             if f.__name__ == "_":
                 f.__name__ = f"{self.__name__}__override"
+            f._impl_name = impl_name
             self._overrides.append(
                 _TargetOverride(
                     salience=salience,
@@ -299,12 +306,13 @@ class SignatureDispatcher:
             self._target_cache[type_spec] = found_targets
         return reversed(found_targets)
 
-    def fail(self, tensors: tuple[Any, ...]):
+    def fail(self, tensors: tuple[Any, ...], impl_selection: str | None = None):
         spec = [type(t) for t in tensors]
+        impl_msg = f" with impl selection '{impl_selection}'" if impl_selection else ""
         raise NotImplementedError(
             f"Overridable operator {self.__module__}.{self.__qualname__} does not "
             f"have an implementation for argument types: "
-            f"{spec}"
+            f"{spec}{impl_msg}"
         )
 
     def get_override_names(self):
@@ -430,6 +438,56 @@ def overridable(
     return dispatcher
 
 
+def _parse_impl_selections(impl_selection: str | None) -> list[str]:
+    """Parse implementation selection string with semicolon separator.
+
+    Examples:
+        "sharktank.asm" -> ["sharktank.asm"]
+        "sharktank.asm;*" -> ["sharktank.asm", "*"]
+        "sharktank.wave;sharktank.asm;*" -> ["sharktank.wave", "sharktank.asm", "*"]
+    """
+    if impl_selection is None:
+        return ["*"]  # Default behavior selects any kernel
+    if ";" in impl_selection:
+        return impl_selection.split(";")
+    return [impl_selection]
+
+
+def _matches_impl_selection(impl_name: str | None, selection: str) -> bool:
+    """Check if impl_name matches the given selection using hierarchical matching.
+
+    Matches are done segment by segment, split by dots:
+    - "sharktank" matches "sharktank", "sharktank.wave", "sharktank.asm"
+    - "sharktank.wave" matches "sharktank.wave" but not "sharktank.asm"
+    - "sharktank.wavelet" does not match "sharktank.wave"
+
+    Args:
+        impl_name: The _impl_name attribute from the override
+        selection: A selection string, "*" matches anything
+
+    Returns:
+        True if impl_name matches the selection
+    """
+    if selection == "*":
+        return True
+    if impl_name is None:
+        raise LookupError(
+            "A kernel selection was specified and an implementation gave no implementation name"
+        )
+    # Split both into hierarchical segments
+    selection_segments = selection.split(".")
+    impl_segments = impl_name.split(".")
+    # Selection must not have more segments than impl_name
+    if len(selection_segments) > len(impl_segments):
+        return False
+    # Each selection segment must exactly match the corresponding impl segment
+    for sel_seg, impl_seg in zip(selection_segments, impl_segments):
+        if sel_seg != impl_seg:
+            return False
+
+    return True
+
+
 def make_default_trampoline(
     f: Callable[..., Any], /, *, dispatch_args: Iterable[int | str]
 ) -> Callable[..., Any]:
@@ -442,6 +500,8 @@ def make_default_trampoline(
     def trampoline(_signature_dispatcher_: SignatureDispatcher, *args, **kwargs) -> Any:
         # We need the signature created here and not captured from the parent scope.
         # Otherwise torch tracing fails.
+        impl_selection_str = kwargs.pop("impl", None)
+
         signature = inspect.signature(f)
         bound_args = signature.bind(*args, **kwargs)
 
@@ -470,11 +530,31 @@ def make_default_trampoline(
             else:
                 dispatch_arg_values.append(arg_value)
 
-        for override in _signature_dispatcher_.find_overrides(dispatch_arg_values):
-            result = override(*bound_args.args, **bound_args.kwargs)
-            if result is not NotImplemented:
-                return override, result
+        # Implementation selection logic with preference support
+        impl_selections = _parse_impl_selections(impl_selection_str)
+
+        for impl_selection in impl_selections:
+            for override in _signature_dispatcher_.find_overrides(dispatch_arg_values):
+                # TODO: Remove this workaround - sharded operations need impl parameter
+                # for recursive calls to non-sharded implementations
+                call_kwargs = bound_args.kwargs.copy()
+                has_sharded_args = any(
+                    isinstance(arg, (ReplicatedTensor, SplitPrimitiveTensor))
+                    for arg in dispatch_arg_values
+                )
+                if impl_selection_str is not None and has_sharded_args:
+                    call_kwargs["impl"] = impl_selection_str
+
+                impl_name = getattr(override, "_impl_name", None)
+                if not has_sharded_args and not _matches_impl_selection(
+                    impl_name, impl_selection
+                ):
+                    continue
+
+                result = override(*bound_args.args, **call_kwargs)
+                if result is not NotImplemented:
+                    return override, result
         else:
-            _signature_dispatcher_.fail(dispatch_arg_values)
+            _signature_dispatcher_.fail(dispatch_arg_values, impl_selection)
 
     return trampoline

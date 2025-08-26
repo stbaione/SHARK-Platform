@@ -8,14 +8,17 @@ import logging
 
 
 import shortfin as sf
+import shortfin.array as sfnp
 
 from shortfin import Fiber
+from typing import List, Optional
 
 from .config_struct import ModelParams
 from .device_array_cache import DeviceArrayCache
 from .invocation import (
     build_invocation_process,
     LlmInvocationProcess,
+    LlmTaskResponder,
 )
 from .kvcache.base_attention_cache import (
     BasePagedAttentionCache,
@@ -26,6 +29,95 @@ from .scheduler import Scheduler
 from ...utils import BatcherProcess
 
 logger = logging.getLogger(__name__)
+
+
+########################################################################################
+# Task Responders
+########################################################################################
+
+
+class PrefillTaskResponder(LlmTaskResponder):
+    def __init__(self, exec_requests: List[LlmInferenceExecRequest]) -> None:
+        self._exec_requests = exec_requests
+
+    def set_success(
+        self, logits: sfnp.device_array, indices: Optional[sfnp.device_array]
+    ) -> None:
+        """Set the result of the prefill task.
+
+        Args:
+            logits (sfnp.device_array): The logits output from the model.
+            indices (Optional[sfnp.device_array]): The token indices output from the model.
+        """
+        exec_requests = self._exec_requests
+        for i in range(len(self._exec_requests)):
+            req = exec_requests[i]
+            sl = len(req.input_token_ids) - 1
+
+            if logits.shape[1] == 1:
+                logits_item = logits.view(i)
+            else:
+                logits_item = logits.view(i, sl)
+
+            index_item = None
+            if indices is not None:
+                if indices.shape[1] == 1:
+                    index_item = indices.view(i)
+                else:
+                    index_item = indices.view(i, sl)
+
+            req.result_logits = logits_item
+            req.result_indices = index_item
+
+        for req in self._exec_requests:
+            req.done.set_success()
+
+    def set_failure(self, exception):
+        logger.error(
+            f"""Fatal error in Prefill invocation:
+            {exception!r}
+            """
+        )
+
+        for req in self._exec_requests:
+            req.result_logits = None
+            req.free_cache_pages()
+            req.done.set_success()
+
+
+class DecodeTaskResponder(LlmTaskResponder):
+    def __init__(self, exec_requests: List[LlmInferenceExecRequest]) -> None:
+        self._exec_requests = exec_requests
+
+    def set_success(
+        self, logits: sfnp.device_array, indices: Optional[sfnp.device_array]
+    ) -> None:
+        exec_requests = self._exec_requests
+        for i in range(len(exec_requests)):
+            req = exec_requests[i]
+            logits_item = logits.view(i, 0)
+
+            index_item = None
+            if indices is not None:
+                index_item = indices.view(i, 0)
+
+            req.result_logits = logits_item
+            req.result_indices = index_item
+
+        for req in exec_requests:
+            req.done.set_success()
+
+    def set_failure(self, exception):
+        logger.error(
+            f"""Fatal error in Decode invocation:
+            {exception!r}
+            """
+        )
+
+        for req in self._exec_requests:
+            req.result_logits = None
+            req.free_cache_pages()
+            req.done.set_success()
 
 
 ########################################################################################
@@ -212,6 +304,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             page_cache=page_cache,
             functions=self.functions,
             program_isolation=self.program_isolation,
+            responder=PrefillTaskResponder(exec_requests),
         )
 
 
@@ -269,4 +362,5 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             page_cache=page_cache,
             functions=self.functions,
             program_isolation=self.program_isolation,
+            responder=DecodeTaskResponder(exec_requests),
         )

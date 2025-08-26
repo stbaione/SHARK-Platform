@@ -14,6 +14,7 @@ import torch.nn as nn
 from sharktank import ops
 from sharktank.layers import *
 from sharktank.types import *
+from sharktank.types.pipelining import transfer_between_blocks
 from sharktank.utils.create_cache import *
 from sharktank import ops
 
@@ -100,7 +101,10 @@ class PagedLlmModelV1(BaseCausalLMModel):
                 theta("output_norm"), epsilon=self.hp.attention_layer_norm_rms_epsilon
             ),
         )
-        self.add_module("output_lm_head", LinearLayer(theta("output")))
+        self.add_module(
+            "output_lm_head",
+            LinearLayer(theta("output"), matmul_kernel=self.config.matmul_kernel),
+        )
         self.attn_blocks = nn.ModuleList(
             [
                 AttentionFFNBlock(
@@ -123,7 +127,7 @@ class PagedLlmModelV1(BaseCausalLMModel):
         attention_mask: Union[torch.Tensor, None],
         # [bs, batch_seq_len // block_seq_stride]
         seq_block_ids: torch.Tensor,
-        cache_state: torch.Tensor,
+        cache_state: CacheAllocation,
         start_positions: Optional[torch.Tensor] = None,
     ):
 
@@ -149,6 +153,14 @@ class PagedLlmModelV1(BaseCausalLMModel):
                 mask = chunked_attention_mask
             else:
                 mask = attention_mask
+
+            (h, start_positions, mask, seq_block_ids) = transfer_between_blocks(
+                h,
+                start_positions,
+                mask,
+                seq_block_ids,
+                curr_block_tensors=self.theta.tensor("blk", block_idx),
+            )
             h = block(
                 h,
                 embedding=self.attention_embedding,
@@ -182,7 +194,7 @@ class PagedLlmModelV1(BaseCausalLMModel):
         start_positions: torch.Tensor,
         # [bs, batch_seq_len // block_seq_stride]
         seq_block_ids: torch.Tensor,
-        cache_state: torch.Tensor,
+        cache_state: CacheAllocation,
     ):
         # Precompute a position based mask for computing rope embeddings
         # as it is the same for all blocks.
@@ -202,6 +214,21 @@ class PagedLlmModelV1(BaseCausalLMModel):
         for block_idx, block in enumerate(self.attn_blocks):
             if block_idx == 0:
                 self.trace_tensor(f"llama.attn_block.{block_idx}.input", h)
+            (
+                h,
+                start_positions,
+                embedding_batch_masks,
+                attention_mask,
+                seq_block_ids,
+            ) = transfer_between_blocks(
+                h,
+                start_positions,
+                embedding_batch_masks,
+                attention_mask,
+                seq_block_ids,
+                curr_block_tensors=self.theta.tensor("blk", block_idx),
+            )
+
             h = block(
                 h,
                 start_positions=start_positions,
@@ -275,6 +302,7 @@ class AttentionFFNBlock(ThetaLayer):
                 rms_epsilon=config.hp.attention_layer_norm_rms_epsilon,
                 rope_dimension_count=config.hp.rope_dimension_count,
                 attention_kernel=attention_kernel,
+                matmul_kernel=config.matmul_kernel,
                 fake_quant=fake_quant,
                 softcap=config.hp.attention_softcap,
                 model_arch=config.hp.model_arch,
@@ -361,6 +389,7 @@ class AttentionFFNBlock(ThetaLayer):
                 FFN(
                     theta=theta,
                     fake_quant=fake_quant,
+                    matmul_kernel=config.matmul_kernel,
                 ),
             )
 
@@ -376,7 +405,7 @@ class AttentionFFNBlock(ThetaLayer):
         embedding_batch_mask: tuple[InferenceTensor, InferenceTensor]
         | InferenceTensor
         | None = None,
-        cache_state: list[torch.Tensor] = None,
+        cache_state: CacheAllocation | None = None,
     ):
         h = self.attn(
             h,
