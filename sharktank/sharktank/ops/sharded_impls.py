@@ -108,6 +108,7 @@ def sharded_wrap_override():
                     )
             return res
 
+        func_wrapper._impl_name = getattr(f, "_impl_name", None)  # For impl selection
         return func_wrapper
 
     def wrap_override(signature_dispatcher_override):
@@ -772,9 +773,10 @@ def linear_sharded(
     bias: Tensor | ShardedTensor | None,
     *,
     accum_dtype,
+    matmul_impl=None,
 ) -> SplitPrimitiveTensor:
     # TODO: handle different dtypes
-    result = matmul(input, weight, transpose_rhs=True)
+    result = matmul(input, weight, transpose_rhs=True, impl=matmul_impl)
     if bias is not None:
         result = elementwise(torch.add, result, bias)
     return result
@@ -968,7 +970,7 @@ def matmul_split(
     Optional[ReplicatedTensor],
 )
 def scaled_dot_product_attention_sharded(
-    q, k, v, a, is_causal, scale, softcap, impl
+    q, k, v, a, is_causal, scale, softcap, *, impl
 ) -> SplitPrimitiveTensor:
     if q.shard_count != k.shard_count or q.shard_count != v.shard_count:
         raise ValueError("Incompatible number of shards for qkv")
@@ -1549,7 +1551,7 @@ def _sharded_sum_sharded(tensor: ShardedTensor, root_rank: int) -> Tensor:
 
 @sharded_sum.override(IsOfType(SplitPrimitiveTensor, UnreducedTensor))
 def sharded_sum_split(
-    input: SplitPrimitiveTensor | UnreducedTensor, root_rank: int
+    input: SplitPrimitiveTensor | UnreducedTensor, root_rank: int = 0
 ) -> Tensor:
     return _sharded_sum_sharded(input, root_rank)
 

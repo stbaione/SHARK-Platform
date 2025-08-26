@@ -197,8 +197,6 @@ def main():
                 f"Parent directory for output MLIR file does not exist: {mlir_dir}"
             )
 
-    dataset_type = cli.get_input_data_files(args)
-    dataset_type = "irpa" if "irpa" in dataset_type else "gguf"
     dataset = cli.get_input_dataset(args)
 
     # Configure model export config from cli args:
@@ -225,6 +223,7 @@ def main():
         use_hf=args.use_hf,
         static_tables=False,  # Rely on the compiler for hoisting tables.
         attention_kernel=args.attention_kernel,
+        matmul_kernel=args.matmul_kernel,
         block_seq_stride=args.block_seq_stride,
         activation_dtype=args.activation_dtype,
         attention_dtype=args.attention_dtype,
