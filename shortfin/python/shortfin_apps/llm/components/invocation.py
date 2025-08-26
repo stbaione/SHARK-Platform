@@ -73,16 +73,7 @@ class LlmTaskResponder(ABC):
         ...
 
     def set_failure(self, exception):
-        logger.error(
-            f"""Fatal error in prefetch invocation: {exception!r}
-            {traceback.format_exc()}
-            """
-        )
-
-        for req in self._exec_requests:
-            req.result_logits = None
-            req.free_cache_pages()
-            req.done.set_success()
+        ...
 
 
 class LlmTask:
