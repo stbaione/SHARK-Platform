@@ -26,9 +26,6 @@ from _shortfin import lib as _sfl
 from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     CacheAllocationFailure,
 )
-from shortfin_apps.llm.components.kvcache.attention_cache_abstract import (
-    CacheInfo,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +354,7 @@ class LlmDecoder:
                 rid=self._rid,
                 orig_instance_id=prefill_req.orig_instance_id,
                 page_ids=[],
+                page_cache=self._page_cache,
             )
             for _ in range(num_beams)
         ]
@@ -366,22 +364,15 @@ class LlmDecoder:
 
         return decode_reqs
 
-    def _allocate_prefill_cache(self, prefill_req: LlmInferenceExecRequest):
-        prefill_req._cache = self._page_cache
-        # Allocate pages for the prefill request
-        prefill_req.acquire_pages()
-
-    def _allocate_decode_cache(self, request: LlmInferenceExecRequest):
-        request.extend_pages(request.input_token_ids, extra_token_slots=1)
-
     async def run(self, input_ids):
         input_length = len(input_ids)
         prefill_req = LlmInferenceExecRequest(
             phase=InferencePhase.PREFILL,
             input_token_ids=input_ids,
             rid=self._rid,
+            page_cache=self._prefill_batcher.page_cache,
         )
-        self._allocate_prefill_cache(prefill_req)
+        prefill_req.acquire_pages()
         # Run Prefill:
         self._prefill_batcher.submit(prefill_req)
         await prefill_req.done
@@ -421,7 +412,7 @@ class LlmDecoder:
 
             for req in to_run:
                 req.reset(InferencePhase.DECODE)
-                self._allocate_decode_cache(req)
+                req.update_cache_info()
                 self._decode_batcher.submit(req)
 
             gathered = asyncio.gather(*[req.done for req in to_run])

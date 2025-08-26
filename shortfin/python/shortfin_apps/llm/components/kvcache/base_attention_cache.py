@@ -238,7 +238,9 @@ class BasePagedAttentionCache:
         self.increment_pages(new_pages)
         return BasePagedAttentionCacheAllocation(new_pages, cache=self)
 
-    def allocate(self, tokens: List[int], lookup: bool = True, evict: bool = True) -> CacheInfo:
+    def allocate(
+        self, tokens: List[int], lookup: bool = True, evict: bool = True
+    ) -> CacheInfo:
         """
         Given a list of tokens, return a CacheInfo object with metadata about the cache allocation.
         """
@@ -257,14 +259,11 @@ class BasePagedAttentionCache:
 
         if self.use_ref_counts:
             self.increment_pages(pages)
-        return CacheInfo(
-            num_tokens=token_count,
-            pages=pages,
-            pool=self.page_pool,
-            is_released=False,
-        )
-    
-    def extend_allocation(self, tokens, cache_info, *, extra_token_slots=0) -> CacheInfo:
+        return CacheInfo(num_tokens=token_count, pages=pages, pool=self.page_pool)
+
+    def extend_allocation(
+        self, tokens, cache_info, *, extra_token_slots=0
+    ) -> CacheInfo:
         # assert old tokens are a prefix of incoming tokens
         # if we don't have enough pages to hold the tokens, we need to allocate more pages
         token_count = len(tokens) + extra_token_slots
@@ -288,16 +287,17 @@ class BasePagedAttentionCache:
                 num_tokens=token_count,
                 pages=cache_info.pages + tuple(new_pages),
                 pool=self.page_pool,
-                is_released=False,
             )
-            self._pages += tuple(new_pages)
+
+    def get_cache_info(self, tokens: List[int], page_ids: List[int]) -> CacheInfo:
+        pages = [self.page_pool.attn_page_entries[pid] for pid in page_ids]
+        return CacheInfo(num_tokens=len(tokens), pages=pages, pool=self.page_pool)
 
     def publish_pages_for_tokens(
         self, tokens, cache_info, *, publish_incomplete_page=False
     ) -> CacheInfo:
         pass
 
-    def release_pages(self, cache_info: CacheInfo) -> CacheInfo:
-        if cache_info is not None:        
+    def release_pages(self, cache_info: CacheInfo):
+        if cache_info is not None:
             self.free_pages(cache_info.pages)
-        return None
