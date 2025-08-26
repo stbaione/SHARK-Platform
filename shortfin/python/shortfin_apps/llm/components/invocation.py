@@ -1,6 +1,5 @@
 import logging
 import math
-import traceback
 
 import shortfin as sf
 import shortfin.array as sfnp
@@ -17,26 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 class LlmTaskResponder(ABC):
-    def __init__(self, exec_requests):
-        self._exec_requests = exec_requests
-
     @abstractmethod
     def set_success(
         self, logits: sfnp.device_array, indices: Optional[sfnp.device_array]
     ):
         ...
 
-    def set_failure(self, exception):
-        logger.error(
-            f"""Fatal error in prefetch invocation:
-            {exception!r}
-            """
-        )
-
-        for req in self._exec_requests:
-            req.result_logits = None
-            req.free_cache_pages()
-            req.done.set_success()
+    @abstractmethod
+    def set_failure(self, exception: Exception):
+        ...
 
 
 class LlmTask:
@@ -48,10 +36,8 @@ class LlmTask:
         array_cache: DeviceArrayCache,
         seq_stride: int,
         page_tables: List[sfnp.device_array],
-        responder: LlmTaskResponder,
     ):
         self.req_count = len(exec_requests)
-        self.responder = responder
 
         self._exec_requests: List[LlmInferenceExecRequest] = exec_requests
         self._array_cache: DeviceArrayCache = array_cache
@@ -138,37 +124,6 @@ def _pad_list(
     return data + [0] * max(0, target_length - len(data))
 
 
-class PrefillTaskResponder(LlmTaskResponder):
-    def __init__(self, exec_requests):
-        super().__init__(exec_requests)
-
-    def set_success(
-        self, logits: sfnp.device_array, indices: Optional[sfnp.device_array]
-    ):
-        exec_requests = self._exec_requests
-        for i in range(len(self._exec_requests)):
-            req = exec_requests[i]
-            sl = len(req.input_token_ids) - 1
-
-            if logits.shape[1] == 1:
-                logits_item = logits.view(i)
-            else:
-                logits_item = logits.view(i, sl)
-
-            index_item = None
-            if indices is not None:
-                if indices.shape[1] == 1:
-                    index_item = indices.view(i)
-                else:
-                    index_item = indices.view(i, sl)
-
-            req.result_logits = logits_item
-            req.result_indices = index_item
-
-        for req in self._exec_requests:
-            req.done.set_success()
-
-
 class PrefillTask(LlmTask):
     """Handles the transfer and preparation of data for VMFB invocation."""
 
@@ -184,7 +139,6 @@ class PrefillTask(LlmTask):
             array_cache=array_cache,
             seq_stride=seq_stride,
             page_tables=page_tables,
-            responder=PrefillTaskResponder(exec_requests),
         )
 
     def _get_args_data(
@@ -272,29 +226,6 @@ class PrefillTask(LlmTask):
         return args
 
 
-class DecodeTaskResponder(LlmTaskResponder):
-    def __init__(self, exec_requests):
-        super().__init__(exec_requests)
-
-    def set_success(
-        self, logits: sfnp.device_array, indices: Optional[sfnp.device_array]
-    ):
-        exec_requests = self._exec_requests
-        for i in range(len(exec_requests)):
-            req = exec_requests[i]
-            logits_item = logits.view(i, 0)
-
-            index_item = None
-            if indices is not None:
-                index_item = indices.view(i, 0)
-
-            req.result_logits = logits_item
-            req.result_indices = index_item
-
-        for req in exec_requests:
-            req.done.set_success()
-
-
 class DecodeTask(LlmTask):
     """Handles the transfer and preparation of data for VMFB invocation."""
 
@@ -310,7 +241,6 @@ class DecodeTask(LlmTask):
             array_cache=array_cache,
             seq_stride=seq_stride,
             page_tables=page_tables,
-            responder=DecodeTaskResponder(exec_requests),
         )
 
     def _get_args_data(
@@ -407,6 +337,7 @@ class LlmInvocationProcess(sf.Process):
         llm_task: LlmTask,
         functions: dict[int, sf.ProgramFunction],
         program_isolation: sf.ProgramIsolation,
+        responder: LlmTaskResponder,
     ):
         super().__init__(fiber=fiber)
         self.name = name
@@ -415,6 +346,7 @@ class LlmInvocationProcess(sf.Process):
 
         self.device0 = fiber.device(0)
         self.llm_task = llm_task
+        self.responder = responder
 
     async def run(self):
         """Invoke `prefill` or `decode` function, with IREE, on a batch of requests.
@@ -451,7 +383,7 @@ class LlmInvocationProcess(sf.Process):
                 self.device0,
             )
 
-            self.llm_task.responder.set_success(logits, indices)
+            self.responder.set_success(logits, indices)
 
         except Exception as exception:
-            self.llm_task.responder.set_failure(exception)
+            self.responder.set_failure(exception)
