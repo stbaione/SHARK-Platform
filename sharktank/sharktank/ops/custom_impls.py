@@ -70,7 +70,7 @@ def einsum_2args_QuantizedTensor(input0, input1, einsum_str):
 # Quantized Matmul
 
 
-@matmul.override(Tensor, QuantizedTensor)
+@matmul.override(Tensor, QuantizedTensor, impl_name="sharktank")
 def matmul_generic_tensor_block_scaled(
     lhs, rhs: QuantizedTensor, *, transpose_rhs: bool
 ):
@@ -91,7 +91,7 @@ def matmul_generic_tensor_block_scaled(
     return mmt_block_scaled_q8(lhs, rhs_unpacked.d, rhs_unpacked.qs)
 
 
-@matmul.override(Tensor, QuantizedTensor)
+@matmul.override(Tensor, QuantizedTensor, impl_name="sharktank")
 def matmul_generic_tensor_block_scaled_i4(
     lhs, rhs: QuantizedTensor, *, transpose_rhs: bool
 ):
@@ -110,8 +110,8 @@ def matmul_generic_tensor_block_scaled_i4(
     )
 
 
-@matmul.override(Tensor, QuantizedTensor)
-def matmul_generic_tensor_block_scaled_fp4(
+@matmul.override(Tensor, QuantizedTensor, impl_name="sharktank.wave")
+def matmul_generic_tensor_block_scaled_fp4_wave(
     lhs, rhs: QuantizedTensor, *, transpose_rhs: bool
 ):
     """Generic kernel for FP4 E2M1 block scaled layouts."""
@@ -147,8 +147,7 @@ def matmul_generic_tensor_block_scaled_fp4(
     )
 
 
-# TODO(kyleherndon): Re-enable this after creating a matmul kernel selector
-# @matmul.override(Tensor, QuantizedTensor)
+@matmul.override(Tensor, QuantizedTensor, impl_name="sharktank.asm")
 def matmul_generic_tensor_block_scaled_fp4_asm(
     lhs, rhs: QuantizedTensor, *, transpose_rhs: bool
 ):
@@ -188,7 +187,7 @@ def matmul_generic_tensor_block_scaled_fp4_asm(
     return out.view(lhs.shape[0], lhs.shape[1], -1)
 
 
-@matmul.override(Tensor, QuantizedTensor)
+@matmul.override(Tensor, QuantizedTensor, impl_name="sharktank")
 def matmul_generic_tensor_super_block_offset_scaled_4_6_i4(
     lhs, rhs: QuantizedTensor, *, transpose_rhs: bool
 ):
