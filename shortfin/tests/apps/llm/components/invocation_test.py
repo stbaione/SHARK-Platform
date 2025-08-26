@@ -331,7 +331,6 @@ def _validate_prefill_args(
         offset = i * block_count
         results = seq_block_ids[offset : offset + block_count]
 
-        # block_ids = req.cache_page_indices(block_count)
         expected = _pad_list(
             block_ids,
             block_count,
