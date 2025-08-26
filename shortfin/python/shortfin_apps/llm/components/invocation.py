@@ -34,33 +34,6 @@ class LlmTaskInput:
         bsl = max(len(tokens) for tokens in self.input_tokens)
         return int(math.ceil(bsl / seq_stride) * seq_stride)
 
-    @staticmethod
-    def from_exec_requests(
-        exec_requests: List[LlmInferenceExecRequest], seq_stride: int
-    ) -> "LlmTaskInput":
-        block_count = max(req.block_count for req in exec_requests)
-        tokens = [req.input_token_ids for req in exec_requests]
-        page_ids = []
-        for req in exec_requests:
-            if req.allocation is None:
-                page_ids.append(req.page_ids)
-                continue
-
-            pages = req.allocation.pages
-            page_ids.append([page.index for page in pages])
-
-        start_positions = None
-        if all(req.start_position is not None for req in exec_requests):
-            start_positions = [req.start_position for req in exec_requests]
-
-        return LlmTaskInput(
-            block_count=block_count,
-            seq_stride=seq_stride,
-            input_tokens=tokens,
-            page_ids=page_ids,
-            start_positions=start_positions,
-        )
-
 
 class LlmTaskResponder(ABC):
     def __init__(self, exec_requests):
@@ -367,35 +340,3 @@ class LlmInvocationProcess(sf.Process):
 
         except Exception as exception:
             self._responder.set_failure(exception)
-
-
-def build_invocation_process(
-    phase: InferencePhase,
-    exec_requests: List[LlmInferenceExecRequest],
-    fiber: sf.Fiber,
-    array_cache: DeviceArrayCache,
-    page_cache: BasePagedAttentionCache,
-    functions: dict[int, sf.ProgramFunction],
-    program_isolation: sf.ProgramIsolation,
-    responder: LlmTaskResponder,
-) -> LlmInvocationProcess:
-    task_inputs = LlmTaskInput.from_exec_requests(
-        exec_requests=exec_requests,
-        seq_stride=page_cache.tokens_per_page,
-    )
-
-    llm_task_cls = PrefillTask if phase == InferencePhase.PREFILL else DecodeTask
-    llm_task = llm_task_cls(
-        task_inputs=task_inputs,
-        array_cache=array_cache,
-        page_tables=page_cache.page_pool.page_tables,
-    )
-
-    return LlmInvocationProcess(
-        name=f"{phase.name.lower()}_invocation",
-        fiber=fiber,
-        llm_task=llm_task,
-        functions=functions,
-        program_isolation=program_isolation,
-        responder=responder,
-    )

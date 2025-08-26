@@ -16,7 +16,10 @@ from typing import List, Optional
 from .config_struct import ModelParams
 from .device_array_cache import DeviceArrayCache
 from .invocation import (
-    build_invocation_process,
+    LlmTask,
+    DecodeTask,
+    PrefillTask,
+    LlmTaskInput,
     LlmInvocationProcess,
     LlmTaskResponder,
 )
@@ -207,6 +210,39 @@ class LlmBatcherProcess(BatcherProcess):
         pending = set(pending) - set(scheduled)
         self.pending = self.pending | pending
 
+    def make_task_inputs(
+        self, exec_requests: List[LlmInferenceExecRequest]
+    ) -> LlmTaskInput:
+        block_count = max(req.block_count for req in exec_requests)
+        tokens = [req.input_token_ids for req in exec_requests]
+        page_ids = []
+        for req in exec_requests:
+            if req.allocation is None:
+                page_ids.append(req.page_ids)
+                continue
+
+            pages = req.allocation.pages
+            page_ids.append([page.index for page in pages])
+
+        start_positions = None
+        if all(req.start_position is not None for req in exec_requests):
+            start_positions = [req.start_position for req in exec_requests]
+
+        return LlmTaskInput(
+            block_count=block_count,
+            seq_stride=self.page_seq_stride,
+            input_tokens=tokens,
+            page_ids=page_ids,
+            start_positions=start_positions,
+        )
+
+    def make_task(
+        self,
+        requests: List[LlmInferenceExecRequest],
+        page_cache: BasePagedAttentionCache,
+    ) -> LlmTask:
+        ...
+
     def make_invoker(
         self,
         page_cache: BasePagedAttentionCache,
@@ -280,6 +316,18 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             program_isolation=program_isolation,
         )
 
+    def make_task(
+        self,
+        requests: List[LlmInferenceExecRequest],
+        page_cache: BasePagedAttentionCache,
+    ) -> LlmTask:
+        task_inputs = self.make_task_inputs(requests)
+        return PrefillTask(
+            task_inputs=task_inputs,
+            array_cache=self.array_cache,
+            page_tables=page_cache.page_pool.page_tables,
+        )
+
     def make_invoker(
         self,
         page_cache: BasePagedAttentionCache,
@@ -296,12 +344,10 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         Returns:
             LlmInvoker: Process to handle execution of VMFB.
         """
-        return build_invocation_process(
-            phase=InferencePhase.PREFILL,
-            exec_requests=exec_requests,
+        return LlmInvocationProcess(
+            name="prefill_invocation",
             fiber=fiber,
-            array_cache=self.array_cache,
-            page_cache=page_cache,
+            llm_task=self.make_task(exec_requests, page_cache),
             functions=self.functions,
             program_isolation=self.program_isolation,
             responder=PrefillTaskResponder(exec_requests),
@@ -335,6 +381,18 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             program_isolation=program_isolation,
         )
 
+    def make_task(
+        self,
+        requests: List[LlmInferenceExecRequest],
+        page_cache: BasePagedAttentionCache,
+    ) -> LlmTask:
+        task_inputs = self.make_task_inputs(requests)
+        return DecodeTask(
+            task_inputs=task_inputs,
+            array_cache=self.array_cache,
+            page_tables=page_cache.page_pool.page_tables,
+        )
+
     def make_invoker(
         self,
         page_cache: BasePagedAttentionCache,
@@ -354,12 +412,10 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         Returns:
             LlmInvoker: Process to handle execution of VMFB for decode requests.
         """
-        return build_invocation_process(
-            phase=InferencePhase.DECODE,
-            exec_requests=exec_requests,
+        return LlmInvocationProcess(
+            name="decode_invocation",
             fiber=fiber,
-            array_cache=self.array_cache,
-            page_cache=page_cache,
+            llm_task=self.make_task(exec_requests, page_cache),
             functions=self.functions,
             program_isolation=self.program_isolation,
             responder=DecodeTaskResponder(exec_requests),
