@@ -293,6 +293,12 @@ class BasePagedAttentionCache:
         pages = [self.page_pool.attn_page_entries[pid] for pid in page_ids]
         return CacheInfo(num_tokens=len(tokens), pages=pages, pool=self.page_pool)
 
+    def update_cache_info(
+        self, tokens: List[int], page_ids: List[int], cache_info: CacheInfo = None
+    ) -> CacheInfo:
+        pages = [self.page_pool.attn_page_entries[pid] for pid in page_ids]
+        return CacheInfo(num_tokens=len(tokens), pages=pages, pool=self.page_pool)
+
     def publish_pages_for_tokens(
         self, tokens, cache_info, *, publish_incomplete_page=False
     ) -> CacheInfo:
