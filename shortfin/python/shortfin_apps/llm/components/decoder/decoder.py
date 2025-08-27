@@ -441,5 +441,7 @@ class LlmDecoder:
         # Return Results:
         self._results_callback(completed)
 
+        for req in decode_reqs:
+            req.free_cache_pages()
         prefill_req.free_cache_pages()
         page_manager.release_pages()

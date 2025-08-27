@@ -111,7 +111,7 @@ class LlmInferenceExecRequest(InferenceExecRequest):
 
     def update_cache_info(self):
         self.allocated_cache_info = self._cache.update_cache_info(
-            self.input_token_ids, self.page_ids
+            self.input_token_ids, self.page_ids, self.allocated_cache_info
         )
 
     def publish_allocated_pages(self, up_to_page_index: int):
