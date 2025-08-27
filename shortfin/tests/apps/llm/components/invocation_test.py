@@ -28,8 +28,8 @@ from shortfin_apps.llm.components.invocation import (
     DecodeTask,
     _pad_list,
 )
-from shortfin_apps.llm.components.kvcache.base_attention_cache import (
-    BasePagedAttentionCacheAllocation,
+from shortfin_apps.llm.components.kvcache.attention_cache_abstract import (
+    CacheInfo,
 )
 from shortfin_apps.llm.components.kvcache.page_pool import (
     PageInfo,
@@ -104,8 +104,12 @@ def staggered_exec_req_list(cache_ref_count, page_pool):
                 PageInfo(index=page_offset + i, pool=page_pool)
                 for i in range(len(req.input_token_ids) // 2 + 1)
             ]
-            allocation = BasePagedAttentionCacheAllocation(pages, cache=cache_ref_count)
-            req.allocation = allocation
+            req.allocated_cache_info = CacheInfo(
+                num_tokens=len(req.input_token_ids),
+                pages=pages,
+                pool=page_pool,
+            )
+            req.page_ids = [page.index for page in pages]
             page_offset += len(pages)
 
         yield exec_reqs
@@ -114,14 +118,7 @@ def staggered_exec_req_list(cache_ref_count, page_pool):
 def _get_task_inputs(exec_requests: List[LlmInferenceExecRequest]) -> LlmTaskInput:
     block_count = max(req.block_count for req in exec_requests)
     tokens = [req.input_token_ids for req in exec_requests]
-    page_ids = []
-    for req in exec_requests:
-        if req.allocation is None:
-            page_ids.append(req.page_ids)
-            continue
-
-        pages = req.allocation.pages
-        page_ids.append([page.index for page in pages])
+    page_ids = [req.page_ids for req in exec_requests]
 
     start_positions = None
     if all(req.start_position is not None for req in exec_requests):

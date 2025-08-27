@@ -215,14 +215,7 @@ class LlmBatcherProcess(BatcherProcess):
     ) -> LlmTaskInput:
         block_count = max(req.block_count for req in exec_requests)
         tokens = [req.input_token_ids for req in exec_requests]
-        page_ids = []
-        for req in exec_requests:
-            if req.allocation is None:
-                page_ids.append(req.page_ids)
-                continue
-
-            pages = req.allocation.pages
-            page_ids.append([page.index for page in pages])
+        page_ids = [req.page_ids for req in exec_requests]
 
         start_positions = None
         if all(req.start_position is not None for req in exec_requests):
