@@ -355,6 +355,7 @@ class LlmDecoder:
                 orig_instance_id=prefill_req.orig_instance_id,
                 page_ids=[],
                 page_cache=self._page_cache,
+                allocated_cache_info=prefill_req.allocated_cache_info,
             )
             for _ in range(num_beams)
         ]
