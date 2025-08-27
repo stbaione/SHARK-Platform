@@ -801,12 +801,22 @@ class TriePagedAttentionCache(BasePagedAttentionCache):
         last_cached_node = cache_info.last_cached_node
         last_cached_node.ref_count.decrement()
         self.free_cache_pages()
+        if (
+            (last_cached_node == self.root)
+            and (last_cached_node.ref_count.is_empty())
+            and (len(cache_info.pages) == 1)
+        ):
+            self.page_pool.free_pages(cache_info.pages)
 
     def update_cache_info(
         self, tokens: List[int], page_ids: List[int], cache_info: TrieCacheInfo
     ) -> TrieCacheInfo:
         new_pages = [self.page_pool.attn_page_entries[pid] for pid in page_ids]
-        pages = cache_info.pages + new_pages
+        existing_page_indices = [page.index for page in cache_info.pages]
+        pages = cache_info.pages
+        for page in new_pages:
+            if page.index not in existing_page_indices:
+                pages.append(page)
         latest_tokens = list(cache_info.tokens) + tokens
         return TrieCacheInfo(
             num_tokens=len(latest_tokens),
