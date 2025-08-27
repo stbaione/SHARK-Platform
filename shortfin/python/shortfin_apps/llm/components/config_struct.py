@@ -136,6 +136,8 @@ class ModelParams:
     # be in ascending order.
     prefill_batch_sizes: list[int]
 
+    has_prefill_position: bool
+
     # Similarly, batch sizes that the decode stage is compiled for.
     decode_batch_sizes: list[int]
 
