@@ -142,6 +142,7 @@ def prefill_task(staggered_exec_req_list, device_array_cache, page_pool) -> Pref
         task_inputs=task_input,
         array_cache=device_array_cache,
         page_tables=page_tables,
+        has_prefill_position=False,
     )
 
 
