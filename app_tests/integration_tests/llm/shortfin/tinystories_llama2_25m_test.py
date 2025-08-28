@@ -79,21 +79,12 @@ class TestLLMServer:
     def test_basic_generation(
         self,
         server: tuple[Any, int, ServerConfig],
-        request: pytest.FixtureRequest,
     ) -> None:
         """Tests basic text generation capabilities.
 
         Args:
             server: Tuple of (process, port) from server fixture
         """
-        if (
-            request.config.option.test_device == "cpu"
-            and request.node.callspec.id
-            == "tinystories_llama2_25m_has_prefill_position_none"
-        ):
-            pytest.skip(
-                reason="CPU model compilation failing for `has_prefill_position` model variant."
-            )
         process, port, config = server
         assert process.poll() is None, "Server process terminated unexpectedly"
         prompt = GOLDEN_PROMPT
