@@ -186,15 +186,19 @@ class PrefillTask(LlmTask):
             )
         )
 
-        buffers = [tokens, seq_lens, seq_block_ids]
-        data = [tokens_data, seq_lens_data, seq_block_ids_data]
-        defaults = [0, 1, 0]
+        buffers = [tokens]
+        data = [tokens_data]
+        defaults = [0]
 
         if self._has_prefill_position:
             start_positions = array_cache.allocate([batch_size], int_dtype)
-            buffers.insert(1, start_positions)
-            data.insert(1, task_inputs.start_positions)
-            defaults.insert(1, 0)
+            buffers.append(start_positions)
+            data.append(task_inputs.start_positions)
+            defaults.append(0)
+
+        buffers.extend([seq_lens, seq_block_ids])
+        data.extend([seq_lens_data, seq_block_ids_data])
+        defaults.extend([1, 0])
 
         args = create_argument_buffers(
             buffers=buffers,
