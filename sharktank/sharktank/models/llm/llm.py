@@ -16,6 +16,7 @@ from sharktank.layers import *
 from sharktank.types import *
 from sharktank.types.pipelining import transfer_between_blocks
 from sharktank.utils.create_cache import *
+from sharktank.utils.attention import *
 from sharktank import ops
 
 __all__ = [
@@ -71,7 +72,6 @@ class PagedLlmModelV1(BaseCausalLMModel):
             activation_dtype=config.activation_dtype,
             attention_dtype=config.attention_dtype,
             fake_quant=config.fake_quant,
-            static_tables=config.static_tables,
         )
         self.config = config
         self.hp = self.config.hp
@@ -139,7 +139,9 @@ class PagedLlmModelV1(BaseCausalLMModel):
             h *= math.sqrt(h.shape[-1])
 
         if self.config.attention_chunk_size is not None:
-            chunked_attention_mask = self.chunked_attention_mask(attention_mask)
+            chunked_attention_mask = create_chunked_attention_mask(
+                attention_mask, self.config.attention_chunk_size
+            )
 
         # Iterate over attention blocks.
         for block_idx, block in enumerate(self.attn_blocks):
@@ -397,7 +399,7 @@ class AttentionFFNBlock(ThetaLayer):
         self,
         h: Union[torch.Tensor, ReplicatedTensor],
         *,
-        embedding,
+        embedding: CachedRotaryLayer,
         # [bs, batch_seq_len // block_seq_stride]
         seq_block_ids: torch.Tensor | ReplicatedTensor,
         start_positions: Optional[torch.Tensor] = None,
