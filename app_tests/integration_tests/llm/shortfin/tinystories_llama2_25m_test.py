@@ -28,35 +28,35 @@ from ..model_management import AccuracyValidationException, ModelConfig
 pytestmark = pytest.mark.parametrize(
     "model_artifacts,server",
     [
-        # (ModelConfig.get(name="tinystories_llama2_25m"), {"prefix_sharing": "none"}),
-        # (
-        #     ModelConfig.get(name="tinystories_llama2_25m"),
-        #     {
-        #         "prefix_sharing": "none",
-        #         "num_beams": 2,
-        #     },
-        # ),
+        (ModelConfig.get(name="tinystories_llama2_25m"), {"prefix_sharing": "none"}),
+        (
+            ModelConfig.get(name="tinystories_llama2_25m"),
+            {
+                "prefix_sharing": "none",
+                "num_beams": 2,
+            },
+        ),
         (
             ModelConfig.get(name="tinystories_llama2_25m_has_prefill_position"),
             {"prefix_sharing": "none"},
         ),
-        # (
-        #     ModelConfig.get(name="tinystories_llama2_25m_gpu_argmax"),
-        #     {"prefix_sharing": "none"},
-        # ),
-        # (
-        #     ModelConfig.get(name="tinystories_llama2_25m_gpu_topk_k4"),
-        #     {"prefix_sharing": "none"},
-        # ),
-        # (ModelConfig.get(name="tinystories_llama2_25m"), {"prefix_sharing": "trie"}),
+        (
+            ModelConfig.get(name="tinystories_llama2_25m_gpu_argmax"),
+            {"prefix_sharing": "none"},
+        ),
+        (
+            ModelConfig.get(name="tinystories_llama2_25m_gpu_topk_k4"),
+            {"prefix_sharing": "none"},
+        ),
+        (ModelConfig.get(name="tinystories_llama2_25m"), {"prefix_sharing": "trie"}),
     ],
     ids=[
-        # "tinystories_llama2_25m_none",
-        # "tinystories_llama2_25m_none_2_beams",
+        "tinystories_llama2_25m_none",
+        "tinystories_llama2_25m_none_2_beams",
         "tinystories_llama2_25m_has_prefill_position_none",
-        # "tinystories_llama2_25m_gpu_argmax_none",
-        # "tinystories_llama2_25m_gpu_topk_k4_none",
-        # "tinystories_llama2_25m_trie",
+        "tinystories_llama2_25m_gpu_argmax_none",
+        "tinystories_llama2_25m_gpu_topk_k4_none",
+        "tinystories_llama2_25m_trie",
     ],
     indirect=True,
 )
