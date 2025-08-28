@@ -128,12 +128,15 @@ class PrefillTask(LlmTask):
         task_inputs: LlmTaskInput,
         array_cache: DeviceArrayCache,
         page_tables: List[sfnp.device_array],
+        has_prefill_position: bool,
     ):
         super().__init__(
             task_inputs=task_inputs,
             array_cache=array_cache,
             page_tables=page_tables,
         )
+
+        self._has_prefill_position = has_prefill_position
 
     async def prepare_args(
         self,
@@ -191,11 +194,11 @@ class PrefillTask(LlmTask):
         data = [tokens_data, seq_lens_data, seq_block_ids_data]
         defaults = [0, 1, 0]
 
-        if task_inputs.start_positions is not None:
+        if self._has_prefill_position:
             start_positions = array_cache.allocate([batch_size], int_dtype)
-            buffers.insert(2, start_positions)
-            data.insert(2, task_inputs.start_positions)
-            defaults.insert(2, 0)
+            buffers.insert(1, start_positions)
+            data.insert(1, task_inputs.start_positions)
+            defaults.insert(1, 0)
 
         args = create_argument_buffers(
             buffers=buffers,

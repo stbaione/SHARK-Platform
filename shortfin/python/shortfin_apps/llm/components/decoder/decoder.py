@@ -376,6 +376,10 @@ class LlmDecoder:
             page_cache=self._prefill_batcher.page_cache,
         )
 
+        prefill_req.acquire_pages()
+
+        # TODO (stbaione): Support starting from non-zero when
+        # trie cache changes are landed.
         if self._prefill_config.has_prefill_position:
             prefill_req.start_position = 0
 
@@ -384,7 +388,6 @@ class LlmDecoder:
     async def run(self, input_ids):
         input_length = len(input_ids)
         prefill_req = self.create_prefill_req(input_ids)
-        prefill_req.acquire_pages()
         # Run Prefill:
         self._prefill_batcher.submit(prefill_req)
         await prefill_req.done
