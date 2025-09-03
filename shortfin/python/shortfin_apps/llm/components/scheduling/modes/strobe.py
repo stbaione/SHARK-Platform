@@ -1,11 +1,13 @@
 import itertools
 
+from ..config import SchedulerConfig
 from ..workload import WorkloadBuilder, Workgroup, UpdateWorkload
 
 
 class StrobeScheduler:
-    def __init__(self, *, ideal_batch_size):
-        self._ideal_batch_size = ideal_batch_size
+    def __init__(self, config: SchedulerConfig):
+        self._batcher = config.batcher
+        self._ideal_batch_size = config.ideal_batch_size
         self._unreserved_strobe = None
         self._wid = 0
         self._preferred_groups = 1
@@ -140,5 +142,5 @@ class StrobeScheduler:
 
         return False
 
-    def reserve_workload(self, *, batcher, count, rid):
-        batcher.submit(UpdateWorkload(count=count, rid=rid))
+    def reserve_workload(self, *, count, rid):
+        self._batcher.submit(UpdateWorkload(count=count, rid=rid))

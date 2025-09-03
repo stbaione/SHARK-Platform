@@ -22,14 +22,14 @@ class _ScheduleEngineImpl:
     def handle_message(self, message: sf.Message) -> bool:
         return self.scheduler.handle_message(message)
 
-    def reserve_workload(self, *, batcher: BatcherProcess, count: int, rid: str):
-        self.scheduler.reserve_workload(batcher=batcher, count=count, rid=rid)
+    def reserve_workload(self, *, count: int, rid: str):
+        self.scheduler.reserve_workload(count=count, rid=rid)
 
 
 def _create_scheduler(config: SchedulerConfig) -> _ScheduleEngineImpl:
     if config.mode == SchedulingModes.STROBE:
         return _ScheduleEngineImpl(
-            scheduler=StrobeScheduler(ideal_batch_size=config.ideal_batch_size),
+            scheduler=StrobeScheduler(config=config),
         )
 
     raise ValueError(f"Unsupported scheduling mode: {config.mode}")

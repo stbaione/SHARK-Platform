@@ -12,8 +12,8 @@ class SchedulerFacade:
     def handle_message(self, msg):
         return self._impl.handle_message(msg)
 
-    def reserve_workload(self, batcher, count, rid):
-        return self._impl.reserve_workload(batcher=batcher, count=count, rid=rid)
+    def reserve_workload(self, count: int, rid: str):
+        return self._impl.reserve_workload(count=count, rid=rid)
 
     @staticmethod
     def build_scheduler(

@@ -185,7 +185,7 @@ class LlmBatcherProcess(BatcherProcess):
         await self.board_flights()
 
     def reserve_workload(self, *, rid, count):
-        return self.scheduler.reserve_workload(batcher=self, count=count, rid=rid)
+        return self.scheduler.reserve_workload(count=count, rid=rid)
 
     def custom_message(self, msg):
         if self.scheduler.handle_message(msg):
