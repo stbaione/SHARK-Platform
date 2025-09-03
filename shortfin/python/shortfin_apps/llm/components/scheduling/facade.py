@@ -1,0 +1,22 @@
+from .config import SchedulerConfig
+from .factory import _ScheduleEngineImpl, _create_scheduler
+
+
+class SchedulerFacade:
+    def __init__(self, impl: _ScheduleEngineImpl) -> None:
+        self._impl = impl
+
+    def should_execute(self, pending, strobe):
+        return self._impl.should_execute(pending, strobe)
+
+    def handle_message(self, msg):
+        return self._impl.handle_message(msg)
+
+    def reserve_workload(self, batcher, count, rid):
+        return self._impl.reserve_workload(batcher=batcher, count=count, rid=rid)
+
+    @staticmethod
+    def build_scheduler(
+        scheduler_config: SchedulerConfig,
+    ):
+        return SchedulerFacade(impl=_create_scheduler(scheduler_config))

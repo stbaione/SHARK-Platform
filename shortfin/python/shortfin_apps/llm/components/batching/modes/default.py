@@ -5,8 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import logging
-import math
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional
 
 
 import shortfin as sf
@@ -14,6 +13,8 @@ import shortfin.array as sfnp
 
 from shortfin import Fiber
 
+from ..config import BatchConfig
+from ..batching_trait import BatchingTrait
 from ...config_struct import ModelParams
 from ...device_array_cache import DeviceArrayCache
 from ...invocation import (
@@ -28,12 +29,12 @@ from ...kvcache.base_attention_cache import (
     BasePagedAttentionCache,
 )
 from ...messages import LlmInferenceExecRequest, InferencePhase
-from ...scheduler import Scheduler
+
+from ...scheduling.config import SchedulerConfig, SchedulingModes
+from ...scheduling.facade import SchedulerFacade
 
 from .....utils import BatcherProcess
 
-from ..config import BatchConfig
-from ..batching_trait import BatchingTrait
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,14 @@ class LlmBatcherProcess(BatcherProcess):
         # batching in the scheduling algo.
         self.ideal_batch_size: int = ideal_batch_size
         self.page_seq_stride = self.model_params.paged_kv_cache.block_seq_stride
-        self.scheduler = Scheduler(ideal_batch_size=self.ideal_batch_size)
+        # self.scheduler = Scheduler(ideal_batch_size=self.ideal_batch_size)
+        self.scheduler = SchedulerFacade.build_scheduler(
+            SchedulerConfig(
+                mode=SchedulingModes.STROBE,
+                ideal_batch_size=self.ideal_batch_size,
+                batcher=self,
+            )
+        )
         self.array_cache: DeviceArrayCache = DeviceArrayCache(fiber.device(0))
 
         self.program_isolation = program_isolation
@@ -180,7 +188,7 @@ class LlmBatcherProcess(BatcherProcess):
         return self.scheduler.reserve_workload(batcher=self, count=count, rid=rid)
 
     def custom_message(self, msg):
-        if self.scheduler.handle_scheduler(msg):
+        if self.scheduler.handle_message(msg):
             return
 
         super().custom_message(msg)

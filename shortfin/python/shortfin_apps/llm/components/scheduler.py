@@ -246,7 +246,7 @@ class Scheduler:
 
         self._workgroup_placement.pop(rid)
 
-    def handle_scheduler(self, msg):
+    def handle_message(self, msg):
         if isinstance(msg, UpdateWorkload):
             if msg.count == 0:
                 self._remove(rid=msg.rid)
