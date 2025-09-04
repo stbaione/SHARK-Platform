@@ -1,9 +1,9 @@
 from .config import SchedulerConfig
-from .factory import _ScheduleEngineImpl, _create_scheduler
+from .factory import _SchedulerEngineImpl, _create_scheduler
 
 
 class SchedulerFacade:
-    def __init__(self, impl: _ScheduleEngineImpl) -> None:
+    def __init__(self, impl: _SchedulerEngineImpl) -> None:
         self._impl = impl
 
     def should_execute(self, pending):

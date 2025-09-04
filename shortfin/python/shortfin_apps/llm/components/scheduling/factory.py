@@ -3,12 +3,12 @@ import shortfin as sf
 from typing import List
 
 from .abstract import AbstractScheduler
-from .config import SchedulerConfig, SchedulingModes
+from .config import SchedulerConfig, SchedulerModes
 from .modes.strobe import StrobeScheduler
 from ..messages import LlmInferenceExecRequest
 
 
-class _ScheduleEngineImpl:
+class _SchedulerEngineImpl:
     def __init__(self, scheduler: AbstractScheduler) -> None:
         self.scheduler = scheduler
 
@@ -24,9 +24,9 @@ class _ScheduleEngineImpl:
         self.scheduler.reserve_workload(count=count, rid=rid)
 
 
-def _create_scheduler(config: SchedulerConfig) -> _ScheduleEngineImpl:
-    if config.mode == SchedulingModes.STROBE:
-        return _ScheduleEngineImpl(
+def _create_scheduler(config: SchedulerConfig) -> _SchedulerEngineImpl:
+    if config.mode == SchedulerModes.STROBE:
+        return _SchedulerEngineImpl(
             scheduler=StrobeScheduler(config=config),
         )
 

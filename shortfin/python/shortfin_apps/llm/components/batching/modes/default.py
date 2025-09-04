@@ -30,7 +30,7 @@ from ...kvcache.base_attention_cache import (
 )
 from ...messages import LlmInferenceExecRequest, InferencePhase
 
-from ...scheduling.config import SchedulerConfig, SchedulingModes
+from ...scheduling.config import SchedulerConfig, SchedulerModes
 from ...scheduling.facade import SchedulerFacade
 
 from .....utils import BatcherProcess
@@ -148,6 +148,7 @@ class LlmBatcherProcess(BatcherProcess):
         functions: dict[int, sf.ProgramFunction],
         ideal_batch_size: int,
         program_isolation: str,
+        scheduler_mode: SchedulerModes,
     ):
         super().__init__(fiber=fiber)
         self.name = name
@@ -161,7 +162,7 @@ class LlmBatcherProcess(BatcherProcess):
         self.page_seq_stride = self.model_params.paged_kv_cache.block_seq_stride
         self.scheduler = SchedulerFacade.build_scheduler(
             SchedulerConfig(
-                mode=SchedulingModes.STROBE,
+                mode=scheduler_mode,
                 ideal_batch_size=self.ideal_batch_size,
                 batcher=self,
             )
@@ -309,6 +310,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         model_params: ModelParams,
         prefill_functions: dict[int, sf.ProgramFunction],
         program_isolation: str,
+        scheduler_mode: SchedulerModes,
     ):
         super().__init__(
             name="prefill",
@@ -318,6 +320,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             functions=prefill_functions,
             ideal_batch_size=max(model_params.prefill_batch_sizes),
             program_isolation=program_isolation,
+            scheduler_mode=scheduler_mode,
         )
 
     def make_task(
@@ -375,6 +378,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         model_params: ModelParams,
         decode_functions: dict[int, sf.ProgramFunction],
         program_isolation: str,
+        scheduler_mode: SchedulerModes,
     ):
         super().__init__(
             name="decode",
@@ -384,6 +388,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             functions=decode_functions,
             ideal_batch_size=max(model_params.decode_batch_sizes),
             program_isolation=program_isolation,
+            scheduler_mode=scheduler_mode,
         )
 
     def make_task(
@@ -472,6 +477,7 @@ class DefaultBatchingEngine(BatchingTrait):
             model_params=batch_cfg.model_params,
             prefill_functions=batch_cfg.prefill_functions,
             program_isolation=batch_cfg.prog_isolation,
+            scheduler_mode=batch_cfg.scheduler_mode,
         )
         decode_batcher = DecodeBatcherProcess(
             fiber=decode_fiber,
@@ -479,6 +485,7 @@ class DefaultBatchingEngine(BatchingTrait):
             model_params=batch_cfg.model_params,
             decode_functions=batch_cfg.decode_functions,
             program_isolation=batch_cfg.prog_isolation,
+            scheduler_mode=batch_cfg.scheduler_mode,
         )
 
         return DefaultBatchingEngine(

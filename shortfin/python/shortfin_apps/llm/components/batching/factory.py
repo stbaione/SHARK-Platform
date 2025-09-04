@@ -9,6 +9,7 @@ Implements a unified batching factory to provide a single
 black box batching interface. Internal implementation details
 are not leaked.
 """
+import logging
 
 import shortfin as sf
 
@@ -17,6 +18,9 @@ from ..kvcache.base_attention_cache import BasePagedAttentionCache
 from .batching_trait import BatchingTrait
 from .modes.default import DefaultBatchingEngine
 from ..messages import LlmInferenceExecRequest
+
+
+logger = logging.getLogger(__name__)
 
 
 class _BatchingEngineImpl:
@@ -51,6 +55,10 @@ class _BatchingEngineImpl:
 
 
 def _create_impl(batch_cfg: BatchConfig, page_cache: BasePagedAttentionCache, prefill_fiber: sf.Fiber, decode_fiber: sf.Fiber | None = None):  # type: ignore
+    logger.info(
+        f"Initializing Batching Mode: {batch_cfg.mode.name}, "
+        f"with Scheduling Mode: {batch_cfg.scheduler_mode.name}"
+    )
     if batch_cfg.mode == BatchMode.DEFAULT:
         return _BatchingEngineImpl(
             DefaultBatchingEngine.create(
