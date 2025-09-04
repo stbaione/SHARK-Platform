@@ -57,7 +57,7 @@ class Workgroup:
         self._members[rid] = count
         self._size = self._size + count - old_count
 
-    def schedule(self, *, pending, strobe: int):
+    def schedule(self, *, pending):
         pending = [pending[rid] for rid in pending if rid in self._members]
         pending = list(itertools.chain(*pending))
         target_size = sum(self._members[rid] for rid in self._members)

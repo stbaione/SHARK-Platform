@@ -6,8 +6,8 @@ class SchedulerFacade:
     def __init__(self, impl: _ScheduleEngineImpl) -> None:
         self._impl = impl
 
-    def should_execute(self, pending, strobe):
-        return self._impl.should_execute(pending, strobe)
+    def should_execute(self, pending):
+        return self._impl.should_execute(pending)
 
     def handle_message(self, msg):
         return self._impl.handle_message(msg)

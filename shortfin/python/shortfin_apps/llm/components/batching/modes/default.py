@@ -210,7 +210,7 @@ class LlmBatcherProcess(BatcherProcess):
         for j in pending:
             rid_map[j.orig_instance_id].append(j)
 
-        to_schedule = self.scheduler.should_execute(rid_map, self.strobes)
+        to_schedule = self.scheduler.should_execute(rid_map)
 
         page_cache = self.page_cache
         scheduled = []

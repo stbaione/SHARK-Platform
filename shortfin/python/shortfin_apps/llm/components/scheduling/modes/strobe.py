@@ -1,10 +1,12 @@
 import itertools
+from typing import Dict
 
+from ..abstract import AbstractScheduler
 from ..config import SchedulerConfig
 from ..workload import WorkloadBuilder, Workgroup, UpdateWorkload
 
 
-class StrobeScheduler:
+class StrobeScheduler(AbstractScheduler):
     def __init__(self, config: SchedulerConfig):
         self._batcher = config.batcher
         self._ideal_batch_size = config.ideal_batch_size
@@ -13,12 +15,12 @@ class StrobeScheduler:
         self._preferred_groups = 1
 
         # Mapping from RID to the corresponding workgroup ID
-        self._workgroup_placement = {}
+        self._workgroup_placement: Dict[str, int] = {}
 
         # Mapping from workgroup ID to the Workgroup tracker:
-        self._workgroups = {}
+        self._workgroups: Dict[int, Workgroup] = {}
 
-    def should_execute(self, pending, strobe):
+    def should_execute(self, pending):
         workload_builder = WorkloadBuilder(ideal_batch_size=self._ideal_batch_size)
 
         # Split out reserved and unreserved jobs:
@@ -38,7 +40,7 @@ class StrobeScheduler:
         # Schedule all jobs known to the reservation system
         for workgroup_id in self._workgroups.keys():
             workgroup = self._workgroups[workgroup_id]
-            to_schedule = workgroup.schedule(pending=reserved, strobe=strobe)
+            to_schedule = workgroup.schedule(pending=reserved)
             if to_schedule is not None:
                 workload_builder.add_work(to_schedule)
 
@@ -56,6 +58,7 @@ class StrobeScheduler:
             self._unreserved_strobe = None
 
         # If we have remaining unreserved jobs
+        strobe = self._batcher.strobes
         if len(unreserved) > 0:
             # Schedule the strobe for a future follow up:
             if self._unreserved_strobe is None:
@@ -131,13 +134,13 @@ class StrobeScheduler:
 
         self._workgroup_placement.pop(rid)
 
-    def handle_message(self, msg):
-        if isinstance(msg, UpdateWorkload):
-            if msg.count == 0:
-                self._remove(rid=msg.rid)
+    def handle_message(self, message):
+        if isinstance(message, UpdateWorkload):
+            if message.count == 0:
+                self._remove(rid=message.rid)
                 return True
 
-            self._schedule(rid=msg.rid, count=msg.count)
+            self._schedule(rid=message.rid, count=message.count)
             return True
 
         return False
