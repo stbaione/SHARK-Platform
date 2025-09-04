@@ -13,11 +13,14 @@ import logging
 
 import shortfin as sf
 
-from .config import BatchConfig, BatchMode
-from ..kvcache.base_attention_cache import BasePagedAttentionCache
+from typing import Union
+
 from .batching_trait import BatchingTrait
+from .config import BatchConfig, BatchMode
 from .modes.default import DefaultBatchingEngine
+from ..kvcache.base_attention_cache import BasePagedAttentionCache
 from ..messages import LlmInferenceExecRequest
+from ..scheduling import UpdateWorkload
 
 
 logger = logging.getLogger(__name__)
@@ -44,7 +47,7 @@ class _BatchingEngineImpl:
     def get_page_cache(self) -> BasePagedAttentionCache:
         return self.page_cache
 
-    def submit(self, request: LlmInferenceExecRequest):
+    def submit(self, request: Union[LlmInferenceExecRequest, UpdateWorkload]):
         self.batching_engine.submit(request)
 
     def reserve_workload(self, *, rid: str, count: int):

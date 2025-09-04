@@ -20,3 +20,13 @@ class AbstractScheduler(ABC):
     @abstractmethod
     def reserve_workload(self, *, count: int, rid: str):
         pass
+
+
+class AbstractSchedulerRuntime(ABC):
+    @abstractmethod
+    def get_tick(self) -> int:
+        pass
+
+    @abstractmethod
+    def submit_workload(self, *, count: int, rid: str):
+        pass

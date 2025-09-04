@@ -8,7 +8,7 @@ from ..workload import WorkloadBuilder, Workgroup, UpdateWorkload
 
 class StrobeScheduler(AbstractScheduler):
     def __init__(self, config: SchedulerConfig):
-        self._batcher = config.batcher
+        self._runtime = config.runtime
         self._ideal_batch_size = config.ideal_batch_size
         self._unreserved_strobe = None
         self._wid = 0
@@ -58,7 +58,7 @@ class StrobeScheduler(AbstractScheduler):
             self._unreserved_strobe = None
 
         # If we have remaining unreserved jobs
-        strobe = self._batcher.strobes
+        strobe = self._runtime.get_tick()
         if len(unreserved) > 0:
             # Schedule the strobe for a future follow up:
             if self._unreserved_strobe is None:
@@ -146,4 +146,4 @@ class StrobeScheduler(AbstractScheduler):
         return False
 
     def reserve_workload(self, *, count, rid):
-        self._batcher.submit(UpdateWorkload(count=count, rid=rid))
+        self._runtime.submit_workload(count=count, rid=rid)

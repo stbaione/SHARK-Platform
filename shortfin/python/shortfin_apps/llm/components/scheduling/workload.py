@@ -4,7 +4,7 @@ import shortfin as sf
 
 
 class UpdateWorkload(sf.Message):
-    def __init__(self, *, count: int, rid: int):
+    def __init__(self, *, count: int, rid: str):
         super().__init__()
         self.count = count
         self.rid = rid

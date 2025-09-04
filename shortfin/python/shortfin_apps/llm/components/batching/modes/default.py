@@ -30,8 +30,13 @@ from ...kvcache.base_attention_cache import (
 )
 from ...messages import LlmInferenceExecRequest, InferencePhase
 
-from ...scheduling.config import SchedulerConfig, SchedulerModes
-from ...scheduling.facade import SchedulerFacade
+from ...scheduling import (
+    AbstractSchedulerRuntime,
+    SchedulerConfig,
+    SchedulerFacade,
+    SchedulerMode,
+    UpdateWorkload,
+)
 
 from .....utils import BatcherProcess
 
@@ -39,9 +44,9 @@ from .....utils import BatcherProcess
 logger = logging.getLogger(__name__)
 
 
-########################################################################################
+###############################################################################
 # Task Responders
-########################################################################################
+###############################################################################
 
 
 class PrefillTaskResponder(LlmTaskResponder):
@@ -128,9 +133,25 @@ class DecodeTaskResponder(LlmTaskResponder):
             req.done.set_success()
 
 
-########################################################################################
+###############################################################################
+# Adapter
+###############################################################################
+
+
+class DefaultBatcherAdapter(AbstractSchedulerRuntime):
+    def __init__(self, batcher: "LlmBatcherProcess"):
+        self._batcher = batcher
+
+    def get_tick(self):
+        return self._batcher.strobes
+
+    def submit_workload(self, *, count, rid):
+        self._batcher.submit(UpdateWorkload(count=count, rid=rid))
+
+
+###############################################################################
 # Batcher
-########################################################################################
+###############################################################################
 
 
 class LlmBatcherProcess(BatcherProcess):
@@ -148,7 +169,7 @@ class LlmBatcherProcess(BatcherProcess):
         functions: dict[int, sf.ProgramFunction],
         ideal_batch_size: int,
         program_isolation: str,
-        scheduler_mode: SchedulerModes,
+        scheduler_mode: SchedulerMode,
     ):
         super().__init__(fiber=fiber)
         self.name = name
@@ -164,7 +185,7 @@ class LlmBatcherProcess(BatcherProcess):
             SchedulerConfig(
                 mode=scheduler_mode,
                 ideal_batch_size=self.ideal_batch_size,
-                batcher=self,
+                runtime=DefaultBatcherAdapter(self),
             )
         )
         self.array_cache: DeviceArrayCache = DeviceArrayCache(fiber.device(0))
@@ -310,7 +331,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         model_params: ModelParams,
         prefill_functions: dict[int, sf.ProgramFunction],
         program_isolation: str,
-        scheduler_mode: SchedulerModes,
+        scheduler_mode: SchedulerMode,
     ):
         super().__init__(
             name="prefill",
@@ -378,7 +399,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         model_params: ModelParams,
         decode_functions: dict[int, sf.ProgramFunction],
         program_isolation: str,
-        scheduler_mode: SchedulerModes,
+        scheduler_mode: SchedulerMode,
     ):
         super().__init__(
             name="decode",
@@ -466,7 +487,10 @@ class DefaultBatchingEngine(BatchingTrait):
 
     @staticmethod
     def create(
-        batch_cfg: BatchConfig, page_cache: BasePagedAttentionCache, prefill_fiber: sf.Fiber, decode_fiber: sf.Fiber | None = None  # type: ignore
+        batch_cfg: BatchConfig,
+        page_cache: BasePagedAttentionCache,
+        prefill_fiber: sf.Fiber,
+        decode_fiber: sf.Fiber | None = None,  # type: ignore
     ):
         assert (
             decode_fiber is not None

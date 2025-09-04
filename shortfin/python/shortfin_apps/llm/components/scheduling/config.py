@@ -1,15 +1,15 @@
+from .abstract import AbstractSchedulerRuntime
+
 from dataclasses import dataclass
 from enum import auto, Enum
 
-from shortfin_apps.utils import BatcherProcess
 
-
-class SchedulerModes(Enum):
+class SchedulerMode(Enum):
     STROBE = auto()
 
 
 @dataclass
 class SchedulerConfig:
-    mode: SchedulerModes
+    mode: SchedulerMode
     ideal_batch_size: int
-    batcher: BatcherProcess
+    runtime: AbstractSchedulerRuntime
