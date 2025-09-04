@@ -159,7 +159,6 @@ class LlmBatcherProcess(BatcherProcess):
         # batching in the scheduling algo.
         self.ideal_batch_size: int = ideal_batch_size
         self.page_seq_stride = self.model_params.paged_kv_cache.block_seq_stride
-        # self.scheduler = Scheduler(ideal_batch_size=self.ideal_batch_size)
         self.scheduler = SchedulerFacade.build_scheduler(
             SchedulerConfig(
                 mode=SchedulingModes.STROBE,
