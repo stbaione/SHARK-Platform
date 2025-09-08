@@ -17,23 +17,6 @@ from .messages import LlmInferenceExecRequest
 logger = logging.getLogger(__name__)
 
 
-# @dataclass
-# class LlmTaskInput:
-#     rids: List[str]
-#     block_count: int
-#     seq_stride: int
-#     input_tokens: List[List[int]]
-#     page_ids: List[List[int]]
-
-#     start_positions: Optional[List[int]] = None
-
-#     @property
-#     def batch_seq_len(self):
-#         seq_stride = self.seq_stride
-#         bsl = max(len(tokens) for tokens in self.input_tokens)
-#         return int(math.ceil(bsl / seq_stride) * seq_stride)
-
-
 @dataclass(frozen=True)
 class LlmTaskInput:
     rid: str
@@ -42,12 +25,6 @@ class LlmTaskInput:
     input_tokens: Tuple[int, ...] = field(default_factory=tuple)
     page_ids: Tuple[int, ...] = field(default_factory=tuple)
     start_position: Optional[int] = None
-
-    # @property
-    # def batch_seq_len(self):
-    #     seq_stride = self.seq_stride
-    #     bsl = len(self.input_tokens)
-    #     return int(math.ceil(bsl / seq_stride) * seq_stride)
 
 
 class LlmTaskResponder(ABC):
@@ -252,12 +229,12 @@ class DecodeTask(LlmTask):
 
     def __init__(
         self,
-        task_inputs: LlmTaskInput,
+        task_inputs: List[LlmTaskInput],
         array_cache: DeviceArrayCache,
         page_tables: List[sfnp.device_array],
     ):
-        assert (
-            task_inputs.start_positions is not None
+        assert all(
+            task_input.start_position is not None for task_input in task_inputs
         ), "`start_positions` must be defined for `Decode`."
         super().__init__(
             task_inputs=task_inputs,
@@ -287,36 +264,44 @@ class DecodeTask(LlmTask):
         # Compute block sequence length as maximum sequence length, rounded
         # up to the seq_stride.
         task_inputs = self._task_input
-        block_count = task_inputs.block_count
+
+        tokens = [list(task_input.input_tokens) for task_input in task_inputs]
+        start_positions = [task_input.start_position for task_input in task_inputs]
+        page_ids = [list(task_input.page_ids) for task_input in task_inputs]
+
+        block_count = max(task_input.block_count for task_input in task_inputs)
         logger.debug("Decode bs=%d", self.req_count)
 
         array_cache = self._array_cache
         int_dtype = sfnp.int64
 
         # Acquire buffers for the arguments.
-        tokens = array_cache.allocate([batch_size, 1], int_dtype)
-        start_positions = array_cache.allocate([batch_size], int_dtype)
-        seq_lens = array_cache.allocate([batch_size], int_dtype)
-        seq_block_ids = array_cache.allocate([batch_size, block_count], int_dtype)
+        tokens_allocation = array_cache.allocate([batch_size, 1], int_dtype)
+        start_positions_allocation = array_cache.allocate([batch_size], int_dtype)
+        seq_lens_allocation = array_cache.allocate([batch_size], int_dtype)
+        seq_block_ids_allocation = array_cache.allocate(
+            [batch_size, block_count], int_dtype
+        )
 
         # Prepare data for argument buffers
-        tokens_data = list(
-            chain.from_iterable(tokens[-1:] for tokens in task_inputs.input_tokens)
-        )
-        seq_lens_data = [pos + 1 for pos in task_inputs.start_positions]
+        tokens_data = list(chain.from_iterable(t[-1:] for t in tokens))
+        seq_lens_data = [pos + 1 for pos in start_positions]
 
         seq_block_ids_data = list(
-            chain.from_iterable(
-                _pad_list(pages, block_count) for pages in task_inputs.page_ids
-            )
+            chain.from_iterable(_pad_list(pages, block_count) for pages in page_ids)
         )
 
         args = create_argument_buffers(
-            buffers=[tokens, seq_lens, start_positions, seq_block_ids],
+            buffers=[
+                tokens_allocation,
+                seq_lens_allocation,
+                start_positions_allocation,
+                seq_block_ids_allocation,
+            ],
             data=[
                 tokens_data,
                 seq_lens_data,
-                task_inputs.start_positions,
+                start_positions,
                 seq_block_ids_data,
             ],
             defaults=[0, 1, 0, 0],
