@@ -99,11 +99,6 @@ class PrefillTaskResponder(LlmTaskResponder):
 
             self._remove_request(req.orig_instance_id)
 
-        logger.info(
-            "SNB PrefillTaskResponder set_success completed for %d requests",
-            len(exec_requests),
-        )
-
     def set_failure(self, llm_task: LlmTask):
         logger.error(
             f"""Fatal error in Prefill invocation:
