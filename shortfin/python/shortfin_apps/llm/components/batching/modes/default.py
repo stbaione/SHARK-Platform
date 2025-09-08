@@ -302,6 +302,8 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         model_params: ModelParams,
         prefill_functions: dict[int, sf.ProgramFunction],
         program_isolation: str,
+        use_chunked_prefill: bool = False,
+        chunk_size: int = 2,
     ):
         super().__init__(
             name="prefill",
