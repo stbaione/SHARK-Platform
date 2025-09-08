@@ -5,7 +5,7 @@ import shortfin as sf
 import shortfin.array as sfnp
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import chain
 from typing import List, Optional, Tuple, Union
 
@@ -16,20 +16,37 @@ from .device_array_cache import Allocation, DeviceArrayCache, WrappedAllocation
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+# @dataclass
+# class LlmTaskInput:
+#     rids: List[str]
+#     block_count: int
+#     seq_stride: int
+#     input_tokens: List[List[int]]
+#     page_ids: List[List[int]]
+
+#     start_positions: Optional[List[int]] = None
+
+#     @property
+#     def batch_seq_len(self):
+#         seq_stride = self.seq_stride
+#         bsl = max(len(tokens) for tokens in self.input_tokens)
+#         return int(math.ceil(bsl / seq_stride) * seq_stride)
+
+
+@dataclass(frozen=True)
 class LlmTaskInput:
+    rid: str
     block_count: int
     seq_stride: int
-    input_tokens: List[List[int]]
-    page_ids: List[List[int]]
+    input_tokens: Tuple[int, ...] = field(default_factory=tuple)
+    page_ids: Tuple[int, ...] = field(default_factory=tuple)
+    start_position: Optional[int] = None
 
-    start_positions: Optional[List[int]] = None
-
-    @property
-    def batch_seq_len(self):
-        seq_stride = self.seq_stride
-        bsl = max(len(tokens) for tokens in self.input_tokens)
-        return int(math.ceil(bsl / seq_stride) * seq_stride)
+    # @property
+    # def batch_seq_len(self):
+    #     seq_stride = self.seq_stride
+    #     bsl = len(self.input_tokens)
+    #     return int(math.ceil(bsl / seq_stride) * seq_stride)
 
 
 class LlmTaskResponder(ABC):
@@ -51,15 +68,24 @@ class LlmTask:
 
     def __init__(
         self,
-        task_inputs: LlmTaskInput,
+        task_inputs: List[LlmTaskInput],
         array_cache: DeviceArrayCache,
         page_tables: List[sfnp.device_array],
     ):
-        self.req_count = len(task_inputs.input_tokens)
+        self.req_count = len(task_inputs)
 
         self._task_input = task_inputs
         self._array_cache: DeviceArrayCache = array_cache
         self._page_tables = page_tables
+
+    def _get_batch_seq_len(self, task_inputs: List[LlmTaskInput]) -> int:
+        max_bsl = 0
+        for task_input in task_inputs:
+            seq_stride = task_input.seq_stride
+            bsl = len(task_input.input_tokens)
+            max_bsl = max(max_bsl, int(math.ceil(bsl / seq_stride) * seq_stride))
+
+        return max_bsl
 
     async def prepare_args(
         self,
@@ -122,7 +148,7 @@ class PrefillTask(LlmTask):
 
     def __init__(
         self,
-        task_inputs: LlmTaskInput,
+        task_inputs: List[LlmTaskInput],
         array_cache: DeviceArrayCache,
         page_tables: List[sfnp.device_array],
         has_prefill_position: bool,
@@ -154,49 +180,52 @@ class PrefillTask(LlmTask):
         """
         task_inputs = self._task_input
 
+        tokens = [list(task_input.input_tokens) for task_input in task_inputs]
+        start_positions = None
+        page_ids = [list(task_input.page_ids) for task_input in task_inputs]
+
+        block_count = max(task.block_count for task in task_inputs)
+        batch_seq_len = self._get_batch_seq_len(task_inputs)
+
         # Compute block sequence length as maximum sequence length, rounded
         # up to the seq_stride.
-        batch_seq_len = task_inputs.batch_seq_len
         logger.debug(f"Prefill bs={batch_size}, bsl={batch_seq_len}")
 
         array_cache = self._array_cache
         int_dtype = sfnp.int64
 
         # Acquire buffers for the arguments.
-        tokens = array_cache.allocate([batch_size, batch_seq_len], int_dtype)
-        seq_lens = array_cache.allocate([batch_size], int_dtype)
-        seq_block_ids = array_cache.allocate(
-            [batch_size, task_inputs.block_count], int_dtype
+        tokens_allocation = array_cache.allocate([batch_size, batch_seq_len], int_dtype)
+        seq_lens_allocation = array_cache.allocate([batch_size], int_dtype)
+        seq_block_ids_allocation = array_cache.allocate(
+            [batch_size, block_count], int_dtype
         )
 
         # Prepare data for argument buffers
         tokens_data = list(
-            chain.from_iterable(
-                _pad_list(tokens, task_inputs.batch_seq_len)
-                for tokens in task_inputs.input_tokens
-            )
+            chain.from_iterable(_pad_list(t, batch_seq_len) for t in tokens)
         )
 
-        seq_lens_data = [len(tokens) for tokens in task_inputs.input_tokens]
+        seq_lens_data = [len(t) for t in tokens]
 
         seq_block_ids_data = list(
             chain.from_iterable(
-                _pad_list(pages, target_length=task_inputs.block_count)
-                for pages in task_inputs.page_ids
+                _pad_list(pages, target_length=block_count) for pages in page_ids
             )
         )
 
-        buffers = [tokens]
+        buffers = [tokens_allocation]
         data = [tokens_data]
         defaults = [0]
 
         if self._has_prefill_position:
-            start_positions = array_cache.allocate([batch_size], int_dtype)
-            buffers.append(start_positions)
-            data.append(task_inputs.start_positions)
+            start_positions = [task.start_position for task in task_inputs]
+            start_positions_allocation = array_cache.allocate([batch_size], int_dtype)
+            buffers.append(start_positions_allocation)
+            data.append(start_positions)
             defaults.append(0)
 
-        buffers.extend([seq_lens, seq_block_ids])
+        buffers.extend([seq_lens_allocation, seq_block_ids_allocation])
         data.extend([seq_lens_data, seq_block_ids_data])
         defaults.extend([1, 0])
 
