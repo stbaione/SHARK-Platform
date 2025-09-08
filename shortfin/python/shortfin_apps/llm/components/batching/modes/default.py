@@ -364,45 +364,21 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         chunked_prefill = self._use_chunked_prefill
         chunk_size = self._chunk_size
 
-        if not chunked_prefill or len(exec_request.input_token_ids) >= chunk_size:
-            return [
-                LlmTaskInput(
-                    rid=exec_request.orig_instance_id,
-                    block_count=exec_request.block_count,
-                    seq_stride=self.page_seq_stride,
-                    input_tokens=tuple(exec_request.input_token_ids),
-                    page_ids=tuple(exec_request.page_ids),
-                    start_position=exec_request.start_position,
-                )
-            ]
-
-        # Chunked prefill logic
-        total_tokens = len(exec_request.input_token_ids)
-        num_chunks = math.ceil(total_tokens / chunk_size)
-        task_inputs = []
-        for i in range(num_chunks):
-            start_position = i * chunk_size
-            chunk_tokens = exec_request.input_token_ids[: start_position + chunk_size]
-            chunk_page_ids = exec_request.page_ids[: (i + 1) * self.page_seq_stride]
-            chunk_block_count = len(chunk_page_ids)
-
-            start_position = (
-                exec_request.start_position + i * chunk_size
-                if exec_request.start_position is not None
-                else None
+        if chunked_prefill and len(exec_request.input_token_ids) < chunk_size:
+            raise NotImplementedError(
+                "Breaking chunks into individual `LlmTaskInput`s not implemented yet."
             )
 
-            task_input = LlmTaskInput(
+        return [
+            LlmTaskInput(
                 rid=exec_request.orig_instance_id,
-                block_count=chunk_block_count,
+                block_count=exec_request.block_count,
                 seq_stride=self.page_seq_stride,
-                input_tokens=tuple(chunk_tokens),
-                page_ids=tuple(chunk_page_ids),
-                start_position=start_position,
+                input_tokens=tuple(exec_request.input_token_ids),
+                page_ids=tuple(exec_request.page_ids),
+                start_position=exec_request.start_position,
             )
-            task_inputs.append(task_input)
-
-        return task_inputs
+        ]
 
     def make_task(
         self,
