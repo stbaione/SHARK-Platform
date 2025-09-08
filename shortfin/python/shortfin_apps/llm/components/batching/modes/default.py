@@ -45,7 +45,8 @@ logger = logging.getLogger(__name__)
 
 
 class PrefillTaskResponder(LlmTaskResponder):
-    def __init__(self):
+    def __init__(self, scheduler: Scheduler):
+        self._scheduler = scheduler
         self._exec_requests: Dict[str, LlmInferenceExecRequest] = {}
 
     def add_request(self, exec_request: LlmInferenceExecRequest):
@@ -95,9 +96,9 @@ class PrefillTaskResponder(LlmTaskResponder):
             req.result_indices = index_item
 
         for req in exec_requests:
-            req.done.set_success()
-
-            self._remove_request(req.orig_instance_id)
+            if self._scheduler.is_completed(req.orig_instance_id):
+                req.done.set_success()
+                self._remove_request(req.orig_instance_id)
 
     def set_failure(self, llm_task: LlmTask):
         logger.error(
@@ -115,7 +116,8 @@ class PrefillTaskResponder(LlmTaskResponder):
 
 
 class DecodeTaskResponder(LlmTaskResponder):
-    def __init__(self) -> None:
+    def __init__(self, scheduler: Scheduler) -> None:
+        self._scheduler = scheduler
         self._exec_requests: Dict[str, LlmInferenceExecRequest] = {}
 
     def add_request(self, exec_request: LlmInferenceExecRequest):
@@ -151,7 +153,9 @@ class DecodeTaskResponder(LlmTaskResponder):
             req.result_indices = index_item
 
         for req in exec_requests:
-            req.done.set_success()
+            if self._scheduler.is_completed(req.orig_instance_id):
+                req.done.set_success()
+                self._remove_request(req.orig_instance_id)
 
     def set_failure(self, llm_task: LlmTask):
         logger.error(
@@ -188,6 +192,7 @@ class LlmBatcherProcess(BatcherProcess):
         functions: dict[int, sf.ProgramFunction],
         ideal_batch_size: int,
         program_isolation: str,
+        scheduler: Scheduler,
         llm_task_responder: LlmTaskResponder,
     ):
         super().__init__(fiber=fiber)
@@ -200,11 +205,11 @@ class LlmBatcherProcess(BatcherProcess):
         # batching in the scheduling algo.
         self.ideal_batch_size: int = ideal_batch_size
         self.page_seq_stride = self.model_params.paged_kv_cache.block_seq_stride
-        self.scheduler = Scheduler(ideal_batch_size=self.ideal_batch_size)
         self.array_cache: DeviceArrayCache = DeviceArrayCache(fiber.device(0))
 
         self.program_isolation = program_isolation
 
+        self.scheduler = scheduler
         self._llm_task_responder = llm_task_responder
 
     def handle_inference_request(self, request: LlmInferenceExecRequest):
@@ -212,7 +217,7 @@ class LlmBatcherProcess(BatcherProcess):
         self._llm_task_responder.add_request(request)
         task_inputs = self.make_task_inputs(request)
         for task_input in task_inputs:
-            self.pending.add(task_input)
+            self.scheduler.schedule_job(task_input)
 
     def shutdown(self):
         """Shutdown the batcher process."""
@@ -234,22 +239,10 @@ class LlmBatcherProcess(BatcherProcess):
 
     async def board_flights(self):
         """Make, schedule, and launch a batch of pending requests."""
-        # TODO: Add lock on self.pending
-        pending = self.pending
-        self.pending = set()
+        to_schedule = self.scheduler.should_execute(self.strobes)
 
-        if len(pending) == 0:
+        if not to_schedule:
             return
-
-        # Determine the requested requests these jobs are for
-        rids = set([j.rid for j in pending])
-
-        # Group jobs together under their rid
-        rid_map = {rid: [] for rid in rids}
-        for j in pending:
-            rid_map[j.rid].append(j)
-
-        to_schedule = self.scheduler.should_execute(rid_map, self.strobes)
 
         page_cache = self.page_cache
         scheduled = []
@@ -257,9 +250,6 @@ class LlmBatcherProcess(BatcherProcess):
             scheduled = scheduled + job
             self.board(page_cache, self.fiber, job)
             logger.debug("Post boarding cache state: %r", page_cache)
-
-        pending = set(pending) - set(scheduled)
-        self.pending = self.pending | pending
 
     def make_task_inputs(
         self, exec_request: LlmInferenceExecRequest
@@ -292,7 +282,10 @@ class LlmBatcherProcess(BatcherProcess):
         ...
 
     def board(
-        self, page_cache: BasePagedAttentionCache, fiber: Fiber, to_schedule: set
+        self,
+        page_cache: BasePagedAttentionCache,
+        fiber: Fiber,
+        to_schedule: List[LlmTaskInput],
     ):
         """Create and launch an LlmExecutorProcess for the given request batch.
 
@@ -338,15 +331,18 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         use_chunked_prefill: bool = False,
         chunk_size: int = 2,
     ):
-        llm_task_responder = PrefillTaskResponder()
+        ideal_batch_size = max(model_params.prefill_batch_sizes)
+        scheduler = Scheduler(ideal_batch_size=ideal_batch_size)
+        llm_task_responder = PrefillTaskResponder(scheduler=scheduler)
         super().__init__(
             name="prefill",
             fiber=fiber,
             page_cache=page_cache,
             model_params=model_params,
             functions=prefill_functions,
-            ideal_batch_size=max(model_params.prefill_batch_sizes),
+            ideal_batch_size=ideal_batch_size,
             program_isolation=program_isolation,
+            scheduler=scheduler,
             llm_task_responder=llm_task_responder,
         )
 
@@ -430,15 +426,18 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         decode_functions: dict[int, sf.ProgramFunction],
         program_isolation: str,
     ):
+        ideal_batch_size = max(model_params.decode_batch_sizes)
+        scheduler = Scheduler(ideal_batch_size=ideal_batch_size)
         super().__init__(
             name="decode",
             fiber=fiber,
             page_cache=page_cache,
             model_params=model_params,
             functions=decode_functions,
-            ideal_batch_size=max(model_params.decode_batch_sizes),
+            ideal_batch_size=ideal_batch_size,
             program_isolation=program_isolation,
-            llm_task_responder=DecodeTaskResponder(),
+            scheduler=scheduler,
+            llm_task_responder=DecodeTaskResponder(scheduler=scheduler),
         )
 
     def make_task_inputs(
