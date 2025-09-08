@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple, Union
 
 from .buffers import copy_buffers_to_host, create_argument_buffers
 from .device_array_cache import Allocation, DeviceArrayCache, WrappedAllocation
+from .messages import LlmInferenceExecRequest
 
 
 logger = logging.getLogger(__name__)
@@ -50,16 +51,21 @@ class LlmTaskInput:
 
 
 class LlmTaskResponder(ABC):
-    def __init__(self, exec_requests):
-        self._exec_requests = exec_requests
+    @abstractmethod
+    def add_request(self, exec_request: LlmInferenceExecRequest):
+        ...
 
     @abstractmethod
     def set_success(
-        self, logits: sfnp.device_array, indices: Optional[sfnp.device_array]
+        self,
+        llm_task: "LlmTask",
+        logits: sfnp.device_array,
+        indices: Optional[sfnp.device_array],
     ):
         ...
 
-    def set_failure(self, exception):
+    @abstractmethod
+    def set_failure(self, llm_task: "LlmTask"):
         ...
 
 
@@ -378,7 +384,7 @@ class LlmInvocationProcess(sf.Process):
                 self._device0,
             )
 
-            self._responder.set_success(logits, indices)
+            self._responder.set_success(self._llm_task, logits, indices)
 
-        except Exception as exception:
-            self._responder.set_failure(exception)
+        except Exception:
+            self._responder.set_failure(self._llm_task)

@@ -7,7 +7,7 @@
 import logging
 import math
 import traceback
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 
 import shortfin as sf
@@ -45,11 +45,28 @@ logger = logging.getLogger(__name__)
 
 
 class PrefillTaskResponder(LlmTaskResponder):
-    def __init__(self, exec_requests: List[LlmInferenceExecRequest]) -> None:
-        self._exec_requests = exec_requests
+    def __init__(self):
+        self._exec_requests: Dict[str, LlmInferenceExecRequest] = {}
+
+    def add_request(self, exec_request: LlmInferenceExecRequest):
+        self._exec_requests[exec_request.orig_instance_id] = exec_request
+
+    def _remove_request(self, rid: str):
+        if rid in self._exec_requests:
+            del self._exec_requests[rid]
+
+    def _get_requests_from_task(
+        self, llm_task: LlmTask
+    ) -> List[LlmInferenceExecRequest]:
+        return [
+            self._exec_requests[task_input.rid] for task_input in llm_task._task_input
+        ]
 
     def set_success(
-        self, logits: sfnp.device_array, indices: Optional[sfnp.device_array]
+        self,
+        llm_task: LlmTask,
+        logits: sfnp.device_array,
+        indices: Optional[sfnp.device_array],
     ) -> None:
         """Set the result of the prefill task.
 
@@ -57,8 +74,8 @@ class PrefillTaskResponder(LlmTaskResponder):
             logits (sfnp.device_array): The logits output from the model.
             indices (Optional[sfnp.device_array]): The token indices output from the model.
         """
-        exec_requests = self._exec_requests
-        for i in range(len(self._exec_requests)):
+        exec_requests = self._get_requests_from_task(llm_task)
+        for i in range(len(exec_requests)):
             req = exec_requests[i]
             sl = len(req.input_token_ids) - 1
 
@@ -77,30 +94,56 @@ class PrefillTaskResponder(LlmTaskResponder):
             req.result_logits = logits_item
             req.result_indices = index_item
 
-        for req in self._exec_requests:
+        for req in exec_requests:
             req.done.set_success()
 
-    def set_failure(self, exception):
+            self._remove_request(req.orig_instance_id)
+
+        logger.info(
+            "SNB PrefillTaskResponder set_success completed for %d requests",
+            len(exec_requests),
+        )
+
+    def set_failure(self, llm_task: LlmTask):
         logger.error(
             f"""Fatal error in Prefill invocation:
             {traceback.format_exc()}
             """
         )
 
-        for req in self._exec_requests:
+        exec_requests = self._get_requests_from_task(llm_task)
+        for req in exec_requests:
             req.result_logits = None
             req.free_cache_pages()
             req.done.set_success()
+            self._remove_request(req.orig_instance_id)
 
 
 class DecodeTaskResponder(LlmTaskResponder):
-    def __init__(self, exec_requests: List[LlmInferenceExecRequest]) -> None:
-        self._exec_requests = exec_requests
+    def __init__(self) -> None:
+        self._exec_requests: Dict[str, LlmInferenceExecRequest] = {}
+
+    def add_request(self, exec_request: LlmInferenceExecRequest):
+        self._exec_requests[exec_request.orig_instance_id] = exec_request
+
+    def _remove_request(self, rid: str):
+        if rid in self._exec_requests:
+            del self._exec_requests[rid]
+
+    def _get_requests_from_task(
+        self, llm_task: LlmTask
+    ) -> List[LlmInferenceExecRequest]:
+        return [
+            self._exec_requests[task_input.rid] for task_input in llm_task._task_input
+        ]
 
     def set_success(
-        self, logits: sfnp.device_array, indices: Optional[sfnp.device_array]
+        self,
+        llm_task: LlmTask,
+        logits: sfnp.device_array,
+        indices: Optional[sfnp.device_array],
     ) -> None:
-        exec_requests = self._exec_requests
+        exec_requests = self._get_requests_from_task(llm_task)
         for i in range(len(exec_requests)):
             req = exec_requests[i]
             logits_item = logits.view(i, 0)
@@ -115,17 +158,19 @@ class DecodeTaskResponder(LlmTaskResponder):
         for req in exec_requests:
             req.done.set_success()
 
-    def set_failure(self, exception):
+    def set_failure(self, llm_task: LlmTask):
         logger.error(
             f"""Fatal error in Decode invocation:
-            {exception!r}
+            {traceback.format_exc()}
             """
         )
 
-        for req in self._exec_requests:
+        exec_requests = self._get_requests_from_task(llm_task)
+        for req in exec_requests:
             req.result_logits = None
             req.free_cache_pages()
             req.done.set_success()
+            self._remove_request(req.orig_instance_id)
 
 
 ########################################################################################
@@ -148,6 +193,7 @@ class LlmBatcherProcess(BatcherProcess):
         functions: dict[int, sf.ProgramFunction],
         ideal_batch_size: int,
         program_isolation: str,
+        llm_task_responder: LlmTaskResponder,
     ):
         super().__init__(fiber=fiber)
         self.name = name
@@ -163,6 +209,8 @@ class LlmBatcherProcess(BatcherProcess):
         self.array_cache: DeviceArrayCache = DeviceArrayCache(fiber.device(0))
 
         self.program_isolation = program_isolation
+
+        self._llm_task_responder = llm_task_responder
 
     def handle_inference_request(self, task_inputs: List[LlmTaskInput]):
         """Handle an inference request."""
@@ -293,6 +341,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         use_chunked_prefill: bool = False,
         chunk_size: int = 2,
     ):
+        llm_task_responder = PrefillTaskResponder()
         super().__init__(
             name="prefill",
             fiber=fiber,
@@ -301,6 +350,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             functions=prefill_functions,
             ideal_batch_size=max(model_params.prefill_batch_sizes),
             program_isolation=program_isolation,
+            llm_task_responder=llm_task_responder,
         )
 
         self._use_chunked_prefill = use_chunked_prefill
@@ -308,6 +358,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
 
     def handle_inference_request(self, request):
         prefill_task_inputs = self.make_task_inputs(request)
+        self._llm_task_responder.add_request(request)
         return super().handle_inference_request(prefill_task_inputs)
 
     def make_task_inputs(
@@ -397,7 +448,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             llm_task=self.make_task(task_inputs, page_cache),
             functions=self.functions,
             program_isolation=self.program_isolation,
-            responder=PrefillTaskResponder(task_inputs),
+            responder=self._llm_task_responder,
         )
 
 
@@ -426,6 +477,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             functions=decode_functions,
             ideal_batch_size=max(model_params.decode_batch_sizes),
             program_isolation=program_isolation,
+            llm_task_responder=DecodeTaskResponder(),
         )
 
     def make_task_inputs(
@@ -484,7 +536,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             llm_task=self.make_task(exec_requests, page_cache),
             functions=self.functions,
             program_isolation=self.program_isolation,
-            responder=DecodeTaskResponder(exec_requests),
+            responder=self._llm_task_responder,
         )
 
 
