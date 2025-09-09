@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class LlmTaskInput:
     rid: str
+    instance_id: str
     block_count: int
     seq_stride: int
     input_tokens: Tuple[int, ...] = field(default_factory=tuple)
