@@ -123,6 +123,7 @@ def _get_task_inputs(
         task_inputs.append(
             LlmTaskInput(
                 rid=req.orig_instance_id,
+                instance_id=req.instance_id,
                 block_count=req.block_count,
                 seq_stride=2,
                 input_tokens=req.input_token_ids,
