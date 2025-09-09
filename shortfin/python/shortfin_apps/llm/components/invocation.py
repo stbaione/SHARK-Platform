@@ -23,9 +23,12 @@ class LlmTaskInput:
     instance_id: str
     block_count: int
     seq_stride: int
+    seq_len: int
     input_tokens: Tuple[int, ...] = field(default_factory=tuple)
     page_ids: Tuple[int, ...] = field(default_factory=tuple)
     start_position: Optional[int] = None
+
+    chunk_id: Optional[int] = None
 
 
 class LlmTaskResponder(ABC):
@@ -150,8 +153,10 @@ class PrefillTask(LlmTask):
         array_cache: DeviceArrayCache,
         page_tables: List[sfnp.device_array],
         has_prefill_position: bool,
+        use_chunked_prefill: bool,
     ):
         self._has_prefill_position = has_prefill_position
+        self._use_chunked_prefill = use_chunked_prefill
         super().__init__(
             task_inputs=task_inputs,
             array_cache=array_cache,
@@ -179,6 +184,7 @@ class PrefillTask(LlmTask):
         task_inputs = self._task_input
 
         tokens = [list(task_input.input_tokens) for task_input in task_inputs]
+        seq_lens = [task_input.seq_len for task_input in task_inputs]
         start_positions = None
         page_ids = [list(task_input.page_ids) for task_input in task_inputs]
 
@@ -204,7 +210,7 @@ class PrefillTask(LlmTask):
             chain.from_iterable(_pad_list(t, batch_seq_len) for t in tokens)
         )
 
-        seq_lens_data = [len(t) for t in tokens]
+        seq_lens_data = seq_lens
 
         seq_block_ids_data = list(
             chain.from_iterable(
