@@ -6,7 +6,7 @@
 
 import logging
 import traceback
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 
 import shortfin as sf
