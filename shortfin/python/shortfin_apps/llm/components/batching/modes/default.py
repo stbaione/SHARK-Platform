@@ -5,9 +5,8 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import logging
-import math
 import traceback
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional
 
 
 import shortfin as sf
@@ -15,26 +14,27 @@ import shortfin.array as sfnp
 
 from shortfin import Fiber
 
+from ..batching_trait import BatchingTrait
+from ..config import BatchConfig
+
 from ...config_struct import ModelParams
 from ...device_array_cache import DeviceArrayCache
 from ...invocation import (
-    LlmTask,
     DecodeTask,
     PrefillTask,
-    LlmTaskInput,
     LlmInvocationProcess,
+    LlmTask,
+    LlmTaskInput,
     LlmTaskResponder,
 )
 from ...kvcache.base_attention_cache import (
     BasePagedAttentionCache,
 )
-from ...messages import LlmInferenceExecRequest, InferencePhase
+from ...messages import InferencePhase, LlmInferenceExecRequest
 from ...scheduler import Scheduler
 
 from .....utils import BatcherProcess
 
-from ..config import BatchConfig
-from ..batching_trait import BatchingTrait
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +46,7 @@ logger = logging.getLogger(__name__)
 
 class PrefillTaskResponder(LlmTaskResponder):
     def __init__(self):
-        self._exec_requests: Dict[str, LlmInferenceExecRequest] = {}
-
-    def add_request(self, exec_request: LlmInferenceExecRequest):
-        self._exec_requests[exec_request.instance_id] = exec_request
-
-    def _remove_request(self, instance_id: str):
-        if instance_id in self._exec_requests:
-            del self._exec_requests[instance_id]
-
-    def _get_requests_from_task(
-        self, llm_task: LlmTask
-    ) -> List[LlmInferenceExecRequest]:
-        return [
-            self._exec_requests[task_input.instance_id]
-            for task_input in llm_task._task_input
-        ]
+        super().__init__()
 
     def set_success(
         self,
@@ -115,23 +100,8 @@ class PrefillTaskResponder(LlmTaskResponder):
 
 
 class DecodeTaskResponder(LlmTaskResponder):
-    def __init__(self) -> None:
-        self._exec_requests: Dict[str, LlmInferenceExecRequest] = {}
-
-    def add_request(self, exec_request: LlmInferenceExecRequest):
-        self._exec_requests[exec_request.instance_id] = exec_request
-
-    def _remove_request(self, instance_id: str):
-        if instance_id in self._exec_requests:
-            del self._exec_requests[instance_id]
-
-    def _get_requests_from_task(
-        self, llm_task: LlmTask
-    ) -> List[LlmInferenceExecRequest]:
-        return [
-            self._exec_requests[task_input.instance_id]
-            for task_input in llm_task._task_input
-        ]
+    def __init__(self):
+        super().__init__()
 
     def set_success(
         self,

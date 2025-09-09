@@ -29,9 +29,8 @@ class LlmTaskInput:
 
 
 class LlmTaskResponder(ABC):
-    @abstractmethod
-    def add_request(self, exec_request: LlmInferenceExecRequest):
-        ...
+    def __init__(self):
+        self._exec_requests: dict[str, LlmInferenceExecRequest] = {}
 
     @abstractmethod
     def set_success(
@@ -45,6 +44,21 @@ class LlmTaskResponder(ABC):
     @abstractmethod
     def set_failure(self, llm_task: "LlmTask"):
         ...
+
+    def add_request(self, exec_request: LlmInferenceExecRequest):
+        self._exec_requests[exec_request.instance_id] = exec_request
+
+    def _remove_request(self, instance_id: str):
+        if instance_id in self._exec_requests:
+            del self._exec_requests[instance_id]
+
+    def _get_requests_from_task(
+        self, llm_task: "LlmTask"
+    ) -> List[LlmInferenceExecRequest]:
+        return [
+            self._exec_requests[task_input.instance_id]
+            for task_input in llm_task._task_input
+        ]
 
 
 class LlmTask:
