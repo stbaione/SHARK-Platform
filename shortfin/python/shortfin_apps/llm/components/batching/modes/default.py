@@ -49,17 +49,18 @@ class PrefillTaskResponder(LlmTaskResponder):
         self._exec_requests: Dict[str, LlmInferenceExecRequest] = {}
 
     def add_request(self, exec_request: LlmInferenceExecRequest):
-        self._exec_requests[exec_request.orig_instance_id] = exec_request
+        self._exec_requests[exec_request.instance_id] = exec_request
 
-    def _remove_request(self, rid: str):
-        if rid in self._exec_requests:
-            del self._exec_requests[rid]
+    def _remove_request(self, instance_id: str):
+        if instance_id in self._exec_requests:
+            del self._exec_requests[instance_id]
 
     def _get_requests_from_task(
         self, llm_task: LlmTask
     ) -> List[LlmInferenceExecRequest]:
         return [
-            self._exec_requests[task_input.rid] for task_input in llm_task._task_input
+            self._exec_requests[task_input.instance_id]
+            for task_input in llm_task._task_input
         ]
 
     def set_success(
@@ -96,8 +97,7 @@ class PrefillTaskResponder(LlmTaskResponder):
 
         for req in exec_requests:
             req.done.set_success()
-
-            self._remove_request(req.orig_instance_id)
+            self._remove_request(req.instance_id)
 
     def set_failure(self, llm_task: LlmTask):
         logger.error(
@@ -111,7 +111,7 @@ class PrefillTaskResponder(LlmTaskResponder):
             req.result_logits = None
             req.free_cache_pages()
             req.done.set_success()
-            self._remove_request(req.orig_instance_id)
+            self._remove_request(req.instance_id)
 
 
 class DecodeTaskResponder(LlmTaskResponder):
@@ -119,17 +119,18 @@ class DecodeTaskResponder(LlmTaskResponder):
         self._exec_requests: Dict[str, LlmInferenceExecRequest] = {}
 
     def add_request(self, exec_request: LlmInferenceExecRequest):
-        self._exec_requests[exec_request.orig_instance_id] = exec_request
+        self._exec_requests[exec_request.instance_id] = exec_request
 
-    def _remove_request(self, rid: str):
-        if rid in self._exec_requests:
-            del self._exec_requests[rid]
+    def _remove_request(self, instance_id: str):
+        if instance_id in self._exec_requests:
+            del self._exec_requests[instance_id]
 
     def _get_requests_from_task(
         self, llm_task: LlmTask
     ) -> List[LlmInferenceExecRequest]:
         return [
-            self._exec_requests[task_input.rid] for task_input in llm_task._task_input
+            self._exec_requests[task_input.instance_id]
+            for task_input in llm_task._task_input
         ]
 
     def set_success(
@@ -152,6 +153,7 @@ class DecodeTaskResponder(LlmTaskResponder):
 
         for req in exec_requests:
             req.done.set_success()
+            self._remove_request(req.instance_id)
 
     def set_failure(self, llm_task: LlmTask):
         logger.error(
@@ -165,7 +167,7 @@ class DecodeTaskResponder(LlmTaskResponder):
             req.result_logits = None
             req.free_cache_pages()
             req.done.set_success()
-            self._remove_request(req.orig_instance_id)
+            self._remove_request(req.instance_id)
 
 
 ########################################################################################
@@ -367,6 +369,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         return [
             LlmTaskInput(
                 rid=exec_request.orig_instance_id,
+                instance_id=exec_request.instance_id,
                 block_count=exec_request.block_count,
                 seq_stride=self.page_seq_stride,
                 input_tokens=tuple(exec_request.input_token_ids),
@@ -447,6 +450,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         return [
             LlmTaskInput(
                 rid=exec_request.orig_instance_id,
+                instance_id=exec_request.instance_id,
                 block_count=exec_request.block_count,
                 seq_stride=self.page_seq_stride,
                 input_tokens=tuple(exec_request.input_token_ids),
