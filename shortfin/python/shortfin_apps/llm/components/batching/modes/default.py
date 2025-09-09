@@ -45,7 +45,8 @@ logger = logging.getLogger(__name__)
 
 
 class PrefillTaskResponder(LlmTaskResponder):
-    def __init__(self):
+    def __init__(self, scheduler: Scheduler):
+        self._scheduler = scheduler
         super().__init__()
 
     def set_success(
@@ -81,7 +82,7 @@ class PrefillTaskResponder(LlmTaskResponder):
             req.result_indices = index_item
 
         for req in exec_requests:
-            if self._scheduler.is_completed(req.orig_instance_id):
+            if self._scheduler.handle_completed(req.orig_instance_id):
                 req.done.set_success()
                 self._remove_request(req.instance_id)
 
@@ -101,7 +102,8 @@ class PrefillTaskResponder(LlmTaskResponder):
 
 
 class DecodeTaskResponder(LlmTaskResponder):
-    def __init__(self):
+    def __init__(self, scheduler: Scheduler):
+        self._scheduler = scheduler
         super().__init__()
 
     def set_success(
@@ -123,7 +125,7 @@ class DecodeTaskResponder(LlmTaskResponder):
             req.result_indices = index_item
 
         for req in exec_requests:
-            if self._scheduler.is_completed(req.orig_instance_id):
+            if self._scheduler.handle_completed(req.orig_instance_id):
                 req.done.set_success()
                 self._remove_request(req.instance_id)
 

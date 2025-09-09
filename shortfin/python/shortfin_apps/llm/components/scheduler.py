@@ -140,7 +140,7 @@ class AbstractScheduler(ABC):
         pass
 
     @abstractmethod
-    def is_completed(self, rid: str) -> bool:
+    def handle_completed(self, rid: str) -> bool:
         pass
 
 
@@ -312,5 +312,5 @@ class Scheduler(AbstractScheduler):
     def reserve_workload(self, *, batcher, count, rid):
         batcher.submit(UpdateWorkload(count=count, rid=rid))
 
-    def is_completed(self, rid: str) -> bool:
+    def handle_completed(self, rid: str) -> bool:
         return True
