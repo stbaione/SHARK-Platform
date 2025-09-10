@@ -339,18 +339,6 @@ class PrefillBatcherProcess(LlmBatcherProcess):
 
         chunk_block_size = self._chunk_block_size
         chunk_token_size = chunk_block_size * self.page_seq_stride
-        if len(exec_request.input_token_ids) < chunk_token_size:
-            return [
-                LlmTaskInput(
-                    rid=exec_request.orig_instance_id,
-                    instance_id=exec_request.instance_id,
-                    block_count=exec_request.block_count,
-                    seq_stride=self.page_seq_stride,
-                    input_tokens=tuple(exec_request.input_token_ids),
-                    page_ids=tuple(exec_request.page_ids),
-                    start_position=exec_request.start_position,
-                )
-            ]
 
         task_inputs = []
         for i in range(0, exec_request.block_count, chunk_block_size):
@@ -365,7 +353,6 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             task_input = LlmTaskInput(
                 rid=exec_request.orig_instance_id,
                 instance_id=exec_request.instance_id,
-                chunk_id=i,
                 block_count=len(page_ids),
                 seq_stride=self.page_seq_stride,
                 input_tokens=tuple(input_tokens),
@@ -480,7 +467,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
                 instance_id=exec_request.instance_id,
                 block_count=exec_request.block_count,
                 seq_stride=self.page_seq_stride,
-                seq_len=len(exec_request.input_token_ids),
+                seq_len=exec_request.start_position + 1,
                 input_tokens=tuple(exec_request.input_token_ids),
                 page_ids=tuple(exec_request.page_ids),
                 start_position=exec_request.start_position,

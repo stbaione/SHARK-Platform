@@ -28,8 +28,6 @@ class LlmTaskInput:
     page_ids: Tuple[int, ...] = field(default_factory=tuple)
     start_position: Optional[int] = None
 
-    chunk_id: Optional[int] = None
-
 
 class LlmTaskResponder(ABC):
     def __init__(self):
@@ -184,7 +182,6 @@ class PrefillTask(LlmTask):
         task_inputs = self._task_input
 
         tokens = [list(task_input.input_tokens) for task_input in task_inputs]
-        seq_lens = [task_input.seq_len for task_input in task_inputs]
         start_positions = None
         page_ids = [list(task_input.page_ids) for task_input in task_inputs]
 
@@ -210,7 +207,7 @@ class PrefillTask(LlmTask):
             chain.from_iterable(_pad_list(t, batch_seq_len) for t in tokens)
         )
 
-        seq_lens_data = seq_lens
+        seq_lens_data = [task_input.seq_len for task_input in task_inputs]
 
         seq_block_ids_data = list(
             chain.from_iterable(
@@ -306,7 +303,8 @@ class DecodeTask(LlmTask):
 
         # Prepare data for argument buffers
         tokens_data = list(chain.from_iterable(t[-1:] for t in tokens))
-        seq_lens_data = [pos + 1 for pos in start_positions]
+
+        seq_lens_data = [task_input.seq_len for task_input in task_inputs]
 
         seq_block_ids_data = list(
             chain.from_iterable(_pad_list(pages, block_count) for pages in page_ids)
