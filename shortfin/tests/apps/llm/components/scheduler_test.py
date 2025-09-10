@@ -55,21 +55,6 @@ def make_workload(rids):
     return workload
 
 
-def check_scheduled_jobs(
-    scheduled_jobs: set, workload: set, expected_length: int
-) -> set:
-    assert len(scheduled_jobs) == expected_length
-
-    visited = set()
-    for job in scheduled_jobs:
-        assert job not in visited
-        assert job in workload
-        visited.add(job)
-        workload.remove(job)
-
-    return workload
-
-
 def schedule_workload(scheduler, workload):
     scheduler.pending = []
     for rid in workload:
