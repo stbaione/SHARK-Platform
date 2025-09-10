@@ -323,19 +323,19 @@ class Scheduler(AbstractScheduler):
 class ChunkScheduler(AbstractScheduler):
     def __init__(self, *, ideal_batch_size):
         self.pending: Dict[str, List[LlmTaskInput]] = {}
-        self.ready: set[LlmTaskInput] = set()
+        self.ready: List[LlmTaskInput] = []
         super().__init__(ideal_batch_size=ideal_batch_size)
 
     def schedule_job(self, task: LlmTaskInput):
         if self.pending.get(task.rid) is None:
-            self.ready.add(task)
+            self.ready.append(task)
             self.pending[task.rid] = []
         else:
             self.pending[task.rid].append(task)
 
     def should_execute(self, strobe) -> List[List[LlmTaskInput]]:
         jobs = self.ready
-        self.ready = set()
+        self.ready = []
         if len(jobs) == 0:
             return []
 
@@ -349,8 +349,8 @@ class ChunkScheduler(AbstractScheduler):
 
         workload_builder = self._group_jobs(rid_map=rid_map, strobe=strobe)
 
-        jobs = set(jobs) - workload_builder.get_scheduled()
-        self.ready = self.ready | jobs
+        jobs = [item for item in jobs if item not in workload_builder.get_scheduled()]
+        self.ready = jobs
 
         return workload_builder.get_jobs()
 
@@ -374,5 +374,5 @@ class ChunkScheduler(AbstractScheduler):
             return True
 
         next_chunk = self.pending[rid].pop(0)
-        self.ready.add(next_chunk)
+        self.ready.append(next_chunk)
         return False
