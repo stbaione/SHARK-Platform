@@ -120,6 +120,7 @@ def _get_task_input(exec_req):
         block_count=exec_req.block_count,
         seq_stride=2,
         input_tokens=tuple(exec_req.input_token_ids),
+        seq_len=len(exec_req.input_token_ids),
         page_ids=tuple(),
         start_position=exec_req.start_position,
     )
@@ -133,12 +134,9 @@ class TestLlmBatcherProcess:
         llm_batcher_process.board = MagicMock()
 
         ## Empty
-        llm_batcher_process.pending = set()
         await llm_batcher_process.board_flights()
         assert llm_batcher_process.board.call_count == 0
         llm_batcher_process.board.reset_mock()
-
-        assert llm_batcher_process.pending == set()
 
         ## Non-empty
         task_inputs = []
@@ -155,4 +153,3 @@ class TestLlmBatcherProcess:
         assert call_args[0] == llm_batcher_process.page_cache
         assert call_args[1] == llm_batcher_process.fiber
         assert set(call_args[2]) == set(task_inputs)
-        assert llm_batcher_process.scheduler.pending == []

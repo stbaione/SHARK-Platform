@@ -151,10 +151,8 @@ class PrefillTask(LlmTask):
         array_cache: DeviceArrayCache,
         page_tables: List[sfnp.device_array],
         has_prefill_position: bool,
-        use_chunked_prefill: bool,
     ):
         self._has_prefill_position = has_prefill_position
-        self._use_chunked_prefill = use_chunked_prefill
         super().__init__(
             task_inputs=task_inputs,
             array_cache=array_cache,
