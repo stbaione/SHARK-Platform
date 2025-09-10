@@ -273,15 +273,15 @@ class AbstractScheduler(ABC):
 
 class Scheduler(AbstractScheduler):
     def __init__(self, *, ideal_batch_size):
-        self.pending: List[LlmTaskInput] = []
+        self._ready: List[LlmTaskInput] = []
         super().__init__(ideal_batch_size=ideal_batch_size)
 
     def schedule_job(self, task: LlmTaskInput):
-        self.pending.append(task)
+        self._ready.append(task)
 
     def should_execute(self, strobe) -> List[List[LlmTaskInput]]:
-        pending = self.pending
-        self.pending = []
+        pending = self._ready
+        self._ready = []
         if len(pending) == 0:
             return []
 
@@ -298,7 +298,7 @@ class Scheduler(AbstractScheduler):
         pending = [
             item for item in pending if item not in workload_builder.get_scheduled()
         ]
-        self.pending = pending
+        self._ready = pending
 
         return workload_builder.get_jobs()
 
@@ -322,20 +322,20 @@ class Scheduler(AbstractScheduler):
 
 class ChunkScheduler(AbstractScheduler):
     def __init__(self, *, ideal_batch_size):
-        self.pending: Dict[str, List[LlmTaskInput]] = {}
-        self.ready: List[LlmTaskInput] = []
+        self._pending: Dict[str, List[LlmTaskInput]] = {}
+        self._ready: List[LlmTaskInput] = []
         super().__init__(ideal_batch_size=ideal_batch_size)
 
     def schedule_job(self, task: LlmTaskInput):
-        if self.pending.get(task.rid) is None:
-            self.ready.append(task)
-            self.pending[task.rid] = []
+        if self._pending.get(task.rid) is None:
+            self._ready.append(task)
+            self._pending[task.rid] = []
         else:
-            self.pending[task.rid].append(task)
+            self._pending[task.rid].append(task)
 
     def should_execute(self, strobe) -> List[List[LlmTaskInput]]:
-        jobs = self.ready
-        self.ready = []
+        jobs = self._ready
+        self._ready = []
         if len(jobs) == 0:
             return []
 
@@ -350,7 +350,7 @@ class ChunkScheduler(AbstractScheduler):
         workload_builder = self._group_jobs(rid_map=rid_map, strobe=strobe)
 
         jobs = [item for item in jobs if item not in workload_builder.get_scheduled()]
-        self.ready = jobs
+        self._ready = jobs
 
         return workload_builder.get_jobs()
 
@@ -369,10 +369,10 @@ class ChunkScheduler(AbstractScheduler):
         batcher.submit(UpdateWorkload(count=count, rid=rid))
 
     def handle_completed(self, rid: str) -> bool:
-        if len(self.pending[rid]) == 0:
-            del self.pending[rid]
+        if len(self._pending[rid]) == 0:
+            del self._pending[rid]
             return True
 
-        next_chunk = self.pending[rid].pop(0)
-        self.ready.append(next_chunk)
+        next_chunk = self._pending[rid].pop(0)
+        self._ready.append(next_chunk)
         return False
