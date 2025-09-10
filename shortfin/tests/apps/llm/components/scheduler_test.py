@@ -71,7 +71,7 @@ def check_scheduled_jobs(
 
 
 def schedule_workload(scheduler, workload):
-    scheduler.pending = set()
+    scheduler.pending = []
     for rid in workload:
         for task in workload[rid]:
             scheduler.schedule_job(task)
@@ -93,7 +93,7 @@ def test_scheduler_unreserved_strobed():
 
     to_schedule = scheduler.should_execute(strobe=2)
     assert len(to_schedule) == 1
-    assert set(to_schedule[0]) == set(workload[0])
+    assert to_schedule[0] == workload[0]
 
 
 # Check that a full ideal set is returned
@@ -106,7 +106,7 @@ def test_scheduler_unreserved_full():
 
     to_schedule = scheduler.should_execute(strobe=0)
     assert len(to_schedule) == 1
-    assert set(to_schedule[0]) == set(to_schedule[0])
+    assert to_schedule[0] == to_schedule[0]
 
 
 # Check that a subset is returned if overfilled
@@ -119,7 +119,7 @@ def test_scheduler_unreserved_overfull():
 
     to_schedule = scheduler.should_execute(strobe=0)
     assert len(to_schedule) == 1
-    check_scheduled_jobs(set(to_schedule[0]), set(workload[0]), 3)
+    assert to_schedule[0] == workload[0][:3]
 
     # Check we fill as many ideal batches as possible:
     workload = make_workload({0: 10})
@@ -127,9 +127,9 @@ def test_scheduler_unreserved_overfull():
 
     to_schedule = scheduler.should_execute(strobe=0)
     assert len(to_schedule) == 3
-    workload[0] = check_scheduled_jobs(set(to_schedule[0]), set(workload[0]), 3)
-    workload[0] = check_scheduled_jobs(set(to_schedule[1]), set(workload[0]), 3)
-    check_scheduled_jobs(set(to_schedule[2]), set(workload[0]), 3)
+    assert to_schedule[0] == workload[0][:3]
+    assert to_schedule[1] == workload[0][3:6]
+    assert to_schedule[2] == workload[0][6:9]
 
 
 # Check that if there is a reservation only the unreserved are executed:
@@ -147,7 +147,7 @@ def test_scheduler_unreserved_with_reservation():
 
     to_schedule = scheduler.should_execute(strobe=2)
     assert len(to_schedule) == 1
-    assert set(to_schedule[0]) == set(workload[0])
+    assert to_schedule[0] == workload[0]
 
 
 # Check if reserved and all passed to execute the whole job:
@@ -170,7 +170,7 @@ def test_scheduler_reserved_basic():
 
     to_schedule = scheduler.should_execute(strobe=2)
     assert len(to_schedule) == 1
-    assert set(to_schedule[0]) == set(workload[0])
+    assert to_schedule[0] == workload[0]
 
     reserve_helper(scheduler, rid=0, count=4)
     workload = make_workload({0: 4})
@@ -178,7 +178,7 @@ def test_scheduler_reserved_basic():
 
     to_schedule = scheduler.should_execute(strobe=2)
     assert len(to_schedule) == 1
-    assert set(to_schedule[0]) == set(workload[0])
+    assert to_schedule[0] == workload[0]
 
 
 # Check if reserved and all passed to execute the whole job.
@@ -192,9 +192,7 @@ def test_scheduler_reserved_extra():
 
     to_schedule = scheduler.should_execute(strobe=2)
     assert len(to_schedule) == 1
-    assert all(job in to_schedule[0] for job in workload[0])
-    combined_workloads = workload[0] + workload[1]
-    check_scheduled_jobs(set(to_schedule[0]), set(combined_workloads), 7)
+    assert to_schedule[0] == workload[0] + workload[1][:2]
 
 
 # Reserve a job at that exceeds the max size, should be split between jobs.
@@ -208,8 +206,8 @@ def test_scheduler_reserved_too_big():
 
     to_schedule = scheduler.should_execute(strobe=2)
     assert len(to_schedule) == 2
-    workload[0] = check_scheduled_jobs(to_schedule[0], workload[0], 5)
-    check_scheduled_jobs(to_schedule[1], workload[0], 2)
+    assert to_schedule[0] == workload[0][:5]
+    assert to_schedule[1] == workload[0][5:]
 
 
 # Check two reservations fall into the same bucket:
@@ -240,7 +238,7 @@ def test_scheduler_reserved_two_shared():
     schedule_workload(scheduler, workload)
     to_schedule = scheduler.should_execute(strobe=2)
     combined_workloads = workload[0] + workload[1]
-    assert set(to_schedule[0]) == set(combined_workloads)
+    assert to_schedule[0] == combined_workloads
 
 
 # Check that if we exceed the ideal size we put into separate buckets
@@ -262,7 +260,7 @@ def test_scheduler_reserved_two_separate():
     workload = make_workload({0: 5, 1: 4})
     schedule_workload(scheduler, workload)
     to_schedule = scheduler.should_execute(strobe=2)
-    assert set(to_schedule[0]) == set(workload[0])
+    assert to_schedule[0] == workload[0]
 
     # Check we submit with both full
     workload = {
@@ -270,8 +268,8 @@ def test_scheduler_reserved_two_separate():
     }
     schedule_workload(scheduler, workload)
     to_schedule = scheduler.should_execute(strobe=2)
-    assert set(to_schedule[0]) == set(workload[0])
-    assert set(to_schedule[1]) == set(workload[1])
+    assert to_schedule[0] == workload[0]
+    assert to_schedule[1] == workload[1]
 
 
 class TestWorkloadBuilder:

@@ -155,4 +155,4 @@ class TestLlmBatcherProcess:
         assert call_args[0] == llm_batcher_process.page_cache
         assert call_args[1] == llm_batcher_process.fiber
         assert set(call_args[2]) == set(task_inputs)
-        assert llm_batcher_process.scheduler.pending == set()
+        assert llm_batcher_process.scheduler.pending == []
