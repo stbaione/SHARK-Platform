@@ -66,10 +66,7 @@ class PrefillTaskResponder(LlmTaskResponder):
         for i in range(len(exec_requests)):
             req = exec_requests[i]
             task_input = task_inputs[i]
-            if llm_task._use_chunked_prefill:
-                sl = len(task_input.input_tokens) - 1
-            else:
-                sl = len(req.input_token_ids) - 1
+            sl = len(task_input.input_tokens) - 1
 
             if logits.shape[1] == 1:
                 logits_item = logits.view(i)
@@ -113,7 +110,7 @@ class DecodeTaskResponder(LlmTaskResponder):
 
     def set_success(
         self,
-        llm_task: LlmTask,
+        llm_task: DecodeTask,
         logits: sfnp.device_array,
         indices: Optional[sfnp.device_array],
     ) -> None:
