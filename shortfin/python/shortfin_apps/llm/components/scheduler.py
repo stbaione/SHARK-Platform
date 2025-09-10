@@ -151,7 +151,7 @@ class Scheduler(AbstractScheduler):
         self._wid = 0
         self._preferred_groups = 1
 
-        self.pending: set[LlmTaskInput] = set()
+        self.pending: List[LlmTaskInput] = []
 
         # Mapping from RID to the corresponding workgroup ID
         self._workgroup_placement = {}
@@ -160,7 +160,7 @@ class Scheduler(AbstractScheduler):
         self._workgroups = {}
 
     def schedule_job(self, task: LlmTaskInput):
-        self.pending.add(task)
+        self.pending.append(task)
 
     def _group_jobs(
         self, rid_map: Dict[str, List[LlmTaskInput]], strobe
@@ -215,7 +215,7 @@ class Scheduler(AbstractScheduler):
 
     def should_execute(self, strobe) -> List[List[LlmTaskInput]]:
         pending = self.pending
-        self.pending = set()
+        self.pending = []
         if len(pending) == 0:
             return []
 
@@ -229,8 +229,10 @@ class Scheduler(AbstractScheduler):
 
         workload_builder = self._group_jobs(rid_map=rid_map, strobe=strobe)
 
-        pending = set(pending) - workload_builder.get_scheduled()
-        self.pending = self.pending | pending
+        pending = [
+            item for item in pending if item not in workload_builder.get_scheduled()
+        ]
+        self.pending = pending
 
         return workload_builder.get_jobs()
 
