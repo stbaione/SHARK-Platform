@@ -62,7 +62,7 @@ class PrefillTaskResponder(LlmTaskResponder):
             indices (Optional[sfnp.device_array]): The token indices output from the model.
         """
         exec_requests = self._get_requests_from_task(llm_task)
-        task_inputs = llm_task._task_input
+        task_inputs = llm_task.task_inputs
         for i in range(len(exec_requests)):
             req = exec_requests[i]
             task_input = task_inputs[i]
