@@ -133,12 +133,12 @@ class TestLlmBatcherProcess:
         llm_batcher_process.board = MagicMock()
 
         ## Empty
-        llm_batcher_process.pending = set()
+        llm_batcher_process.scheduler.pending = []
         await llm_batcher_process.board_flights()
         assert llm_batcher_process.board.call_count == 0
         llm_batcher_process.board.reset_mock()
 
-        assert llm_batcher_process.pending == set()
+        assert llm_batcher_process.scheduler.pending == []
 
         ## Non-empty
         task_inputs = []
