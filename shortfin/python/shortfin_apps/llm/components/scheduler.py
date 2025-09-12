@@ -129,6 +129,8 @@ class AbstractScheduler(ABC):
         self._wid = 0
         self._preferred_groups = 1
 
+        self.pending: List[LlmTaskInput] = []
+
         # Mapping from RID to the corresponding workgroup ID
         self._workgroup_placement = {}
 
