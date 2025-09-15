@@ -114,12 +114,6 @@ def add_service_args(parser: argparse.ArgumentParser):
         help="Use native implementations for token selection.",
     )
     parser.add_argument(
-        "--use_chunked_prefill",
-        action="store_true",
-        default=False,
-        help="Use chunked prefill for long sequences.",
-    )
-    parser.add_argument(
         "--chunk_block_size",
         type=int,
         default=8,

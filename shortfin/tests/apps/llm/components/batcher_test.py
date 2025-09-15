@@ -77,8 +77,7 @@ def prefill_batcher_process(model_params, fiber, cache):
         model_params=model_params,
         prefill_functions={ideal_batch_size: AsyncMock()},
         program_isolation=ProgramIsolation.PER_CALL.value,
-        use_chunked_prefill=False,
-        chunk_block_size=0,
+        chunk_block_size=None,
     )
 
 
@@ -91,7 +90,6 @@ def prefill_batcher_process_chunked(model_params, fiber, cache):
         model_params=model_params,
         prefill_functions={ideal_batch_size: AsyncMock()},
         program_isolation=ProgramIsolation.PER_CALL.value,
-        use_chunked_prefill=True,
         chunk_block_size=2,
     )
 

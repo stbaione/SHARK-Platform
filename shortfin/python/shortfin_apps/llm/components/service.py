@@ -124,7 +124,6 @@ class LlmGenerateService(GenerateService):
             self.prefill_functions,
             self.decode_functions,
             self.prog_isolation,
-            self.server_params.use_chunked_prefill,
             self.server_params.chunk_block_size,
         )
         self.unified_batcher = BatchingFacade.build_batcher(

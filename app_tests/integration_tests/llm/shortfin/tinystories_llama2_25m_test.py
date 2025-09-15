@@ -40,7 +40,6 @@ pytestmark = pytest.mark.parametrize(
             ModelConfig.get(name="tinystories_llama2_25m_has_prefill_position"),
             {
                 "prefix_sharing": "none",
-                "use_chunked_prefill": True,
                 "chunk_block_size": 1,
             },
         ),

@@ -302,11 +302,10 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         model_params: ModelParams,
         prefill_functions: dict[int, sf.ProgramFunction],
         program_isolation: str,
-        use_chunked_prefill: bool,
-        chunk_block_size: int,
+        chunk_block_size: Optional[int],
     ):
         ideal_batch_size = max(model_params.prefill_batch_sizes)
-        if use_chunked_prefill:
+        if chunk_block_size is not None:
             scheduler = ChunkScheduler(ideal_batch_size=ideal_batch_size)
         else:
             scheduler = Scheduler(ideal_batch_size=ideal_batch_size)
@@ -324,14 +323,13 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             llm_task_responder=llm_task_responder,
         )
 
-        self._use_chunked_prefill = use_chunked_prefill
         self._chunk_block_size = chunk_block_size
 
     def _make_chunked_task_inputs(
         self, exec_request: LlmInferenceExecRequest
     ) -> List[LlmTaskInput]:
         assert (
-            self._use_chunked_prefill
+            self._chunk_block_size is not None
         ), "Request to make chunked task inputs, but chunked prefill not enabled."
 
         chunk_block_size = self._chunk_block_size
@@ -364,11 +362,10 @@ class PrefillBatcherProcess(LlmBatcherProcess):
     def make_task_inputs(
         self, exec_request: LlmInferenceExecRequest
     ) -> List[LlmTaskInput]:
-        token_chunk_size = self._chunk_block_size * self.page_seq_stride
-
         if (
-            self._use_chunked_prefill
-            and len(exec_request.input_token_ids) > token_chunk_size
+            self._chunk_block_size is not None
+            and len(exec_request.input_token_ids)
+            > self._chunk_block_size * self.page_seq_stride
         ):
             return self._make_chunked_task_inputs(exec_request)
 
@@ -555,7 +552,6 @@ class DefaultBatchingEngine(BatchingTrait):
             model_params=batch_cfg.model_params,
             prefill_functions=batch_cfg.prefill_functions,
             program_isolation=batch_cfg.prog_isolation,
-            use_chunked_prefill=batch_cfg.use_chunked_prefill,
             chunk_block_size=batch_cfg.chunk_block_size,
         )
         decode_batcher = DecodeBatcherProcess(
