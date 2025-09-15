@@ -65,10 +65,6 @@ pytestmark = pytest.mark.parametrize(
 
 
 # goldens are generated in: https://colab.research.google.com/drive/1pFiyvyIxk1RsHnw5gTk_gu9QiQNy9gfW?usp=sharing
-# GOLDEN_PROMPT = "Once upon a time"
-# GOLDEN_RESPONSE = {
-#     ", there was a little girl named Lily. She loved to play with"
-# }  # this assumes purely deterministic greedy search
 GOLDEN_BASIC_DATASET = {
     "default": {
         "Once upon a time": ", there was a little girl named Lily. She loved to play with"
