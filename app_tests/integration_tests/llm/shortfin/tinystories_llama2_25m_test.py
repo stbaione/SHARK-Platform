@@ -65,26 +65,38 @@ pytestmark = pytest.mark.parametrize(
 
 
 # goldens are generated in: https://colab.research.google.com/drive/1pFiyvyIxk1RsHnw5gTk_gu9QiQNy9gfW?usp=sharing
-GOLDEN_PROMPT = "Once upon a time"
-GOLDEN_RESPONSE = {
-    ", there was a little girl named Lily. She loved to play with"
-}  # this assumes purely deterministic greedy search
+# GOLDEN_PROMPT = "Once upon a time"
+# GOLDEN_RESPONSE = {
+#     ", there was a little girl named Lily. She loved to play with"
+# }  # this assumes purely deterministic greedy search
+GOLDEN_BASIC_DATASET = {
+    "default": {
+        "Once upon a time": ", there was a little girl named Lily. She loved to play with"
+    },
+    "beam_search": {
+        "Once upon a time": {
+            ", there was a little girl named Lily. She loved to play with",
+            ", there was a little girl named Lily. She had a big,",
+        },
+    },
+}
 
-GOLDEN_BEAM_SEARCH_RESPONSE = {
-    ", there was a little girl named Lily. She loved to play with",
-    ", there was a little girl named Lily. She had a big,",
-}  # this assumes purely deterministic beam search with 2 beams
-
-GOLDEN_MULTI_PAGE_PROMPT = (
-    "Once upon a time, there was a little girl named Lily. She loved to play "
-    "with her toys and eat yummy food. One day, Lily's mom told her that they were"
-)
-GOLDEN_MULTI_PAGE_RESPONSE = (
-    "going to the store to buy food for dinner.\nAt the store,",
-)
-GOLDEN_MULTI_PAGE_BEAM_SEARCH_RESPONSE = {
-    "going to the store to buy food for dinner.\nAt the store,",
-    "going to the park to play. Lily was very excited and couldn'",
+GOLDEN_MULTI_PAGE_DATASET = {
+    "default": {
+        (
+            "Once upon a time, there was a little girl named Lily. She loved to play "
+            "with her toys and eat yummy food. One day, Lily's mom told her that they were"
+        ): "going to the store to buy food for dinner.\nAt the store,",
+    },
+    "beam_search": {
+        (
+            "Once upon a time, there was a little girl named Lily. She loved to play "
+            "with her toys and eat yummy food. One day, Lily's mom told her that they were"
+        ): {
+            "going to the store to buy food for dinner.\nAt the store,",
+            "going to the park to play. Lily was very excited and couldn'",
+        }
+    },
 }
 
 
@@ -102,27 +114,30 @@ class TestLLMServer:
         """
         process, port, config = server
         assert process.poll() is None, "Server process terminated unexpectedly"
-        prompt = GOLDEN_PROMPT
-        expected_response = (
-            GOLDEN_RESPONSE if config.num_beams == 1 else GOLDEN_BEAM_SEARCH_RESPONSE
+        dataset = (
+            GOLDEN_BASIC_DATASET["default"]
+            if config.num_beams == 1
+            else GOLDEN_BASIC_DATASET["beam_search"]
         )
 
-        response = self._generate(prompt, port)
-        response = json.loads(response)
-        req_output = GenerateReqOutput(**response)
+        for prompt in dataset:
+            response = self._generate(prompt, port)
+            response = json.loads(response)
+            req_output = GenerateReqOutput(**response)
 
-        for prompt_response in req_output.responses:
-            prompt_response = PromptResponse(**prompt_response)
-            assert len(prompt_response.responses) == config.num_beams
-            for generated_response in prompt_response.responses:
-                generated_response = GeneratedResponse(**generated_response)
-                response_text = generated_response.text
-                if response_text not in expected_response:
-                    raise AccuracyValidationException(
-                        expected=f"{expected_response}...",
-                        actual=response_text,
-                        message=f"Generation did not match expected pattern.\nExpected to be one of: {expected_response}\nActual response: '{response_text}'",
-                    )
+            for prompt_response in req_output.responses:
+                prompt_response = PromptResponse(**prompt_response)
+                assert len(prompt_response.responses) == config.num_beams
+                for generated_response in prompt_response.responses:
+                    generated_response = GeneratedResponse(**generated_response)
+                    response_text = generated_response.text
+                    expected_response = dataset[prompt]
+                    if response_text not in expected_response:
+                        raise AccuracyValidationException(
+                            expected=f"{expected_response}...",
+                            actual=response_text,
+                            message=f"Generation did not match expected pattern.\nExpected to be one of: {expected_response}\nActual response: '{response_text}'",
+                        )
 
     def test_multi_page_generation(
         self,
@@ -135,29 +150,30 @@ class TestLLMServer:
         """
         process, port, config = server
         assert process.poll() is None, "Server process terminated unexpectedly"
-        prompt = GOLDEN_MULTI_PAGE_PROMPT
-        expected_response = (
-            GOLDEN_MULTI_PAGE_RESPONSE
+        dataset = (
+            GOLDEN_MULTI_PAGE_DATASET["default"]
             if config.num_beams == 1
-            else GOLDEN_MULTI_PAGE_BEAM_SEARCH_RESPONSE
+            else GOLDEN_MULTI_PAGE_DATASET["beam_search"]
         )
 
-        response = self._generate(prompt, port)
-        response = json.loads(response)
-        req_output = GenerateReqOutput(**response)
+        for prompt in dataset:
+            response = self._generate(prompt, port)
+            response = json.loads(response)
+            req_output = GenerateReqOutput(**response)
 
-        for prompt_response in req_output.responses:
-            prompt_response = PromptResponse(**prompt_response)
-            assert len(prompt_response.responses) == config.num_beams
-            for generated_response in prompt_response.responses:
-                generated_response = GeneratedResponse(**generated_response)
-                response_text = generated_response.text
-                if response_text not in expected_response:
-                    raise AccuracyValidationException(
-                        expected=f"{expected_response}...",
-                        actual=response_text,
-                        message=f"Multi-page generation did not match expected pattern.\nExpected to be one of: {expected_response}\nActual response: '{response_text}'",
-                    )
+            for prompt_response in req_output.responses:
+                prompt_response = PromptResponse(**prompt_response)
+                assert len(prompt_response.responses) == config.num_beams
+                for generated_response in prompt_response.responses:
+                    generated_response = GeneratedResponse(**generated_response)
+                    response_text = generated_response.text
+                    expected_response = dataset[prompt]
+                    if response_text not in expected_response:
+                        raise AccuracyValidationException(
+                            expected=f"{expected_response}...",
+                            actual=response_text,
+                            message=f"Multi-page generation did not match expected pattern.\nExpected to be one of: {expected_response}\nActual response: '{response_text}'",
+                        )
 
     @pytest.mark.parametrize(
         "concurrent_requests",
@@ -187,38 +203,41 @@ class TestLLMServer:
         process, port, config = server
         assert process.poll() is None, "Server process terminated unexpectedly"
 
-        prompt = GOLDEN_PROMPT
-        expected_response = (
-            GOLDEN_RESPONSE if config.num_beams == 1 else GOLDEN_BEAM_SEARCH_RESPONSE
+        dataset = (
+            GOLDEN_BASIC_DATASET["default"]
+            if config.num_beams == 1
+            else GOLDEN_BASIC_DATASET["beam_search"]
         )
 
         def _generate_task(prompt: str, port: int):
             return self._generate(prompt, port)
 
-        with ThreadPoolExecutor(max_workers=concurrent_requests) as executor:
-            futures = [
-                executor.submit(_generate_task, prompt, port)
-                for _ in range(concurrent_requests)
-            ]
+        for prompt in dataset:
+            with ThreadPoolExecutor(max_workers=concurrent_requests) as executor:
+                futures = [
+                    executor.submit(_generate_task, prompt, port)
+                    for _ in range(concurrent_requests)
+                ]
 
-            for future in as_completed(futures):
-                response = future.result()
-                response = json.loads(response)
-                req_output = GenerateReqOutput(**response)
+                for future in as_completed(futures):
+                    response = future.result()
+                    response = json.loads(response)
+                    req_output = GenerateReqOutput(**response)
 
-                for prompt_response in req_output.responses:
-                    prompt_response = PromptResponse(**prompt_response)
-                    assert len(prompt_response.responses) == config.num_beams
+                    for prompt_response in req_output.responses:
+                        prompt_response = PromptResponse(**prompt_response)
+                        assert len(prompt_response.responses) == config.num_beams
 
-                    for generated_response in prompt_response.responses:
-                        generated_response = GeneratedResponse(**generated_response)
-                        generated_text = generated_response.text
-                        if generated_text not in expected_response:
-                            raise AccuracyValidationException(
-                                expected=f"{expected_response}...",
-                                actual=response,
-                                message=f"Concurrent generation did not match expected pattern.\nExpected to start with: {expected_response}\nActual response: {generated_text}",
-                            )
+                        for generated_response in prompt_response.responses:
+                            generated_response = GeneratedResponse(**generated_response)
+                            generated_text = generated_response.text
+                            expected_response = dataset[prompt]
+                            if generated_text not in expected_response:
+                                raise AccuracyValidationException(
+                                    expected=f"{expected_response}...",
+                                    actual=response,
+                                    message=f"Concurrent generation did not match expected pattern.\nExpected to start with: {expected_response}\nActual response: {generated_text}",
+                                )
 
     # -------- Test switching generation strategies from client ---------- #
     def test_single_greedy_switch(
@@ -234,29 +253,32 @@ class TestLLMServer:
         assert process.poll() is None, "Server process terminated unexpectedly"
 
         # Test greedy generation
-        prompt = GOLDEN_PROMPT
         sampling_params = {
             "max_completion_tokens": 15,
             "temperature": 0.7,
             "num_beams": 1,
         }
-        response = self._generate(prompt, port, sampling_params=sampling_params)
 
-        response = json.loads(response)
-        req_output = GenerateReqOutput(**response)
+        dataset = GOLDEN_BASIC_DATASET["default"]
+        for prompt in dataset:
+            expected_response = dataset[prompt]
+            response = self._generate(prompt, port, sampling_params=sampling_params)
 
-        for prompt_response in req_output.responses:
-            prompt_response = PromptResponse(**prompt_response)
-            assert len(prompt_response.responses) == 1
-            for generated_response in prompt_response.responses:
-                generated_response = GeneratedResponse(**generated_response)
-                response_text = generated_response.text
-                if response_text not in GOLDEN_RESPONSE:
-                    raise AccuracyValidationException(
-                        expected=f"{GOLDEN_RESPONSE}...",
-                        actual=response_text,
-                        message=f"Greedy generation did not match expected pattern.\nExpected to be one of: {GOLDEN_RESPONSE}\nActual response: {response_text}",
-                    )
+            response = json.loads(response)
+            req_output = GenerateReqOutput(**response)
+
+            for prompt_response in req_output.responses:
+                prompt_response = PromptResponse(**prompt_response)
+                assert len(prompt_response.responses) == 1
+                for generated_response in prompt_response.responses:
+                    generated_response = GeneratedResponse(**generated_response)
+                    response_text = generated_response.text
+                    if response_text not in expected_response:
+                        raise AccuracyValidationException(
+                            expected=f"{expected_response}...",
+                            actual=response_text,
+                            message=f"Greedy generation did not match expected pattern.\nExpected to be one of: {expected_response}\nActual response: {response_text}",
+                        )
 
     def test_beam_search_switch(
         self,
@@ -285,24 +307,25 @@ class TestLLMServer:
             "temperature": 0.7,
             "num_beams": num_beams,
         }
-        prompt = GOLDEN_PROMPT
+        dataset = GOLDEN_BASIC_DATASET["beam_search"]
+        for prompt in dataset:
+            expected_responses = dataset[prompt]
+            response = self._generate(prompt, port, sampling_params=sampling_params)
+            response = json.loads(response)
+            req_output = GenerateReqOutput(**response)
 
-        response = self._generate(prompt, port, sampling_params=sampling_params)
-        response = json.loads(response)
-        req_output = GenerateReqOutput(**response)
-
-        for prompt_response in req_output.responses:
-            prompt_response = PromptResponse(**prompt_response)
-            assert len(prompt_response.responses) == num_beams
-            for generated_response in prompt_response.responses:
-                generated_response = GeneratedResponse(**generated_response)
-                response_text = generated_response.text
-                if response_text not in GOLDEN_BEAM_SEARCH_RESPONSE:
-                    raise AccuracyValidationException(
-                        expected=f"{GOLDEN_BEAM_SEARCH_RESPONSE}...",
-                        actual=response_text,
-                        message=f"Beam search generation did not match expected pattern.\nExpected to be one of: {GOLDEN_BEAM_SEARCH_RESPONSE}\nActual response: {response_text}",
-                    )
+            for prompt_response in req_output.responses:
+                prompt_response = PromptResponse(**prompt_response)
+                assert len(prompt_response.responses) == num_beams
+                for generated_response in prompt_response.responses:
+                    generated_response = GeneratedResponse(**generated_response)
+                    response_text = generated_response.text
+                    if response_text not in expected_responses:
+                        raise AccuracyValidationException(
+                            expected=f"{expected_responses}...",
+                            actual=response_text,
+                            message=f"Beam search generation did not match expected pattern.\nExpected to be one of: {expected_responses}\nActual response: {response_text}",
+                        )
 
     # -------- End Test switching generation strategies from client ---------- #
 
