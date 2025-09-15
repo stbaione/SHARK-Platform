@@ -28,6 +28,7 @@ pytestmark = pytest.mark.parametrize(
     "model_artifacts,server",
     [
         (ModelConfig.get(name="tinystories_llama2_25m"), {"prefix_sharing": "none"}),
+        (ModelConfig.get(name="tinystories_llama2_25m"), {"prefix_sharing": "trie"}),
         (
             ModelConfig.get(name="tinystories_llama2_25m"),
             {
@@ -37,7 +38,11 @@ pytestmark = pytest.mark.parametrize(
         ),
         (
             ModelConfig.get(name="tinystories_llama2_25m_has_prefill_position"),
-            {"prefix_sharing": "none"},
+            {
+                "prefix_sharing": "none",
+                "use_chunked_prefill": True,
+                "chunk_block_size": 1,
+            },
         ),
         (
             ModelConfig.get(name="tinystories_llama2_25m_gpu_argmax"),
@@ -47,15 +52,14 @@ pytestmark = pytest.mark.parametrize(
             ModelConfig.get(name="tinystories_llama2_25m_gpu_topk_k4"),
             {"prefix_sharing": "none"},
         ),
-        (ModelConfig.get(name="tinystories_llama2_25m"), {"prefix_sharing": "trie"}),
     ],
     ids=[
         "tinystories_llama2_25m_none",
+        "tinystories_llama2_25m_trie",
         "tinystories_llama2_25m_none_2_beams",
-        "tinystories_llama2_25m_has_prefill_position_none",
+        "tinystories_llama2_25m_chunked_prefill_none",
         "tinystories_llama2_25m_gpu_argmax_none",
         "tinystories_llama2_25m_gpu_topk_k4_none",
-        "tinystories_llama2_25m_trie",
     ],
     indirect=True,
 )
@@ -71,6 +75,18 @@ GOLDEN_BEAM_SEARCH_RESPONSE = {
     ", there was a little girl named Lily. She loved to play with",
     ", there was a little girl named Lily. She had a big,",
 }  # this assumes purely deterministic beam search with 2 beams
+
+GOLDEN_MULTI_PAGE_PROMPT = (
+    "Once upon a time, there was a little girl named Lily. She loved to play "
+    "with her toys and eat yummy food. One day, Lily's mom told her that they were"
+)
+GOLDEN_MULTI_PAGE_RESPONSE = (
+    "going to the store to buy food for dinner.\nAt the store,",
+)
+GOLDEN_MULTI_PAGE_BEAM_SEARCH_RESPONSE = {
+    "going to the store to buy food for dinner.\nAt the store,",
+    "going to the park to play. Lily was very excited and couldn'",
+}
 
 
 class TestLLMServer:
@@ -109,6 +125,41 @@ class TestLLMServer:
                         message=f"Generation did not match expected pattern.\nExpected to be one of: {expected_response}\nActual response: '{response_text}'",
                     )
 
+    def test_multi_page_generation(
+        self,
+        server: tuple[Any, int, ServerConfig],
+    ) -> None:
+        """Tests multi-page text generation capabilities.
+
+        Args:
+            server: Tuple of (process, port) from server fixture
+        """
+        process, port, config = server
+        assert process.poll() is None, "Server process terminated unexpectedly"
+        prompt = GOLDEN_MULTI_PAGE_PROMPT
+        expected_response = (
+            GOLDEN_MULTI_PAGE_RESPONSE
+            if config.num_beams == 1
+            else GOLDEN_MULTI_PAGE_BEAM_SEARCH_RESPONSE
+        )
+
+        response = self._generate(prompt, port)
+        response = json.loads(response)
+        req_output = GenerateReqOutput(**response)
+
+        for prompt_response in req_output.responses:
+            prompt_response = PromptResponse(**prompt_response)
+            assert len(prompt_response.responses) == config.num_beams
+            for generated_response in prompt_response.responses:
+                generated_response = GeneratedResponse(**generated_response)
+                response_text = generated_response.text
+                if response_text not in expected_response:
+                    raise AccuracyValidationException(
+                        expected=f"{expected_response}...",
+                        actual=response_text,
+                        message=f"Multi-page generation did not match expected pattern.\nExpected to be one of: {expected_response}\nActual response: '{response_text}'",
+                    )
+
     @pytest.mark.parametrize(
         "concurrent_requests",
         [
@@ -120,6 +171,7 @@ class TestLLMServer:
         self,
         server: tuple[Any, int, ServerConfig],
         concurrent_requests: int,
+        request: pytest.FixtureRequest,
     ) -> None:
         """Tests concurrent text generation requests.
 
@@ -127,6 +179,12 @@ class TestLLMServer:
             server: Tuple of (process, port) from server fixture
             concurrent_requests: Number of concurrent requests to test
         """
+        test_id = request.node.callspec.id
+        if "chunked_prefill" in test_id:
+            pytest.skip(
+                reason="Known issue with chunked prefill in batch case: https://github.com/nod-ai/shark-ai/issues/2235"
+            )
+
         process, port, config = server
         assert process.poll() is None, "Server process terminated unexpectedly"
 
@@ -160,7 +218,7 @@ class TestLLMServer:
                             raise AccuracyValidationException(
                                 expected=f"{expected_response}...",
                                 actual=response,
-                                message=f"Concurrent generation did not match expected pattern.\nExpected to start with: {expected_response}\nActual response: {response}",
+                                message=f"Concurrent generation did not match expected pattern.\nExpected to start with: {expected_response}\nActual response: {generated_text}",
                             )
 
     # -------- Test switching generation strategies from client ---------- #

@@ -27,6 +27,8 @@ class ServerConfig:
     device_settings: DeviceSettings
     prefix_sharing_algorithm: str = "none"
     num_beams: int = 1
+    use_chunked_prefill: bool = False
+    chunk_block_size: int = 1
 
 
 class ServerInstance:
@@ -85,6 +87,11 @@ class ServerInstance:
             "--num_beams",
             str(self.config.num_beams),
         ]
+
+        if self.config.use_chunked_prefill:
+            argv.append("--use_chunked_prefill")
+            argv.extend(["--chunk_block_size", str(self.config.chunk_block_size)])
+
         argv.extend(parameters)
         argv.extend(self.config.device_settings.server_flags)
 
