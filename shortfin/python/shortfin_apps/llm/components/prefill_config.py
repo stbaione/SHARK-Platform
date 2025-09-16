@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 from dataclasses_json import dataclass_json, Undefined
 
 # TODO (stbaione): Extend for chunked prefill
