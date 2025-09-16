@@ -24,9 +24,9 @@ class LlmTaskInput:
     block_count: int
     seq_stride: int
     seq_len: int
+    start_position: int
     input_tokens: Tuple[int, ...] = field(default_factory=tuple)
     page_ids: Tuple[int, ...] = field(default_factory=tuple)
-    start_position: Optional[int] = None
 
 
 class LlmTaskResponder(ABC):
@@ -223,6 +223,9 @@ class PrefillTask(LlmTask):
 
         if self._has_prefill_position:
             start_positions = [task.start_position for task in task_inputs]
+            logger.info(
+                f"Using start_positions: {start_positions} for prefill invocation"
+            )
             start_positions_allocation = array_cache.allocate([batch_size], int_dtype)
             buffers.append(start_positions_allocation)
             data.append(start_positions)
@@ -231,6 +234,8 @@ class PrefillTask(LlmTask):
         buffers.extend([seq_lens_allocation, seq_block_ids_allocation])
         data.extend([seq_lens_data, seq_block_ids_data])
         defaults.extend([1, 0])
+
+        logger.info(f"SNB Prefill Data: {data}")
 
         args = create_argument_buffers(
             buffers=buffers,
@@ -253,9 +258,6 @@ class DecodeTask(LlmTask):
         array_cache: DeviceArrayCache,
         page_tables: List[sfnp.device_array],
     ):
-        assert all(
-            task_input.start_position is not None for task_input in task_inputs
-        ), "`start_positions` must be defined for `Decode`."
         super().__init__(
             task_inputs=task_inputs,
             array_cache=array_cache,

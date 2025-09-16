@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 from dataclasses_json import dataclass_json, Undefined
 
 # TODO (stbaione): Extend for chunked prefill
@@ -6,3 +7,5 @@ from dataclasses_json import dataclass_json, Undefined
 @dataclass(kw_only=True)
 class PrefillConfig:
     has_prefill_position: bool
+    prefix_sharing_algorithm: str
+    chunk_block_size: Optional[int]
