@@ -223,9 +223,6 @@ class PrefillTask(LlmTask):
 
         if self._has_prefill_position:
             start_positions = [task.start_position for task in task_inputs]
-            logger.info(
-                f"Using start_positions: {start_positions} for prefill invocation"
-            )
             start_positions_allocation = array_cache.allocate([batch_size], int_dtype)
             buffers.append(start_positions_allocation)
             data.append(start_positions)
@@ -234,8 +231,6 @@ class PrefillTask(LlmTask):
         buffers.extend([seq_lens_allocation, seq_block_ids_allocation])
         data.extend([seq_lens_data, seq_block_ids_data])
         defaults.extend([1, 0])
-
-        logger.info(f"SNB Prefill Data: {data}")
 
         args = create_argument_buffers(
             buffers=buffers,
