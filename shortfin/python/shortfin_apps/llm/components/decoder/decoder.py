@@ -304,7 +304,6 @@ class TokenSelector:
             beams = tokens // token_options
             tokens = tokens % token_options
 
-        logger.info(f"SNB Scores: {scores}")
         beams, tokens = self._update_selector_state(beams, tokens, scores, step)
         return beams, tokens
 
@@ -464,13 +463,8 @@ class LlmDecoder:
         prefill_req: LlmInferenceExecRequest,
         token_selector: TokenSelector,
     ) -> Tuple[List[np.ndarray], List[Optional[np.ndarray]]]:
-        logger.info(
-            f"SNB running prefill for input length: {len(prefill_req.input_token_ids)}, with start_position: {prefill_req.start_position}"
-        )
         if prefill_req.start_position == len(prefill_req.input_token_ids):
-            logger.info("SNB skipping prefill submission...")
             beams, tokens = token_selector.step_next_cached_token(prefill_req)
-            logger.info(f"SNB produced tokens: {tokens} with beams: {beams}")
             return beams, tokens
 
         self._unified_batcher.submit(prefill_req)
@@ -479,7 +473,6 @@ class LlmDecoder:
         beams, tokens = token_selector.step(
             [prefill_req.result_logits], [prefill_req.result_indices]
         )
-        logger.info(f"SNB produced tokens: {tokens} with beams: {beams}")
         return beams, tokens
 
     async def run(self, input_ids):

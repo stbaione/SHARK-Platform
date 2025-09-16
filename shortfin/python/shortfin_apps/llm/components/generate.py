@@ -131,7 +131,6 @@ class ClientGenerateBatchProcess(sf.Process):
         return PrefillConfig(
             has_prefill_position=self.service.model_params.has_prefill_position,
             prefix_sharing_algorithm=self.service.server_params.prefix_sharing_algorithm,
-            chunk_block_size=self.service.server_params.chunk_block_size,
         )
 
     def get_decode_configs(self) -> List[DecodeConfig]:
@@ -180,7 +179,6 @@ class ClientGenerateBatchProcess(sf.Process):
         else:
             input_batch = self.tokenize()
 
-        logger.info(f"SNB encoded tokens: {input_batch[0]}")
         for config in decode_configs:
             if not self.validate_decode_config(self.responder, config):
                 return

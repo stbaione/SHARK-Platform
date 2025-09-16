@@ -8,4 +8,3 @@ from dataclasses_json import dataclass_json, Undefined
 class PrefillConfig:
     has_prefill_position: bool
     prefix_sharing_algorithm: str
-    chunk_block_size: Optional[int]
