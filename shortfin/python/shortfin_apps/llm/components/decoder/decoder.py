@@ -94,7 +94,6 @@ def select_greedy(scores: np.ndarray, decode_config: DecodeConfig):
     scores = scores.flatten()
     argmax = np.argmax(scores)
     argmax = np.array([argmax])
-
     return argmax, scores[argmax]
 
 
@@ -106,8 +105,8 @@ def select_topk(scores: np.ndarray, decode_config: DecodeConfig):
         token = np.argpartition(scores, -num_select)
         token = np.flip(token[-num_select:])
     else:
-        token = np.arange(scores.shape[0])
-
+        token = np.argsort(scores)
+        token = np.flip(token)
     return token, scores[token]
 
 
@@ -196,9 +195,7 @@ class PageManager:
                     )
                     new_page = new_pages[0]
                     decode_reqs[i].allocated_cache_info = req.allocated_cache_info
-                    logger.debug(
-                        f"PageManager: Copying page index from {new_page} to {beam[-1]}"
-                    )
+
                     if beam[-1] != new_page:
                         self._page_pool.copy_page_index(beam[-1], new_page)
                         beam[-1] = new_page
@@ -214,7 +211,6 @@ class PageManager:
         # TODO: Allocation more requests
         if len(decode_reqs) < len(tokens):
             raise ValueError("NEED TO ALLOCATE MORE REQS")
-
         next_token_ids = []
         for token in tokens:
             next_tokens = [token]
@@ -241,12 +237,12 @@ class PageManager:
                 new_beam_page_ids, next_token_ids, decode_reqs
             )
 
-        # Check if the pages a shared between all queries:
-        if len(new_beam_page_ids[0]) > 0:
-            first_page = new_beam_page_ids[0][0]
-            if all(first_page == b[0] for b in new_beam_page_ids):
-                self._shared_pages.append(first_page)
-                new_beam_page_ids = [b[1:] for b in new_beam_page_ids]
+        # Check if the pages are shared between all queries:
+        # if len(new_beam_page_ids[0]) > 0:
+        #    first_page = new_beam_page_ids[0][0]
+        #    if all(first_page == b[0] for b in new_beam_page_ids):
+        #        self._shared_pages.append(first_page)
+        #        new_beam_page_ids = [b[1:] for b in new_beam_page_ids]
 
         self._beam_page_ids = new_beam_page_ids
         self._position += 1
@@ -295,6 +291,7 @@ class TokenSelector:
         token_options = logits.shape[-1]
         tokens, scores = self._select_function(logits, self._decode_config)
 
+        # import pdb; pdb.set_trace()
         if indices[0] is not None:
             indices = [np.asarray(i) for i in indices]
             indices = np.concatenate(indices, axis=1)[0]
