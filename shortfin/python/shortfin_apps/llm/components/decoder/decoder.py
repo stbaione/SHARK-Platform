@@ -105,7 +105,7 @@ def select_topk(scores: np.ndarray, decode_config: DecodeConfig):
         token = np.argpartition(scores, -num_select)
         token = np.flip(token[-num_select:])
     else:
-        token = np.argsort(scores)
+        token = np.arange(scores.shape[0])
         token = np.flip(token)
     return token, scores[token]
 
@@ -291,7 +291,6 @@ class TokenSelector:
         token_options = logits.shape[-1]
         tokens, scores = self._select_function(logits, self._decode_config)
 
-        # import pdb; pdb.set_trace()
         if indices[0] is not None:
             indices = [np.asarray(i) for i in indices]
             indices = np.concatenate(indices, axis=1)[0]
