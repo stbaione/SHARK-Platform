@@ -236,13 +236,6 @@ class PageManager:
                 new_beam_page_ids, next_token_ids, decode_reqs
             )
 
-        # Check if the pages are shared between all queries:
-        # if len(new_beam_page_ids[0]) > 0:
-        #    first_page = new_beam_page_ids[0][0]
-        #    if all(first_page == b[0] for b in new_beam_page_ids):
-        #        self._shared_pages.append(first_page)
-        #        new_beam_page_ids = [b[1:] for b in new_beam_page_ids]
-
         self._beam_page_ids = new_beam_page_ids
         self._position += 1
 
