@@ -106,7 +106,6 @@ def select_topk(scores: np.ndarray, decode_config: DecodeConfig):
         token = np.flip(token[-num_select:])
     else:
         token = np.arange(scores.shape[0])
-        token = np.flip(token)
     return token, scores[token]
 
 
