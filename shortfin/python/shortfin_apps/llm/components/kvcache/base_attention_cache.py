@@ -184,15 +184,9 @@ class BasePagedAttentionCache:
         if self.use_ref_counts:
             self.increment_pages(pages)
         num_tokens = token_count
-        logger.debug(
-            f"Allocated pages {[p.index for p in pages]} for {num_tokens} tokens"
-        )
         if cache_info is not None:
             pages = cache_info.pages + pages
             num_tokens += cache_info.num_tokens
-        logger.debug(
-            f"Total pages after allocation: {[p.index for p in pages]} for {num_tokens} tokens"
-        )
         return CacheInfo(
             num_tokens=num_tokens,
             pages=pages,
@@ -228,16 +222,6 @@ class BasePagedAttentionCache:
                 pool=self.page_pool,
                 last_cached_node=cache_info.last_cached_node,
             )
-
-    def update_cache_info(
-        self, tokens: List[int], page_ids: List[int], cache_info: CacheInfo = None
-    ) -> CacheInfo:
-        return CacheInfo(
-            num_tokens=cache_info.num_tokens,
-            pages=cache_info.pages,
-            pool=self.page_pool,
-            last_cached_node=None,
-        )
 
     def publish_pages_for_tokens(
         self, tokens, cache_info, *, publish_incomplete_page=False
