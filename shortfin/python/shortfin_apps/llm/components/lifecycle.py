@@ -95,13 +95,13 @@ class ShortfinLlmLifecycleManager:
     def __enter__(self):
         self.sysman.start()
         for service_name, service in self.services.items():
-            logger.info("Initializing service '%s': %r", service_name, service)
+            logging.info("Initializing service '%s': %r", service_name, service)
             service.start()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         for service_name, service in self.services.items():
-            logger.info("Shutting down service '%s'", service_name)
+            logging.info("Shutting down service '%s'", service_name)
             service.shutdown()
         self.sysman.shutdown()
         return False
