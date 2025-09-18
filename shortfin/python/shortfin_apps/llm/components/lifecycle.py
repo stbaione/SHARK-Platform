@@ -13,6 +13,7 @@ def lifecycle(app: FastApi):
         yield
 ```
 """
+
 import logging
 
 from contextlib import asynccontextmanager
