@@ -118,6 +118,7 @@ class PageManager:
         initial_length: int,
         tokens_per_page: int,
     ):
+        self._lock = threading.Lock()
         self._page_cache = page_cache
         self._page_pool = page_pool
         self._allocated_pages = []
@@ -142,22 +143,23 @@ class PageManager:
         count: int,
         allocate_block: bool = True,
     ):
-        if count > len(self._free_pages):
-            acquire_count = max(count, self._allocation_block_size)
-            if not allocate_block:
-                acquire_count = count
-            acquired_cache_info = self._page_cache.allocate(
-                input_token_ids, acquire_count, req.allocated_cache_info
-            )
-            acquired = acquired_cache_info.pages
-            self._free_pages.extend([p.index for p in acquired])
-            req.allocated_cache_info.last_cached_node = (
-                acquired_cache_info.last_cached_node
-            )
+        with self._lock:
+            if count > len(self._free_pages):
+                acquire_count = max(count, self._allocation_block_size)
+                if not allocate_block:
+                    acquire_count = count
+                acquired_cache_info = self._page_cache.allocate(
+                    input_token_ids, acquire_count, req.allocated_cache_info
+                )
+                acquired = acquired_cache_info.pages[
+                    len(req.allocated_cache_info.pages) :
+                ]
+                self._free_pages.extend([p.index for p in acquired])
+                req.allocated_cache_info = acquired_cache_info
 
-        allocation = self._free_pages[:count]
-        self._free_pages = self._free_pages[count:]
-        return allocation, req
+            allocation = self._free_pages[:count]
+            self._free_pages = self._free_pages[count:]
+            return allocation, req
 
     def _update_decode_reqs_new_page(
         self,
@@ -499,4 +501,3 @@ class LlmDecoder:
 
         for req in decode_reqs:
             req.free_cache_pages()
-        prefill_req.free_cache_pages()
