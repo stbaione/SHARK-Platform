@@ -1,6 +1,7 @@
 """Test fixtures and configurations."""
 
 import hashlib
+import os
 import pytest
 from pathlib import Path
 from tokenizers import Tokenizer, Encoding
@@ -9,6 +10,7 @@ from ..model_management import (
     ModelProcessor,
     ModelArtifacts,
     ModelConfig,
+    ModelSource,
 )
 from ..server_management import ServerInstance, ServerConfig
 
@@ -34,7 +36,13 @@ def test_device(request):
 
 
 @pytest.fixture(scope="session")
-def model_artifacts(tmp_path_factory, request, test_device):
+def irpa_path():
+    path = os.environ.get("IRPA_PATH")
+    return path
+
+
+@pytest.fixture(scope="session")
+def model_artifacts(tmp_path_factory, request, test_device, irpa_path):
     """Prepares model artifacts in a cached directory."""
     model_config: ModelConfig = request.param
     settings_key = test_device
@@ -46,6 +54,12 @@ def model_artifacts(tmp_path_factory, request, test_device):
         pytest.skip(
             reason="Skipping CPU tests with prefill position due to compilation error"
         )
+
+    if model_config.source == ModelSource.LOCAL_IRPA and irpa_path is None:
+        pytest.fail("IRPA path must be specified for LOCAL_IRPA models")
+
+    if irpa_path is not None:
+        model_config.irpa_path = Path(irpa_path)
 
     if (
         model_config.tensor_parallelism_size is not None

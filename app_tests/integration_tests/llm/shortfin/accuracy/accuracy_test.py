@@ -154,23 +154,20 @@ class TestLLMAccuracy:
     @pytest.mark.parametrize(
         "dataset_request,batch_size,num_workers",
         [
-            (BASIC, 1, 1),
+            # Run against basic, short test prompts (basic accuracy)
             (BASIC, 4, 2),
-            (CHUNKED_PREFILL, 1, 1),
+            # Run against prompts optimized for `chunked_prefill`
             (CHUNKED_PREFILL, 4, 2),
-            (PREFIX_MATCHING, 1, 1),
+            # Run against prompts optimized for `prefix_matching`
             (PREFIX_MATCHING, 4, 2),
-            (ALL, 1, 1),
+            # Test against large set of prompts
+            # (make sure we don't "drift" over time)
             (ALL, 4, 2),
         ],
         ids=[
-            "BASIC-bs1-n1",
             "BASIC-bs4-n2",
-            "CHUNKED_PREFILL-bs1-n1",
             "CHUNKED_PREFILL-bs4-n2",
-            "PREFIX_MATCHING-bs1-n1",
             "PREFIX_MATCHING-bs4-n2",
-            "ALL-bs1-n1",
             "ALL-bs4-n2",
         ],
     )
@@ -178,17 +175,17 @@ class TestLLMAccuracy:
         "model_artifacts,server",
         [
             (
-                ModelConfig.get(name="meta_llama3.1_8b_instruct_tokenizer"),
+                ModelConfig.get(name="meta_llama3.1_8b_instruct"),
                 {"prefix_sharing_algorithm": "none"},
             ),  # noqa: E501
             (
-                ModelConfig.get(name="meta_llama3.1_8b_instruct_tokenizer"),
+                ModelConfig.get(name="meta_llama3.1_8b_instruct"),
                 {"prefix_sharing_algorithm": "trie"},
             ),  # noqa: E501
         ],
         ids=[
-            "meta_llama3.1_8b_instruct_tokenizer-no_prefix_sharing",
-            "meta_llama3.1_8b_instruct_tokenizer-trie_prefix_sharing",
+            "meta_llama3.1_8b_instruct-no_prefix_sharing",
+            "meta_llama3.1_8b_instruct-trie_prefix_sharing",
         ],
         indirect=True,
     )

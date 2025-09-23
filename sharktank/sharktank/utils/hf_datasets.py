@@ -118,7 +118,7 @@ Dataset(
             "meta-llama/Llama-3.1-8B-Instruct",
             filename="tokenizer.json",
             extra_filenames=["tokenizer_config.json"],
-        )
+        ),
     ),
 ).alias_to("meta_llama3.1_8b_instruct_tokenizer")
 

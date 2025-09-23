@@ -174,15 +174,15 @@ _PREDEFINED_MODELS = {
         batch_sizes_decode=(4,),
         device_settings=None,
     ),
-    "meta_llama3.1_8b_instruct_tokenizer": ModelConfig(
+    "meta_llama3.1_8b_instruct": ModelConfig(
         source=ModelSource.LOCAL_IRPA,
         repo_id="meta-llama/Llama-3.1-8B-Instruct",
         model_file="meta-llama-3.1-8b-instruct-fp16.gguf",
         tokenizer_id="meta-llama/Llama-3.1-8B-Instruct",
+        dataset_name="meta_llama3.1_8b_instruct_tokenizer",
         batch_sizes_prefill=(4,),
         batch_sizes_decode=(8,),
         device_settings=None,
-        irpa_path=Path("/shark-dev/8b/instruct/weights/llama3.1_8b_instruct_fp16.irpa"),
     ),
     "tinystories_llama2_25m": ModelConfig(
         source=ModelSource.HUGGINGFACE_FROM_SAFETENSORS,
