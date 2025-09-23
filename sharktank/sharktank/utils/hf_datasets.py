@@ -111,6 +111,18 @@ Dataset(
 ).alias_to("llama3_8B_fp16")
 
 Dataset(
+    "meta-llama/Llama-3.1-8B-Instruct/Tokenizer",
+    (
+        RemoteFile(
+            "tokenizer",
+            "meta-llama/Llama-3.1-8B-Instruct",
+            filename="tokenizer.json",
+            extra_filenames=["tokenizer_config.json"],
+        )
+    ),
+).alias_to("meta_llama3.1_8b_instruct_tokenizer")
+
+Dataset(
     "QuantFactory/Llama-3-8B_q4_1_gguf",
     (
         RemoteFile(
