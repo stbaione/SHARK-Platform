@@ -95,6 +95,11 @@ jobs:
         with:
           python-version: ${{matrix.python-version}}
           artifact-run-id: ${{ inputs.artifact_run_id }}
+      - name: Login to huggingface
+        continue-on-error: true
+        run: |
+          pip install -U "huggingface_hub[cli]"
+          huggingface-cli login --token ${{ secrets.HF_TOKEN }}
       - name: Run Accuracy Test
         run: |
           source ${VENV_DIR}/bin/activate
