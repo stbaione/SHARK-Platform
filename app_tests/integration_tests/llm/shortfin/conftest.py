@@ -4,6 +4,7 @@ import hashlib
 import os
 import pytest
 from pathlib import Path
+from sentence_transformers import SentenceTransformer
 from tokenizers import Tokenizer, Encoding
 
 from ..model_management import (
@@ -42,7 +43,13 @@ def irpa_path():
 
 
 @pytest.fixture(scope="session")
-def model_artifacts(tmp_path_factory, request, test_device, irpa_path):
+def tokenizer_path():
+    path = os.environ.get("TOKENIZER_PATH")
+    return path
+
+
+@pytest.fixture(scope="session")
+def model_artifacts(tmp_path_factory, request, test_device, irpa_path, tokenizer_path):
     """Prepares model artifacts in a cached directory."""
     model_config: ModelConfig = request.param
     settings_key = test_device
@@ -55,11 +62,14 @@ def model_artifacts(tmp_path_factory, request, test_device, irpa_path):
             reason="Skipping CPU tests with prefill position due to compilation error"
         )
 
-    if model_config.source == ModelSource.LOCAL_IRPA and irpa_path is None:
-        pytest.fail("IRPA path must be specified for LOCAL_IRPA models")
+    if model_config.source == ModelSource.LOCAL:
+        if irpa_path is None:
+            pytest.fail("IRPA path must be specified for LOCAL models")
+        if tokenizer_path is None:
+            pytest.fail("Tokenizer path must be specified for LOCAL models")
 
-    if irpa_path is not None:
         model_config.irpa_path = Path(irpa_path)
+        model_config.tokenizer_path = Path(tokenizer_path)
 
     if (
         model_config.tensor_parallelism_size is not None
@@ -135,3 +145,9 @@ def generate_service(model_artifacts, request):
 def encoded_prompt(model_artifacts: ModelArtifacts, request) -> list[int]:
     tokenizer = Tokenizer.from_file(str(model_artifacts.tokenizer_path))
     return tokenizer.encode(request.param).ids
+
+
+@pytest.fixture(scope="module")
+def comparison_model(model_name: str = "all-MiniLM-L6-v2"):
+    model = SentenceTransformer(model_name)
+    return model

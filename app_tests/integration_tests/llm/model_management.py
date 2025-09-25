@@ -94,6 +94,7 @@ class ModelConfig:
     top_k: Optional[int] = None
     has_prefill_position: Optional[bool] = None
     irpa_path: Optional[Path] = None
+    tokenizer_path: Optional[Path] = None
     block_seq_stride: int = 16
 
     def __post_init__(self):
@@ -102,8 +103,6 @@ class ModelConfig:
                 raise ValueError(
                     "Either dataset_name or repo_id required for HuggingFace models"
                 )
-        elif self.source == ModelSource.LOCAL and not self.local_path:
-            raise ValueError("local_path required for local models")
         elif self.source == ModelSource.AZURE and not self.azure_config:
             raise ValueError("azure_config required for Azure models")
         elif self.source == ModelSource.HUGGINGFACE_FROM_SAFETENSORS:
@@ -174,12 +173,11 @@ _PREDEFINED_MODELS = {
         batch_sizes_decode=(4,),
         device_settings=None,
     ),
-    "meta_llama3.1_8b_instruct": ModelConfig(
-        source=ModelSource.LOCAL_IRPA,
+    "local_meta_llama3.1_8b_instruct": ModelConfig(
+        source=ModelSource.LOCAL,
         repo_id="meta-llama/Llama-3.1-8B-Instruct",
         model_file="meta-llama-3.1-8b-instruct-fp16.gguf",
         tokenizer_id="meta-llama/Llama-3.1-8B-Instruct",
-        dataset_name="meta_llama3.1_8b_instruct_tokenizer",
         batch_sizes_prefill=(4,),
         batch_sizes_decode=(8,),
         device_settings=None,
@@ -258,8 +256,6 @@ class ModelStageManager:
                 return self.base_dir / self.config.dataset_name.replace("/", "_")
             return self.base_dir / self.config.repo_id.replace("/", "_")
         elif self.config.source == ModelSource.LOCAL:
-            return self.base_dir / "local" / self.config.local_path.stem
-        elif self.config.source == ModelSource.LOCAL_IRPA:
             return self.base_dir / "local" / self.config.irpa_path.stem
         elif self.config.source == ModelSource.AZURE:
             return (
@@ -574,20 +570,21 @@ class ModelProcessor:
         manager = ModelStageManager(self.base_dir, config)
 
         # Stage 1: Download weights and tokenizer (cached)
+        tokenizer_path = None
         if config.source == ModelSource.HUGGINGFACE_FROM_GGUF:
             weights_path = manager._download_from_huggingface()
         elif config.source == ModelSource.LOCAL:
-            weights_path = manager._copy_from_local()
+            weights_path = config.irpa_path
+            tokenizer_path = config.tokenizer_path
         elif config.source == ModelSource.AZURE:
             weights_path = manager._download_from_azure()
         elif config.source == ModelSource.HUGGINGFACE_FROM_SAFETENSORS:
             weights_path = manager._download_and_convert_from_huggingface()
-        elif config.source == ModelSource.LOCAL_IRPA:
-            weights_path = config.irpa_path
         else:
             raise ValueError(f"Unsupported model source: {config.source}")
 
-        tokenizer_path = manager.prepare_tokenizer()
+        if tokenizer_path is None:
+            tokenizer_path = manager.prepare_tokenizer()
 
         # Stage 1.5: Shard model if tensor parallelism is configured
         shard_paths = None

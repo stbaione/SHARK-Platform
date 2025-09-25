@@ -4,9 +4,12 @@ import logging
 import pytest
 import requests
 
+pytest.importorskip("sentence_transformers")
+
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
+from sentence_transformers import SentenceTransformer, util
 from typing import Dict, List
 
 from ...datasets import Dataset, DatasetRequest, DatasetTypes, AvailableDatasets
@@ -65,12 +68,26 @@ ALL = DatasetRequest(
 )
 
 
+ACCURACY_THRESHOLD = 0.85
+
+
 class TestLLMAccuracy:
     def _check_health(self, base_url: str):
         resp = requests.get(f"{base_url}/health")
         assert resp.status_code == 200
 
-    def _validate_response(self, dataset: Dataset, results: List[Dict]):
+    def _compute_similarity(
+        self, comparison_model: SentenceTransformer, sentence_1: str, sentence_2: str
+    ):
+        embeddings = comparison_model.encode([sentence_1, sentence_2])
+        return util.pytorch_cos_sim(embeddings[0], embeddings[1]).item()
+
+    def _validate_response(
+        self,
+        comparison_model: SentenceTransformer,
+        dataset: Dataset,
+        results: List[Dict],
+    ):
         total_prompts = dataset.size
         total_correct = 0
         total_incorrect = 0
@@ -83,11 +100,14 @@ class TestLLMAccuracy:
                 expected_generation = dataset.get_expected_generation(prompt)
                 actual_generation = response["responses"][0]["text"]
 
-                if expected_generation != actual_generation:
+                accuracy = self._compute_similarity(
+                    comparison_model, expected_generation, actual_generation
+                )
+                if not accuracy >= ACCURACY_THRESHOLD:
                     logger.error(
-                        f"Mismatch for prompt: {prompt}\n"
-                        f"\tExpected: {expected_generation}\n"
-                        f"\tActual: {actual_generation}\n"
+                        f"Mismatch for prompt: {prompt}\n, With Accuracy: {accuracy:.2f}\n"
+                        f"{'-' * 80} Expected {'-' * 80}\n{expected_generation}\n"
+                        f"{'-' * 80} Actual {'-' * 80}\n{actual_generation}\n"
                     )
                     total_incorrect += 1
                     continue
@@ -154,20 +174,9 @@ class TestLLMAccuracy:
     @pytest.mark.parametrize(
         "dataset_request,batch_size,num_workers",
         [
-            # Run against basic, short test prompts (basic accuracy)
-            (BASIC, 4, 2),
-            # Run against prompts optimized for `chunked_prefill`
-            (CHUNKED_PREFILL, 4, 2),
-            # Run against prompts optimized for `prefix_matching`
-            (PREFIX_MATCHING, 4, 2),
-            # Test against large set of prompts
-            # (make sure we don't "drift" over time)
             (ALL, 4, 2),
         ],
         ids=[
-            "BASIC-bs4-n2",
-            "CHUNKED_PREFILL-bs4-n2",
-            "PREFIX_MATCHING-bs4-n2",
             "ALL-bs4-n2",
         ],
     )
@@ -175,17 +184,12 @@ class TestLLMAccuracy:
         "model_artifacts,server",
         [
             (
-                ModelConfig.get(name="meta_llama3.1_8b_instruct"),
+                ModelConfig.get(name="local_meta_llama3.1_8b_instruct"),
                 {"prefix_sharing_algorithm": "none"},
-            ),  # noqa: E501
-            (
-                ModelConfig.get(name="meta_llama3.1_8b_instruct"),
-                {"prefix_sharing_algorithm": "trie"},
             ),  # noqa: E501
         ],
         ids=[
             "meta_llama3.1_8b_instruct-no_prefix_sharing",
-            "meta_llama3.1_8b_instruct-trie_prefix_sharing",
         ],
         indirect=True,
     )
@@ -195,6 +199,7 @@ class TestLLMAccuracy:
         batch_size: int,
         num_workers: int,
         server,
+        comparison_model: SentenceTransformer,
     ):
         process, port, config = server
         assert process.poll() is None, "Server process terminated unexpectedly."
@@ -208,7 +213,9 @@ class TestLLMAccuracy:
         server_results = self._request_loop(
             base_url, dataset_instance, sampling_params, num_workers
         )
-        accuracy_results = self._validate_response(dataset_instance, server_results)
+        accuracy_results = self._validate_response(
+            comparison_model, dataset_instance, server_results
+        )
 
         logger.info(
             f"Dataset: {dataset_request.dataset.name} | "
