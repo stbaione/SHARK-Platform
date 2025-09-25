@@ -154,6 +154,7 @@ class TestLLMAccuracy:
             total_correct=total_correct,
             total_incorrect=total_incorrect,
             accuracy=(total_correct / total_prompts) * 100,
+            incorrect_prompts=incorrect_prompts,
         )
 
     def _send_request(
