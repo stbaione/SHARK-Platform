@@ -4,7 +4,6 @@ import hashlib
 import os
 import pytest
 from pathlib import Path
-from sentence_transformers import SentenceTransformer
 from tokenizers import Tokenizer, Encoding
 
 from ..model_management import (
@@ -145,9 +144,3 @@ def generate_service(model_artifacts, request):
 def encoded_prompt(model_artifacts: ModelArtifacts, request) -> list[int]:
     tokenizer = Tokenizer.from_file(str(model_artifacts.tokenizer_path))
     return tokenizer.encode(request.param).ids
-
-
-@pytest.fixture(scope="module")
-def comparison_model(model_name: str = "all-MiniLM-L6-v2"):
-    model = SentenceTransformer(model_name)
-    return model

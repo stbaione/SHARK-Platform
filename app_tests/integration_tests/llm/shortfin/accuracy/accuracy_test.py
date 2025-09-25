@@ -71,6 +71,12 @@ ALL = DatasetRequest(
 ACCURACY_THRESHOLD = 0.85
 
 
+@pytest.fixture(scope="module")
+def comparison_model(model_name: str = "all-MiniLM-L6-v2"):
+    model = SentenceTransformer(model_name)
+    return model
+
+
 class TestLLMAccuracy:
     def _check_health(self, base_url: str):
         resp = requests.get(f"{base_url}/health")
