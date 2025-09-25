@@ -233,5 +233,5 @@ class TestLLMAccuracy:
         if accuracy_results.accuracy < 100.0:
             logger.error(f"Accuracy below 100%: {accuracy_results.accuracy:.2f}%")
             raise AccuracyValidationException(
-                f"Accuracy below 100%: {accuracy_results.accuracy:.2f}%"
+                f"Accuracy below 100%: {str(accuracy_results)}%"
             )
