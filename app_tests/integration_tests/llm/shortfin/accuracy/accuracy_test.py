@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from sentence_transformers import SentenceTransformer, util
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from ...datasets import Dataset, DatasetRequest, DatasetTypes, AvailableDatasets
 from ...model_management import AccuracyValidationException, ModelConfig
@@ -27,15 +27,35 @@ class SamplingParams:
 
 
 @dataclass
+class IncorrectPrompt:
+    prompt: str
+    expected: str
+    actual: str
+    accuracy: float
+
+    def __str__(self) -> str:
+        return (
+            f"{'-' * 80} Prompt {'-' * 80}\n{self.prompt}\n"
+            f"{'-' * 80} Expected {'-' * 80}\n{self.expected}\n"
+            f"{'-' * 80} Actual {'-' * 80}\n{self.actual}\n"
+            f"Accuracy: {self.accuracy:.2f}%\n"
+        )
+
+
+@dataclass
 class AccuracyResults:
     total_prompts: int
     total_correct: int
     total_incorrect: int
     accuracy: float
+    incorrect_prompts: Optional[List[IncorrectPrompt]] = None
 
     def __str__(self) -> str:
+        incorrect_prompts = "\n".join(str(p) for p in self.incorrect_prompts or [])
         return (
             "Results:\n"
+            f"{'-' * 80} Incorrect Prompts {'-' * 80}\n"
+            f"{incorrect_prompts}\n"
             f"\tTotal Prompts: {self.total_prompts}\n"
             f"\tTotal Correct: {self.total_correct}\n"
             f"\tTotal Incorrect: {self.total_incorrect}\n"
@@ -97,6 +117,7 @@ class TestLLMAccuracy:
         total_prompts = dataset.size
         total_correct = 0
         total_incorrect = 0
+        incorrect_prompts = []
 
         for result in results:
             responses = result["responses"]
@@ -116,6 +137,14 @@ class TestLLMAccuracy:
                         f"{'-' * 80} Actual {'-' * 80}\n{actual_generation}\n"
                     )
                     total_incorrect += 1
+                    incorrect_prompts.append(
+                        IncorrectPrompt(
+                            prompt=prompt,
+                            expected=expected_generation,
+                            actual=actual_generation,
+                            accuracy=accuracy,
+                        )
+                    )
                     continue
 
                 total_correct += 1
