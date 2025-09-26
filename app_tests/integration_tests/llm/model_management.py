@@ -178,8 +178,8 @@ _PREDEFINED_MODELS = {
         repo_id="meta-llama/Llama-3.1-8B-Instruct",
         model_file="meta-llama-3.1-8b-instruct-fp16.gguf",
         tokenizer_id="meta-llama/Llama-3.1-8B-Instruct",
-        batch_sizes_prefill=(4,),
-        batch_sizes_decode=(8,),
+        batch_sizes_prefill=(8,),
+        batch_sizes_decode=(32,),
         device_settings=None,
     ),
     "tinystories_llama2_25m": ModelConfig(
