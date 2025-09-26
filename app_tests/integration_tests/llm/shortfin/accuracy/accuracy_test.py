@@ -130,7 +130,7 @@ class TestLLMAccuracy:
                 accuracy = self._compute_similarity(
                     comparison_model, expected_generation, actual_generation
                 )
-                if not accuracy >= ACCURACY_THRESHOLD:
+                if accuracy < ACCURACY_THRESHOLD:
                     logger.error(
                         f"Mismatch for prompt: {prompt}\n, With Accuracy: {accuracy:.2f}\n"
                         f"{'-' * 80} Expected {'-' * 80}\n{expected_generation}\n"
