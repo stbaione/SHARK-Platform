@@ -210,7 +210,7 @@ class TestLLMAccuracy:
     @pytest.mark.parametrize(
         "dataset_request,batch_size,num_workers",
         [
-            (ALL, 4, 2),
+            (ALL, 8, 4),
         ],
         ids=[
             "ALL-bs4-n2",
