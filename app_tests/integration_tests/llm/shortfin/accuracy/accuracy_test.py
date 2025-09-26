@@ -88,7 +88,7 @@ ALL = DatasetRequest(
 )
 
 
-ACCURACY_THRESHOLD = 0.95
+ACCURACY_THRESHOLD = 0.99
 
 
 @pytest.fixture(scope="module")
