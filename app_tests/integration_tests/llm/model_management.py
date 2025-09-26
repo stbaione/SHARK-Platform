@@ -180,6 +180,7 @@ _PREDEFINED_MODELS = {
         tokenizer_id="meta-llama/Llama-3.1-8B-Instruct",
         batch_sizes_prefill=(8,),
         batch_sizes_decode=(32,),
+        block_seq_stride=32,
         device_settings=None,
     ),
     "tinystories_llama2_25m": ModelConfig(
