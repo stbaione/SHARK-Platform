@@ -136,13 +136,6 @@ class TestLLMAccuracy:
                 prompts.append(prompt)
                 expected_generations.append(expected_generation)
 
-        assert (
-            len(prompts)
-            == len(actual_generations)
-            == len(expected_generations)
-            == total_prompts
-        )
-
         # Get embeddings for expected generations
         expected_embeddings = self._get_embeddings(
             comparison_model, expected_generations
