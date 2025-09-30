@@ -174,7 +174,7 @@ class PrefillTask(LlmTask):
         if self._chunk_block_size is None:
             return max(task_input.block_count for task_input in task_inputs)
 
-        seq_stride = task_inputs[0].seq_stride
+        seq_stride = self._seq_stride
         max_start_position = max(
             task_input.start_position for task_input in task_inputs
         )

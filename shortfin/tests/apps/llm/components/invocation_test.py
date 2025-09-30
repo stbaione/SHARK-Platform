@@ -578,7 +578,6 @@ def _get_chunked_task_inputs(
                 rid=req.orig_instance_id,
                 instance_id=req.instance_id,
                 block_count=len(page_ids),
-                seq_stride=block_seq_stride,
                 input_tokens=tuple(input_tokens),
                 seq_len=seq_len,
                 page_ids=tuple(page_ids),
@@ -651,6 +650,7 @@ class TestChunkedPrefillTask:
                 task_inputs=[inputs[0] for inputs in task_inputs],
                 array_cache=device_array_cache,
                 page_tables=page_pool.acquire_free_pages(len(task_inputs)),
+                seq_stride=block_seq_stride,
                 has_prefill_position=True,
                 chunk_block_size=chunk_block_size,
             )
@@ -703,7 +703,6 @@ class TestChunkedPrefillTask:
                 rid=task_inputs[0][0].rid,
                 instance_id=task_inputs[0][0].instance_id,
                 block_count=len(page_ids),
-                seq_stride=task_inputs[0][0].seq_stride,
                 seq_len=task_inputs[0][0].seq_len,
                 input_tokens=task_inputs[0][0].input_tokens,
                 page_ids=page_ids,
@@ -714,6 +713,7 @@ class TestChunkedPrefillTask:
                 task_inputs=[inputs[0] for inputs in task_inputs],
                 array_cache=device_array_cache,
                 page_tables=page_pool.acquire_free_pages(len(task_inputs)),
+                seq_stride=block_seq_stride,
                 has_prefill_position=True,
                 chunk_block_size=chunk_block_size,
             )
@@ -745,7 +745,6 @@ class TestChunkedPrefillTask:
                 rid=task_inputs[0][0].rid,
                 instance_id=task_inputs[0][0].instance_id,
                 block_count=len(page_ids),
-                seq_stride=task_inputs[0][0].seq_stride,
                 seq_len=task_inputs[0][0].seq_len,
                 input_tokens=task_inputs[0][0].input_tokens,
                 page_ids=page_ids,
@@ -756,6 +755,7 @@ class TestChunkedPrefillTask:
                 task_inputs=[inputs[0] for inputs in task_inputs],
                 array_cache=device_array_cache,
                 page_tables=page_pool.acquire_free_pages(len(task_inputs)),
+                seq_stride=block_seq_stride,
                 has_prefill_position=True,
                 chunk_block_size=chunk_block_size,
             )
