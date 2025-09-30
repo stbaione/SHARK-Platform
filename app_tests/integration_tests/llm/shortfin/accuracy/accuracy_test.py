@@ -93,8 +93,7 @@ ALL = DatasetRequest(
 ACCURACY_THRESHOLD = 0.99
 
 
-@pytest.fixture(scope="module")
-def comparison_model(model_name: str = "all-MiniLM-L6-v2"):
+def load_comparison_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
     model = SentenceTransformer(model_name)
     return model
 
@@ -264,7 +263,6 @@ class TestLLMAccuracy:
         batch_size: int,
         num_workers: int,
         server,
-        comparison_model: SentenceTransformer,
     ):
         process, port, config = server
         assert process.poll() is None, "Server process terminated unexpectedly."
@@ -278,6 +276,12 @@ class TestLLMAccuracy:
         server_results = self._request_loop(
             base_url, dataset_instance, sampling_params, num_workers
         )
+
+        # Kill the server before loading the comparison model to free up resources
+        process.terminate()
+        process.wait()
+
+        comparison_model = load_comparison_model()
         accuracy_results = self._validate_response(
             comparison_model, dataset_instance, server_results
         )
