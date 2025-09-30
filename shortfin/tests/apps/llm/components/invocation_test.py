@@ -132,7 +132,6 @@ def _get_task_inputs(
                 rid=req.orig_instance_id,
                 instance_id=req.instance_id,
                 block_count=req.block_count,
-                seq_stride=2,
                 input_tokens=req.input_token_ids,
                 seq_len=len(req.input_token_ids),
                 page_ids=req.page_ids,
@@ -154,6 +153,7 @@ def prefill_task(
         task_inputs=task_input,
         array_cache=device_array_cache,
         page_tables=page_tables,
+        seq_stride=2,
         has_prefill_position=False,
     )
 
@@ -169,6 +169,7 @@ def prefill_task_w_start_pos(
         task_inputs=task_input,
         array_cache=device_array_cache,
         page_tables=page_tables,
+        seq_stride=2,
         has_prefill_position=True,
     )
 
@@ -185,6 +186,7 @@ def decode_task(staggered_exec_req_list, device_array_cache, page_pool) -> Decod
         task_inputs=task_inputs,
         array_cache=device_array_cache,
         page_tables=page_tables,
+        seq_stride=2,
     )
 
 
