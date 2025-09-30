@@ -70,14 +70,12 @@ class LlmTask:
         task_inputs: List[LlmTaskInput],
         array_cache: DeviceArrayCache,
         page_tables: List[sfnp.device_array],
-        chunk_block_size: Optional[int] = None,
     ):
         self.req_count = len(task_inputs)
 
         self._task_inputs = task_inputs
         self._array_cache: DeviceArrayCache = array_cache
         self._page_tables = page_tables
-        self._chunk_block_size = chunk_block_size
 
     @property
     def task_inputs(self):
@@ -157,8 +155,10 @@ class PrefillTask(LlmTask):
         array_cache: DeviceArrayCache,
         page_tables: List[sfnp.device_array],
         has_prefill_position: bool,
+        chunk_block_size: Optional[int] = None,
     ):
         self._has_prefill_position = has_prefill_position
+        self._chunk_block_size = chunk_block_size
         super().__init__(
             task_inputs=task_inputs,
             array_cache=array_cache,
@@ -171,10 +171,6 @@ class PrefillTask(LlmTask):
         if self._chunk_block_size is None:
             return max(task_input.block_count for task_input in task_inputs)
 
-        assert all(
-            task_input.seq_stride == task_inputs[0].seq_stride
-            for task_input in task_inputs
-        )
         seq_stride = task_inputs[0].seq_stride
         max_start_position = max(
             task_input.start_position for task_input in task_inputs
