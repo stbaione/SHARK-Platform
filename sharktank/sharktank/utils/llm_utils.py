@@ -200,9 +200,9 @@ class TorchInstance:
         decode_bs: int = 1,
     ):
         self._model = PagedLlmModelV1(theta=theta, config=config)
-        self._prefill_bs = prefill_bs
+        self.prefill_bs = prefill_bs
+        self.decode_bs = decode_bs
         self._device = device
-        self._decode_bs = decode_bs
         self._config = config
 
     @property
