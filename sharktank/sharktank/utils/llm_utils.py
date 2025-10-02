@@ -454,15 +454,6 @@ class LlmAllocator:
     def free(self, pages: list[int]):
         self._pages.extend(pages)
 
-    def populate(self, bs: int, page_ids: list[list[int]]):
-        max_len = max(len(ids) for ids in page_ids)
-        page_table = numpy.zeros((bs, max_len), dtype=numpy.int64)
-
-        for i, ids in enumerate(page_ids):
-            page_table[i, : len(ids)] = ids
-
-        return page_table
-
 
 class LlmBatcher:
     def __init__(
@@ -479,6 +470,8 @@ class LlmBatcher:
         self._block_stride = block_stride
         self._prefill_bs = instance.prefill_bs
         self._decode_bs = instance.decode_bs
+
+        self._allocator = LlmAllocator(page_count=page_count, block_stride=block_stride)
 
         self._allocator = LlmAllocator(page_count=page_count, block_stride=block_stride)
 
