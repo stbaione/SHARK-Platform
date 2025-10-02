@@ -346,7 +346,7 @@ class PrefillTask(LlmTask):
         page_ids = [task_input.pages for task_input in task_inputs]
 
         max_len = max(len(input_tokens) for input_tokens in tokens)
-        blocks = math.ceil(max_len / block_stride)
+        blocks = int(numpy.ceil(max_len / block_stride))
         blocked_len = blocks * block_stride
 
         tokens_ = numpy.zeros((bs, blocked_len), dtype=numpy.int64)
@@ -397,7 +397,7 @@ class DecodeTask(LlmTask):
         start_positions = [task_input.start_position for task_input in task_inputs]
 
         max_len = max(start_positions) + 1
-        blocks = math.ceil(max_len / block_stride)
+        blocks = int(numpy.ceil(max_len / block_stride))
 
         tokens_ = numpy.zeros((decode_bs, 1), dtype=numpy.int64)
         lens_ = numpy.ones((decode_bs,), dtype=numpy.int64)
@@ -443,7 +443,7 @@ class LlmAllocator:
         self, *, token_count: int | None = None, page_count: int | None = None
     ) -> list[int]:
         if token_count is not None:
-            page_count = math.ceil(token_count / self._block_stride)
+            page_count = int(numpy.ceil(token_count / self._block_stride))
 
         assert page_count is not None
 
@@ -629,7 +629,7 @@ class LlmBencher:
 
         start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
 
-        for _ in range(math.ceil(decode_bs / prefill_bs)):
+        for _ in range(int(numpy.ceil(decode_bs / prefill_bs))):
             _, _ = self._batch.prefill(prefill_requests)
 
         prefill = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
