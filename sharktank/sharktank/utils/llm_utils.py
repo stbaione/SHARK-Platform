@@ -268,6 +268,15 @@ class TorchInstance:
         return torch.zeros(*shape, dtype=dtype, device=self._device)
 
 
+def fill_page_table(bs: int, count: int, page_ids: list[list[int]]) -> numpy.ndarray:
+    pages = numpy.zeros((bs, count), dtype=numpy.int64)
+
+    for i, ids in enumerate(page_ids):
+        pages[i, : len(ids)] = ids[:count]
+
+    return pages
+
+
 class LlmTaskType(Enum):
     PREFILL = auto()
     DECODE = auto()
@@ -286,14 +295,15 @@ class LlmTaskInput:
 class LlmTask(ABC):
     def __init__(
         self,
-        task_type: LlmTaskType,
-        instance: IreeInstance | TorchInstance,
+        invocation_fn: Callable[
+            [List[numpy.ndarray | iree.runtime.DeviceArray | torch.Tensor]],
+            Tuple[numpy.ndarray, Optional[numpy.ndarray]],
+        ],
         llm_task_inputs: List[LlmTaskInput],
         batch_size: int,
         block_stride: int,
     ):
-        self._task_type = task_type
-        self._instance = instance
+        self._invocation_fn = invocation_fn
         self._task_inputs: List[LlmTaskInput] = llm_task_inputs
         self._batch_size = batch_size
         self._block_stride = block_stride
@@ -310,30 +320,13 @@ class LlmTask(ABC):
     ) -> Tuple[numpy.ndarray, Optional[numpy.ndarray]]:
         pass
 
-    @property
-    def task_inputs(self):
-        return self._task_inputs
-
-    def _fill_page_table(
-        self, bs: int, count: int, page_ids: list[list[int]]
-    ) -> numpy.ndarray:
-        pages = numpy.zeros((bs, count), dtype=numpy.int64)
-
-        for i, ids in enumerate(page_ids):
-            pages[i, : len(ids)] = ids[:count]
-
-        return pages
-
     def run(
         self, cache_state: iree.runtime.DeviceArray | torch.Tensor
     ) -> Tuple[numpy.ndarray, Optional[numpy.ndarray]]:
-        task_type = self._task_type
         task_inputs = self._task_inputs
 
         args = self._prepare_args(task_inputs, cache_state)
-        instance = self._instance
-        invocation_fn = getattr(instance, task_type.name.lower())
-        results = invocation_fn(*args)
+        results = self._invocation_fn(*args)
         logits, indices = self._process_results(results)
         return logits, indices
 
@@ -361,7 +354,7 @@ class PrefillTask(LlmTask):
             tokens_[i, : len(input_tokens)] = input_tokens
             lens_[i] = len(input_tokens)
 
-        pages_ = self._fill_page_table(bs, blocks, page_ids)
+        pages_ = fill_page_table(bs, blocks, page_ids)
         args = [
             tokens_,
             lens_,
@@ -413,7 +406,7 @@ class DecodeTask(LlmTask):
             lens_[i] = start_positions[i] + 1
             pos_[i] = start_positions[i]
 
-        pages_ = self._fill_page_table(decode_bs, blocks, page_ids)
+        pages_ = fill_page_table(decode_bs, blocks, page_ids)
 
         args = [
             tokens_,
