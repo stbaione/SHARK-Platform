@@ -433,7 +433,7 @@ class DecodeTask(LlmTask):
 
 
 class BasicScheduler:
-    def __init__(self, batch_size: int, eos_token: int):
+    def __init__(self, batch_size: int, eos_token: Optional[int]):
         self._batch_size = batch_size
         self.eos_token = eos_token
         self._pending: Dict[str, List[LlmTaskInput]] = {}
@@ -572,8 +572,7 @@ class LlmBatcher:
         selections = []
         while next_batch := self._prefill_scheduler.next_batch():
             prefill_task = PrefillTask(
-                task_type=LlmTaskType.PREFILL,
-                instance=self._instance,
+                invocation_fn=self._instance.prefill,
                 llm_task_inputs=next_batch,
                 batch_size=self._prefill_bs,
                 block_stride=self._block_stride,
@@ -591,8 +590,7 @@ class LlmBatcher:
 
         while next_batch := self._decode_scheduler.next_batch():
             decode_task = DecodeTask(
-                task_type=LlmTaskType.DECODE,
-                instance=self._instance,
+                invocation_fn=self._instance.decode,
                 llm_task_inputs=next_batch,
                 batch_size=self._decode_bs,
                 block_stride=self._block_stride,
@@ -843,9 +841,9 @@ class LlmInstance:
         block_seq_stride,
         page_sizes: list[int],
         block_count,
-        eos_token: int,
         logits_normalization="log_softmax",
         kv_cache_dtype="float16",
+        eos_token: Optional[int] = None,
     ):
         self._instance = model_instance
         self._block_seq_stride = block_seq_stride
