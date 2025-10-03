@@ -36,6 +36,7 @@ from sharktank.models.llm.config import ServiceConfig
 from sharktank.models.llm import PagedLlmModelV1
 from sharktank.types import Dataset, Theta
 from sharktank.utils.attention import *
+from sharktank.utils.llm_scheduler import Scheduler
 from sharktank.utils.llm_task import LlmTaskInput, PrefillTask, DecodeTask
 from typing import Callable, List, Optional, Tuple
 
@@ -308,7 +309,12 @@ class LlmBatcher:
 
         self._allocator = LlmAllocator(page_count=page_count, block_stride=block_stride)
 
-        self._allocator = LlmAllocator(page_count=page_count, block_stride=block_stride)
+        self._prefill_scheduler = Scheduler(
+            batch_size=self._prefill_bs,
+        )
+        self._decode_scheduler = Scheduler(
+            batch_size=self._decode_bs,
+        )
 
         self._cache = [
             instance.allocate(
@@ -328,7 +334,11 @@ class LlmBatcher:
     def free(self, pages: list[int]):
         self._allocator.free(pages)
 
-    def prefill(self, requests: list[list[int]], page_ids: list[list[int]]):
+    def prefill(
+        self,
+        requests: list[list[int]],
+        page_ids: list[list[int]],
+    ):
         assert len(requests) == len(page_ids)
 
         task_inputs = []
@@ -352,7 +362,10 @@ class LlmBatcher:
         return logits, indices
 
     def decode(
-        self, tokens: list[int], positions: list[int], page_ids: list[list[int]]
+        self,
+        tokens: list[int],
+        positions: list[int],
+        page_ids: list[list[int]],
     ):
         assert len(tokens) == len(positions)
         assert len(tokens) == len(page_ids)
@@ -378,6 +391,80 @@ class LlmBatcher:
         logits, indices = decode_task.run(*self._cache)
         return logits, indices
 
+    def submit_tasks(
+        self,
+        requests: list[list[int]],
+        page_ids: list[list[int]],
+        steps: int,
+    ):
+        assert len(requests) == len(page_ids)
+
+        for i, request in enumerate(requests):
+            task_input = LlmTaskInput(
+                task_id=f"req_{i}",
+                tokens=request,
+                seq_len=len(request),
+                pages=page_ids[i],
+            )
+            # Submit prefill task
+            self._prefill_scheduler.schedule_task(task_input, 1)
+            # Submit decode tasks
+            self._decode_scheduler.schedule_task(task_input, steps - 1)
+
+    def run(
+        self,
+        selection_fn: Callable,
+        eos_token: int,
+        steps: int,
+    ):
+        selections_map = {}
+        input_keys = []
+        task_inputs = self._prefill_scheduler.get_scheduled_tasks()
+        for task in task_inputs:
+            selections_map[task.task_id] = []
+            input_keys.append(task.task_id)
+
+        # Run prefill
+        prefill_task = PrefillTask(
+            invocation_fn=self._instance.prefill,
+            llm_task_inputs=task_inputs,
+            batch_size=self._prefill_bs,
+            block_stride=self._block_stride,
+        )
+        logits, indices = prefill_task.run(*self._cache)
+        last = selection_fn(
+            logits,
+            indices,
+            [task_inputs.seq_len - 1 for task_inputs in task_inputs],
+        )
+        for task_input, token in zip(task_inputs, last):
+            selections_map[task_input.task_id].append(token)
+            self._prefill_scheduler.on_task_complete(task_input.task_id, token)
+
+        # Run decode steps
+        for _ in range(steps - 1):
+            if not self._decode_scheduler.has_pending_tasks():
+                break
+            task_inputs = self._decode_scheduler.get_scheduled_tasks()
+            decode_task = DecodeTask(
+                invocation_fn=self._instance.decode,
+                llm_task_inputs=task_inputs,
+                batch_size=self._decode_bs,
+                block_stride=self._block_stride,
+            )
+            logits, indices = decode_task.run(*self._cache)
+            last = selection_fn(logits, indices, [0] * len(task_inputs))
+            for task_input, token in zip(task_inputs, last):
+                selections_map[task_input.task_id].append(token)
+                self._decode_scheduler.on_task_complete(
+                    task_input.task_id,
+                    token,
+                )
+                if token == eos_token:
+                    self._decode_scheduler.remove_task(task_input.task_id)
+
+        return [selections_map[key] for key in input_keys]
+
 
 class LlmDecoder:
     def __init__(self, batch):
@@ -397,41 +484,18 @@ class LlmDecoder:
     def greedy_decode(
         self, requests: list[list[int]], steps: int, eos: int | None = None
     ):
-        selections = []
-        positions = [len(request) - 1 for request in requests]
-
         page_ids = [
             self._batch.allocate(token_count=len(req) + steps) for req in requests
         ]
-        logits, indices = self._batch.prefill(requests, page_ids=page_ids)
-        last = self._greedy_select(logits, indices, positions)
-        done = [False for _ in range(len(requests))]
-        done = [d or t == eos for d, t in zip(done, last)]
 
-        selections.append(last)
+        self._batch.submit_tasks(requests=requests, page_ids=page_ids, steps=steps)
+        selections = self._batch.run(
+            selection_fn=self._greedy_select,
+            eos_token=eos,
+            steps=steps,
+        )
 
-        for _ in range(steps - 1):
-            if all(done):
-                break
-            positions = [p + 1 for p in positions]
-            logits, indices = self._batch.decode(
-                tokens=last, positions=positions, page_ids=page_ids
-            )
-            last = self._greedy_select(logits, indices, [0] * len(requests))
-            done = [d or t == eos for d, t in zip(done, last)]
-            selections.append(last)
-
-        results = [[] for i in range(len(selections[0]))]
-        for select in selections:
-            for j, token in enumerate(select):
-                results[j].append(token.item())
-
-        eos_pos = [[i for i, t in enumerate(result) if t == eos] for result in results]
-        results = [
-            result[: pos[0] + 1] if len(pos) > 0 else result
-            for result, pos in zip(results, eos_pos)
-        ]
-        return results
+        return selections
 
 
 class LlmBencher:

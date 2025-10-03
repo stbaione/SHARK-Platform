@@ -125,7 +125,7 @@ class DecodeTask(LlmTask):
         decode_bs = self._batch_size
         bs = len(task_inputs)
 
-        tokens = [task_input.tokens[0] for task_input in task_inputs]
+        tokens = [task_input.tokens[-1] for task_input in task_inputs]
         page_ids = [task_input.pages for task_input in task_inputs]
         start_positions = [task_input.start_position for task_input in task_inputs]
 
