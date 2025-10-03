@@ -413,7 +413,10 @@ class LlmBatcher:
 
     def run(
         self,
-        selection_fn: Callable,
+        selection_fn: Callable[
+            [numpy.ndarray, Optional[numpy.ndarray], list[int]],
+            list[int],
+        ],
         eos_token: int,
         steps: int,
     ):
