@@ -54,8 +54,13 @@ class LlmTask(ABC):
     ) -> Tuple[numpy.ndarray, Optional[numpy.ndarray]]:
         pass
 
+    @property
+    @abstractmethod
+    def logit_positions(self) -> List[int]:
+        pass
+
     def run(
-        self, *cache_state: iree.runtime.DeviceArray | torch.Tensor
+        self, *cache_state: List[iree.runtime.DeviceArray | torch.Tensor]
     ) -> Tuple[numpy.ndarray, Optional[numpy.ndarray]]:
         task_inputs = self._task_inputs
 
@@ -66,6 +71,10 @@ class LlmTask(ABC):
 
 
 class PrefillTask(LlmTask):
+    @property
+    def logit_positions(self) -> List[int]:
+        return [task_input.seq_len - 1 for task_input in self._task_inputs]
+
     def _prepare_args(
         self,
         task_inputs: List[LlmTaskInput],
@@ -115,6 +124,10 @@ class DecodeTask(LlmTask):
     ):
         super().__init__(*llm_task_args, **llm_task_kwargs)
         self._decode_topk_logits = decode_topk_logits
+
+    @property
+    def logit_positions(self) -> List[int]:
+        return [0 for _ in self._task_inputs]
 
     def _prepare_args(
         self,

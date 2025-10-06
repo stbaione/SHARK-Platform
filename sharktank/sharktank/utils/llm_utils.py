@@ -313,7 +313,7 @@ class LlmAllocator:
         self._pages.extend(pages)
 
 
-class LlmBatcher:
+class LlmRunner:
     def __init__(
         self,
         instance: IreeInstance,
@@ -333,8 +333,16 @@ class LlmBatcher:
 
         self._allocator = LlmAllocator(page_count=page_count, block_stride=block_stride)
 
-        self._prefill_scheduler = Scheduler(batch_size=self._prefill_bs)
-        self._decode_scheduler = Scheduler(batch_size=self._decode_bs)
+        self._prefill_scheduler = Scheduler(
+            batch_size=self._prefill_bs,
+            block_seq_stride=self._block_stride,
+            llm_task_class=PrefillTask,
+        )
+        self._decode_scheduler = Scheduler(
+            batch_size=self._decode_bs,
+            block_seq_stride=self._block_stride,
+            llm_task_class=DecodeTask,
+        )
 
         self._cache = [
             instance.allocate(
@@ -385,25 +393,11 @@ class LlmBatcher:
             [numpy.ndarray, Optional[numpy.ndarray], List[int]], List[int]
         ],
     ):
-        selections = []
-        while self._prefill_scheduler.has_pending_tasks():
-            task_inputs = self._prefill_scheduler.get_next_batch()
-
-            prefill_task = PrefillTask(
-                invocation_fn=self._instance.prefill,
-                llm_task_inputs=task_inputs,
-                batch_size=self._prefill_bs,
-                block_stride=self._block_stride,
-            )
-            logits, indices = prefill_task.run(*self._cache)
-
-            last = selection_fn(
-                logits, indices, [task_input.seq_len - 1 for task_input in task_inputs]
-            )
-
-            selections.extend(last)
-
-        return selections
+        return self._prefill_scheduler.run(
+            invocation_fn=self._instance.prefill,
+            selection_fn=selection_fn,
+            cache=self._cache,
+        )
 
     def run_decode(
         self,
@@ -411,27 +405,11 @@ class LlmBatcher:
             [numpy.ndarray, Optional[numpy.ndarray], List[int]], List[int]
         ],
     ):
-        selections = []
-        while self._decode_scheduler.has_pending_tasks():
-            task_inputs = self._decode_scheduler.get_next_batch()
-
-            decode_task = DecodeTask(
-                invocation_fn=self._instance.decode,
-                llm_task_inputs=task_inputs,
-                batch_size=self._decode_bs,
-                block_stride=self._block_stride,
-            )
-            logits, indices = decode_task.run(*self._cache)
-
-            last = selection_fn(
-                logits,
-                indices,
-                [0] * len(task_inputs),
-            )
-
-            selections.extend(last)
-
-        return selections
+        return self._decode_scheduler.run(
+            invocation_fn=self._instance.decode,
+            selection_fn=selection_fn,
+            cache=self._cache,
+        )
 
     def prefill(self, requests: list[list[int]], page_ids: list[list[int]]):
         assert len(requests) == len(page_ids)
@@ -486,7 +464,7 @@ class LlmBatcher:
 
 
 class LlmDecoder:
-    def __init__(self, batch: LlmBatcher):
+    def __init__(self, batch: LlmRunner):
         self._batch = batch
 
     def _greedy_select(self, logits, indices, positions):
@@ -559,7 +537,7 @@ class LlmBencher:
         decode_ms: float
         decode_step_ms: float
 
-    def __init__(self, batch: LlmBatcher):
+    def __init__(self, batch: LlmRunner):
         self._batch = batch
 
     def greedy_bench(self, length: int, steps: int):
@@ -634,7 +612,7 @@ class LlmPerplexityEval:
         valid: bool
         score: float
 
-    def __init__(self, batch: LlmBatcher, logits_normalization: str):
+    def __init__(self, batch: LlmRunner, logits_normalization: str):
         self._batch = batch
         self._logits_normalization = logits_normalization
 
@@ -784,8 +762,8 @@ class LlmInstance:
             kv_cache_dtype=page_kv_cache.kv_cache_dtype,
         )
 
-    def make_batch(self):
-        return LlmBatcher(
+    def make_runner(self):
+        return LlmRunner(
             instance=self._instance,
             page_count=self._block_count,
             page_sizes=self._page_sizes,
@@ -795,12 +773,12 @@ class LlmInstance:
         )
 
     def make_bencher(self):
-        return LlmBencher(self.make_batch())
+        return LlmBencher(self.make_runner())
 
     def make_decoder(self):
-        return LlmDecoder(self.make_batch())
+        return LlmDecoder(self.make_runner())
 
     def make_perplexity_eval(self):
         return LlmPerplexityEval(
-            self.make_batch(), logits_normalization=self._logits_normalization
+            self.make_runner(), logits_normalization=self._logits_normalization
         )
