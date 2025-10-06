@@ -4,8 +4,7 @@ import numpy
 import torch
 
 from abc import ABC, abstractmethod
-from enum import Enum, auto
-from typing import List, Optional, Tuple, Callable
+from typing import Callable, List, Optional, Tuple
 
 
 def fill_page_table(bs: int, count: int, page_ids: list[list[int]]) -> numpy.ndarray:
@@ -17,11 +16,6 @@ def fill_page_table(bs: int, count: int, page_ids: list[list[int]]) -> numpy.nda
     return pages
 
 
-class LlmTaskType(Enum):
-    PREFILL = auto()
-    DECODE = auto()
-
-
 @dataclasses.dataclass
 class LlmTaskInput:
     task_id: str
@@ -30,7 +24,6 @@ class LlmTaskInput:
     pages: List[int]
 
     start_position: Optional[int] = None
-    selections: List[int] = dataclasses.field(default_factory=list)
 
 
 class LlmTask(ABC):
@@ -51,7 +44,7 @@ class LlmTask(ABC):
 
     @abstractmethod
     def _prepare_args(
-        self, task_inputs: List[LlmTaskInput], cache
+        self, task_inputs: List[LlmTaskInput], *cache
     ) -> List[numpy.ndarray | iree.runtime.DeviceArray | torch.Tensor]:
         pass
 
@@ -62,11 +55,11 @@ class LlmTask(ABC):
         pass
 
     def run(
-        self, cache_state: iree.runtime.DeviceArray | torch.Tensor
+        self, *cache_state: iree.runtime.DeviceArray | torch.Tensor
     ) -> Tuple[numpy.ndarray, Optional[numpy.ndarray]]:
         task_inputs = self._task_inputs
 
-        args = self._prepare_args(task_inputs, cache_state)
+        args = self._prepare_args(task_inputs, *cache_state)
         results = self._invocation_fn(*args)
         logits, indices = self._process_results(results)
         return logits, indices
@@ -76,7 +69,7 @@ class PrefillTask(LlmTask):
     def _prepare_args(
         self,
         task_inputs: List[LlmTaskInput],
-        cache: iree.runtime.DeviceArray | torch.Tensor,
+        *cache: iree.runtime.DeviceArray | torch.Tensor,
     ) -> List[numpy.ndarray | iree.runtime.DeviceArray | torch.Tensor]:
         block_stride = self._block_stride
         bs = self._batch_size
@@ -100,8 +93,7 @@ class PrefillTask(LlmTask):
             tokens_,
             lens_,
             pages_,
-            cache,
-        ]
+        ] + list(cache)
         return args
 
     def _process_results(
@@ -118,10 +110,16 @@ class PrefillTask(LlmTask):
 
 
 class DecodeTask(LlmTask):
+    def __init__(
+        self, *llm_task_args, decode_topk_logits: int | None = 8, **llm_task_kwargs
+    ):
+        super().__init__(*llm_task_args, **llm_task_kwargs)
+        self._decode_topk_logits = decode_topk_logits
+
     def _prepare_args(
         self,
         task_inputs: List[LlmTaskInput],
-        cache: iree.runtime.DeviceArray | torch.Tensor,
+        *cache: iree.runtime.DeviceArray | torch.Tensor,
     ) -> List[numpy.ndarray | iree.runtime.DeviceArray | torch.Tensor]:
         assert all(
             task_input.start_position is not None for task_input in task_inputs
@@ -154,8 +152,7 @@ class DecodeTask(LlmTask):
             lens_,
             pos_,
             pages_,
-            cache,
-        ]
+        ] + list(cache)
         return args
 
     def _process_results(
@@ -164,9 +161,14 @@ class DecodeTask(LlmTask):
         if isinstance(results, tuple):
             logits, indices = results
         else:
-            k = 8
-            logits = torch.asarray(numpy.asarray(results))
-            logits, indices = torch.topk(logits, k)
+            if self._decode_topk_logits is None:
+                logits = results
+                indices = torch.broadcast_to(
+                    torch.arange(results.shape[-1]), logits.shape
+                )
+            else:
+                logits = torch.asarray(numpy.asarray(results))
+                logits, indices = torch.topk(logits, self._decode_topk_logits)
 
         logits = numpy.asarray(logits)
         indices = numpy.asarray(indices)
