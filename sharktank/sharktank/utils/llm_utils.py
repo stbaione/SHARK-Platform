@@ -38,7 +38,7 @@ from sharktank.utils.attention import *
 from sharktank.utils.llm_tasks import LlmTaskInput, PrefillTask, DecodeTask
 from sharktank.utils.llm_scheduler import Scheduler
 from sharktank.utils.math import ceildiv
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 np_dtype_to_torch_dtype = {
     # This torch-to-torch map is an abuse to circumvent that numpy does not have bf16.
@@ -379,7 +379,12 @@ class LlmBatcher:
         for task_input in task_inputs:
             self._decode_scheduler.schedule_task(task_input)
 
-    def run_prefill(self, selection_fn: Callable):
+    def run_prefill(
+        self,
+        selection_fn: Callable[
+            [numpy.ndarray, Optional[numpy.ndarray], List[int]], List[int]
+        ],
+    ):
         while self._prefill_scheduler.has_pending_tasks():
             task_inputs = self._prefill_scheduler.get_next_batch()
 
@@ -398,7 +403,12 @@ class LlmBatcher:
             for task_input, selection in zip(task_inputs, selections):
                 task_input.tokens.append(selection)
 
-    def run_decode(self, selection_fn: Callable):
+    def run_decode(
+        self,
+        selection_fn: Callable[
+            [numpy.ndarray, Optional[numpy.ndarray], List[int]], List[int]
+        ],
+    ):
         while self._decode_scheduler.has_pending_tasks():
             task_inputs = self._decode_scheduler.get_next_batch()
 
