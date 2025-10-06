@@ -385,6 +385,7 @@ class LlmBatcher:
             [numpy.ndarray, Optional[numpy.ndarray], List[int]], List[int]
         ],
     ):
+        selections = []
         while self._prefill_scheduler.has_pending_tasks():
             task_inputs = self._prefill_scheduler.get_next_batch()
 
@@ -396,12 +397,13 @@ class LlmBatcher:
             )
             logits, indices = prefill_task.run(*self._cache)
 
-            selections = selection_fn(
+            last = selection_fn(
                 logits, indices, [task_input.seq_len - 1 for task_input in task_inputs]
             )
 
-            for task_input, selection in zip(task_inputs, selections):
-                task_input.tokens.append(selection)
+            selections.extend(last)
+
+        return selections
 
     def run_decode(
         self,
@@ -409,6 +411,7 @@ class LlmBatcher:
             [numpy.ndarray, Optional[numpy.ndarray], List[int]], List[int]
         ],
     ):
+        selections = []
         while self._decode_scheduler.has_pending_tasks():
             task_inputs = self._decode_scheduler.get_next_batch()
 
@@ -420,14 +423,15 @@ class LlmBatcher:
             )
             logits, indices = decode_task.run(*self._cache)
 
-            selections = selection_fn(
+            last = selection_fn(
                 logits,
                 indices,
                 [0] * len(task_inputs),
             )
 
-            for task_input, selection in zip(task_inputs, selections):
-                task_input.tokens.append(selection)
+            selections.extend(last)
+
+        return selections
 
     def prefill(self, requests: list[list[int]], page_ids: list[list[int]]):
         assert len(requests) == len(page_ids)
@@ -510,13 +514,16 @@ class LlmDecoder:
         for task_input in task_inputs:
             done[task_input.task_id] = False
 
-        self._batch.run_prefill(self._greedy_select)
-        for task_input in task_inputs:
-            last = task_input.tokens[-1]
+        last = self._batch.run_prefill(self._greedy_select)
+        for index, token in enumerate(last):
+            task_input = task_inputs[index]
+            if token == eos:
+                done[task_input.task_id] = True
+                continue
+
+            task_input.tokens.append(token)
             task_input.seq_len = len(task_input.tokens)
             task_input.start_position = task_input.seq_len - 1
-            if last == eos:
-                done[task_input.task_id] = True
 
         for _ in range(steps - 1):
             if all(list(done.values())):
@@ -525,13 +532,16 @@ class LlmDecoder:
                 task_input for task_input in task_inputs if not done[task_input.task_id]
             ]
             self._batch.submit_decode(to_submit)
-            self._batch.run_decode(self._greedy_select)
-            for task_input in task_inputs:
-                last = task_input.tokens[-1]
+            last = self._batch.run_decode(self._greedy_select)
+            for index, token in enumerate(last):
+                task_input = to_submit[index]
+                if token == eos:
+                    done[task_input.task_id] = True
+                    continue
+
+                task_input.tokens.append(token)
                 task_input.seq_len = len(task_input.tokens)
                 task_input.start_position = task_input.seq_len - 1
-                if last == eos:
-                    done[task_input.task_id] = True
 
         return [
             task_input.tokens[initial_positions[index] :]
