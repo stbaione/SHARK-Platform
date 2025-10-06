@@ -505,7 +505,7 @@ class LlmDecoder:
     ):
         done = {}
 
-        initial_positions = [len(req) - 1 for req in requests]
+        prompt_lengths = [len(req) for req in requests]
         page_ids = [
             self._batch.allocate(token_count=len(req) + steps) for req in requests
         ]
@@ -544,7 +544,7 @@ class LlmDecoder:
                 task_input.start_position = task_input.seq_len - 1
 
         return [
-            task_input.tokens[initial_positions[index] :]
+            task_input.tokens[prompt_lengths[index] :]
             for index, task_input in enumerate(task_inputs)
         ]
 
