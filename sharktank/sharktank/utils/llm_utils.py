@@ -19,17 +19,15 @@ This module is not intended to be run directly, but is imported by other compone
 """
 
 import dataclasses
-from typing import Callable, List
 import iree.runtime
+import itertools
 import math
 import numpy
 import pathlib
 import time
 import torch
 
-from abc import ABC, abstractmethod
 from datasets import load_dataset
-from enum import Enum, auto
 from iree.runtime import ParameterIndex
 from sharktank import ops
 from sharktank.layers.configs.llm_configs import LlamaModelConfig
@@ -39,7 +37,8 @@ from sharktank.types import Dataset, Theta
 from sharktank.utils.attention import *
 from sharktank.utils.llm_tasks import LlmTaskInput, PrefillTask, DecodeTask
 from sharktank.utils.llm_scheduler import Scheduler
-from uuid import uuid4
+from sharktank.utils.math import ceildiv
+from typing import Callable, List
 
 np_dtype_to_torch_dtype = {
     # This torch-to-torch map is an abuse to circumvent that numpy does not have bf16.
@@ -75,6 +74,25 @@ def llama_config_page_sizes(config: LlamaModelConfig) -> list[int]:
         * 2
         for num_blocks in config.parallelism_config.num_blocks_per_pipeline
     ]
+
+
+def minimum_required_kv_cache_page_count_for_batch(
+    tokens: list[list[int]], config: LlamaModelConfig, decode_steps: int = 0
+) -> int:
+    """Compute the minimum number pages required to run the given tokens in 1 batch."""
+    max_seq_len = max(len(t) for t in tokens) + decode_steps
+    pages_per_seq = ceildiv(max_seq_len, config.block_seq_stride)
+    batch_size = len(tokens)
+
+    res = batch_size * pages_per_seq
+
+    # A possible bug with IREE execution causes
+    # tests/models/llama/toy_llama_test.py::TestToyLlamaIree::testDecodePerplexity
+    # to return inf logits if we start the page indices from 0.
+    # See https://github.com/nod-ai/shark-ai/issues/2355
+    res += 1
+
+    return res
 
 
 def server_config_page_size(config: ServiceConfig) -> list[int]:
@@ -283,6 +301,9 @@ class LlmAllocator:
             page_count = int(numpy.ceil(token_count / self._block_stride))
 
         assert page_count is not None
+        assert (
+            len(self._pages) >= page_count
+        ), "Not enough free pages. The allocator may have been constructed with fewer pages than required or pages were not freed."
 
         pages = self._pages[:page_count]
         self._pages = self._pages[page_count:]
@@ -300,6 +321,7 @@ class LlmBatcher:
         page_sizes: list[int],
         block_stride: int,
         kv_cache_dtype: str,
+        decode_topk_logits: int | None = 8,
     ):
         self._instance = instance
         self._page_count = page_count
@@ -307,6 +329,7 @@ class LlmBatcher:
         self._block_stride = block_stride
         self._prefill_bs = instance.prefill_bs
         self._decode_bs = instance.decode_bs
+        self._decode_topk_logits = decode_topk_logits
 
         self._allocator = LlmAllocator(page_count=page_count, block_stride=block_stride)
 
@@ -442,6 +465,7 @@ class LlmBatcher:
             llm_task_inputs=task_inputs,
             batch_size=self._decode_bs,
             block_stride=self._block_stride,
+            decode_topk_logits=self._decode_topk_logits,
         )
         logits, indices = decode_task.run(*self._cache)
         return logits, indices
@@ -590,11 +614,13 @@ class LlmPerplexityEval:
         valid: bool
         score: float
 
-    def __init__(self, batch, logits_normalization):
+    def __init__(self, batch: LlmBatcher, logits_normalization: str):
         self._batch = batch
         self._logits_normalization = logits_normalization
 
-    def compute_cross_entropy(self, logits, indices, requests, min_context=0):
+    def compute_cross_entropy(
+        self, logits, indices, requests, min_context=0
+    ) -> list["LlmPerplexityEval.Result"]:
         results = []
         for i, req in enumerate(requests):
             req_len = len(req)
@@ -644,6 +670,8 @@ class LlmPerplexityEval:
     def prefill_cross_entropy(self, requests: list[list[int]], **kwargs):
         page_ids = [self._batch.allocate(token_count=len(req)) for req in requests]
         logits, indices = self._batch.prefill(requests, page_ids=page_ids)
+        flat_page_ids = list(itertools.chain.from_iterable(page_ids))
+        self._batch.free(flat_page_ids)
         return self.compute_cross_entropy(logits, indices, requests, **kwargs)
 
     def decode_cross_entropy(self, requests: list[list[int]]):
@@ -663,6 +691,9 @@ class LlmPerplexityEval:
             logit, ind = self._batch.decode(step, pos, page_ids=page_ids)
             logits.append(logit)
             indices.append(ind)
+
+        flat_page_ids = list(itertools.chain.from_iterable(page_ids))
+        self._batch.free(flat_page_ids)
 
         logits = numpy.concatenate(logits, axis=1)
         indices = numpy.concatenate(indices, axis=1)
@@ -706,6 +737,7 @@ class LlmInstance:
         block_count,
         logits_normalization="log_softmax",
         kv_cache_dtype="float16",
+        decode_topk_logits: int | None = 8,
     ):
         self._instance = model_instance
         self._block_seq_stride = block_seq_stride
@@ -713,6 +745,7 @@ class LlmInstance:
         self._block_count = block_count
         self.kv_cache_dtype = kv_cache_dtype
         self._logits_normalization = logits_normalization
+        self._decode_topk_logits = decode_topk_logits
 
     @staticmethod
     def load(instance, config: ServiceConfig):
@@ -738,6 +771,7 @@ class LlmInstance:
             page_sizes=self._page_sizes,
             block_stride=self._block_seq_stride,
             kv_cache_dtype=self.kv_cache_dtype,
+            decode_topk_logits=self._decode_topk_logits,
         )
 
     def make_bencher(self):
