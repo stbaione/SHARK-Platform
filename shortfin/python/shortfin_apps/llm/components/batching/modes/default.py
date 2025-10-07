@@ -368,13 +368,15 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         ):
             return self._make_chunked_task_inputs(exec_request)
 
+        seq_len = len(exec_request.input_token_ids)
+        input_tokens = exec_request.input_token_ids[exec_request.start_position :]
         return [
             LlmTaskInput(
                 rid=exec_request.orig_instance_id,
                 instance_id=exec_request.instance_id,
                 block_count=exec_request.block_count,
-                seq_len=len(exec_request.input_token_ids),
-                input_tokens=tuple(exec_request.input_token_ids),
+                seq_len=seq_len,
+                input_tokens=tuple(input_tokens),
                 page_ids=tuple(exec_request.page_ids),
                 start_position=exec_request.start_position,
             )

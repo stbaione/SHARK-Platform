@@ -332,6 +332,7 @@ class TestLLMAccuracy:
                 ],
                 "local_meta_llama3.1_8b_instruct_chunked": [
                     {"prefix_sharing_algorithm": "none", "chunk_block_size": 3},
+                    {"prefix_sharing_algorithm": "trie"},
                 ],
             },
         ],

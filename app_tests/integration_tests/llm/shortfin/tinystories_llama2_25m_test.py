@@ -45,6 +45,12 @@ pytestmark = pytest.mark.parametrize(
             },
         ),
         (
+            ModelConfig.get(name="tinystories_llama2_25m_has_prefill_position"),
+            {
+                "prefix_sharing": "trie",
+            },
+        ),
+        (
             ModelConfig.get(name="tinystories_llama2_25m_gpu_argmax"),
             {"prefix_sharing": "none"},
         ),

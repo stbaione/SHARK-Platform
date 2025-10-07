@@ -4,32 +4,33 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-import logging
 import asyncio
 import itertools
+import logging
 import numpy as np
 import threading
-from typing import Dict, List, Tuple
-from ..prefill_config import PrefillConfig
 
-from shortfin_apps.llm.components.kvcache.page_pool import PagePool
-from shortfin_apps.llm.components.decode_config import (
+from typing import Callable, Dict, List, Optional, Tuple, Union
+
+from _shortfin import lib as _sfl
+
+from ..batching.facade import BatchingFacade
+from ..decode_config import (
     DecodeConfig,
     LogitsNormalization,
 )
-from shortfin_apps.llm.components.messages import (
-    LlmInferenceExecRequest,
-    InferencePhase,
-)
-from typing import Callable, List, Optional, Tuple, Union
-
-from _shortfin import lib as _sfl
-from shortfin_apps.llm.components.kvcache.attention_cache_abstract import CacheInfo
-from shortfin_apps.llm.components.kvcache.base_attention_cache import (
+from ..kvcache.attention_cache_abstract import CacheInfo
+from ..kvcache.base_attention_cache import (
     CacheAllocationFailure,
     BasePagedAttentionCache,
 )
-from shortfin_apps.llm.components.batching.facade import BatchingFacade
+from ..kvcache.page_pool import PagePool
+from ..kvcache.trie_attention_cache import TrieCacheInfo
+from ..messages import (
+    LlmInferenceExecRequest,
+    InferencePhase,
+)
+from ..prefill_config import PrefillConfig
 
 logger = logging.getLogger(__name__)
 
@@ -459,24 +460,44 @@ class LlmDecoder:
 
         return decode_reqs
 
+    def _rewind_cached_pages(
+        self, prefill_req: LlmInferenceExecRequest, cached_allocation: TrieCacheInfo
+    ) -> Tuple[LlmInferenceExecRequest, TrieCacheInfo]:
+        assert isinstance(
+            cached_allocation, TrieCacheInfo
+        ), "Rewind only supported for TrieCacheInfo"
+        cached_allocation.tokens = cached_allocation.tokens[: -self._tokens_per_page]
+        cached_allocation.num_tokens -= self._tokens_per_page
+        cached_allocation.pages.pop(-1)
+        cached_allocation.last_cached_node = cached_allocation.last_cached_node.parent
+        cached_allocation.number_of_published_pages -= 1
+        prefill_req.start_position -= self._tokens_per_page
+
+        return prefill_req, cached_allocation
+
     def create_prefill_req(self, input_ids):
         prefill_req = LlmInferenceExecRequest(
             phase=InferencePhase.PREFILL, input_token_ids=input_ids, rid=self._rid
         )
 
         cached_allocation = self._page_cache.lookup(input_ids)
+        if self._prefill_config.has_prefill_position:
+            prefill_req.start_position = cached_allocation.num_tokens
+            if prefill_req.start_position == len(input_ids):
+                prefill_req, cached_allocation = self._rewind_cached_pages(
+                    prefill_req, cached_allocation
+                )
+
         token_ids = input_ids[cached_allocation.num_tokens :]
         allocated_cache_info = self._page_cache.allocate(token_ids, cached_allocation)
         prefill_req.page_ids = [p.index for p in allocated_cache_info.pages]
 
-        # TODO(stbaione): Extend for non-zero start positions
-        # when `trie` changes are landed.
-        if self._prefill_config.has_prefill_position:
-            prefill_req.start_position = 0
-
         # add allocated cache info to the dictionary
         self._allocated_cach_recs[prefill_req.instance_id] = allocated_cache_info
 
+        logger.info(f"SNB prefill start_position: {prefill_req.start_position}")
+        logger.info(f"SNB prefill page_ids: {prefill_req.page_ids}")
+        # logger.info(f"SNB last cached node: {cached_allocation.last_cached_node}")
         return prefill_req
 
     def publish_request(
@@ -531,6 +552,8 @@ class LlmDecoder:
         beams, tokens = token_selector.step(
             [prefill_req.result_logits], [prefill_req.result_indices]
         )
+
+        logger.info(f"SNB prefill selected beams: {beams}, tokens: {tokens}")
 
         # Setup decode requests:
         decode_reqs = self.create_decode_reqs(prefill_req)
