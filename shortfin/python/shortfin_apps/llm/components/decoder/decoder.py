@@ -495,9 +495,6 @@ class LlmDecoder:
         # add allocated cache info to the dictionary
         self._allocated_cach_recs[prefill_req.instance_id] = allocated_cache_info
 
-        logger.info(f"SNB prefill start_position: {prefill_req.start_position}")
-        logger.info(f"SNB prefill page_ids: {prefill_req.page_ids}")
-        # logger.info(f"SNB last cached node: {cached_allocation.last_cached_node}")
         return prefill_req
 
     def publish_request(
