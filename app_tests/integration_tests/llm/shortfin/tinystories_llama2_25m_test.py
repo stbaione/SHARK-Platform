@@ -64,6 +64,7 @@ pytestmark = pytest.mark.parametrize(
         "tinystories_llama2_25m_trie",
         "tinystories_llama2_25m_none_2_beams",
         "tinystories_llama2_25m_chunked_prefill_none",
+        "tinystories_llama2_25m_offset_prefill_trie",
         "tinystories_llama2_25m_gpu_argmax_none",
         "tinystories_llama2_25m_gpu_topk_k4_none",
     ],
