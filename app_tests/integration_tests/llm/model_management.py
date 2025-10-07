@@ -1,18 +1,18 @@
 """Module for managing model artifacts through various processing stages."""
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import hashlib
 import logging
-import tempfile
-import zipfile
-import urllib.request
-from pathlib import Path
+import pytest
 import subprocess
+import tempfile
+import urllib.request
+import zipfile
+
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 from enum import Enum, auto
-
-import pytest
 
 from sharktank.utils.hf_datasets import Dataset, RemoteFile, get_dataset
 
