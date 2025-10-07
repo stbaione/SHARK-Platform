@@ -181,7 +181,8 @@ class PrefillTask(LlmTask):
         # Number of blocks we're writing to
         write_block_span = batch_seq_len // seq_stride
         # Align the max start position down to the nearest block
-        max_block_start = max_start_position // seq_stride
+        chunk_block_size = self._chunk_block_size or write_block_span
+        max_block_start = (max_start_position // chunk_block_size) * chunk_block_size
         # Prevent overflow in write page ids
         block_count = max_block_start + write_block_span
         return block_count

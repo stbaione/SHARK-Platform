@@ -460,33 +460,14 @@ class LlmDecoder:
 
         return decode_reqs
 
-    def _rewind_cached_pages(
-        self, prefill_req: LlmInferenceExecRequest, cached_allocation: TrieCacheInfo
-    ) -> Tuple[LlmInferenceExecRequest, TrieCacheInfo]:
-        assert isinstance(
-            cached_allocation, TrieCacheInfo
-        ), "Rewind only supported for TrieCacheInfo"
-        cached_allocation.tokens = cached_allocation.tokens[: -self._tokens_per_page]
-        cached_allocation.num_tokens -= self._tokens_per_page
-        cached_allocation.pages.pop(-1)
-        cached_allocation.last_cached_node = cached_allocation.last_cached_node.parent
-        cached_allocation.number_of_published_pages -= 1
-        prefill_req.start_position -= self._tokens_per_page
-
-        return prefill_req, cached_allocation
-
     def create_prefill_req(self, input_ids):
         prefill_req = LlmInferenceExecRequest(
             phase=InferencePhase.PREFILL, input_token_ids=input_ids, rid=self._rid
         )
 
-        cached_allocation = self._page_cache.lookup(input_ids)
+        cached_allocation = self._page_cache.lookup(input_ids[: -self._tokens_per_page])
         if self._prefill_config.has_prefill_position:
             prefill_req.start_position = cached_allocation.num_tokens
-            if prefill_req.start_position == len(input_ids):
-                prefill_req, cached_allocation = self._rewind_cached_pages(
-                    prefill_req, cached_allocation
-                )
 
         token_ids = input_ids[cached_allocation.num_tokens :]
         allocated_cache_info = self._page_cache.allocate(token_ids, cached_allocation)
@@ -549,8 +530,6 @@ class LlmDecoder:
         beams, tokens = token_selector.step(
             [prefill_req.result_logits], [prefill_req.result_indices]
         )
-
-        logger.info(f"SNB prefill selected beams: {beams}, tokens: {tokens}")
 
         # Setup decode requests:
         decode_reqs = self.create_decode_reqs(prefill_req)

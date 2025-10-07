@@ -354,6 +354,9 @@ class TestLLMAccuracy:
 
             for server_settings_ in server_settings:
                 subtest_id = self._get_subtest_id(test_id, server_settings_)
+                logger.info(
+                    f"Running subtest: {subtest_id} for model: {model_config.name}"
+                )
                 with subtests.test(
                     id=subtest_id,
                     msg=f"Running accuracy test for model: {model_config.name}, case: {subtest_id}",
