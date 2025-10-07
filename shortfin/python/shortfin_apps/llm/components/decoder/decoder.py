@@ -465,7 +465,12 @@ class LlmDecoder:
             phase=InferencePhase.PREFILL, input_token_ids=input_ids, rid=self._rid
         )
 
-        cached_allocation = self._page_cache.lookup(input_ids[: -self._tokens_per_page])
+        tokens_to_query = input_ids
+        # Ensure at least one write page is allocated
+        if len(tokens_to_query) % self._tokens_per_page == 0:
+            tokens_to_query = input_ids[: -self._tokens_per_page]
+
+        cached_allocation = self._page_cache.lookup(tokens_to_query)
         if self._prefill_config.has_prefill_position:
             prefill_req.start_position = cached_allocation.num_tokens
 

@@ -332,11 +332,12 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             self._chunk_block_size is not None
         ), "Request to make chunked task inputs, but chunked prefill not enabled."
 
+        chunk_block_start = exec_request.start_position // self.page_seq_stride
         chunk_block_size = self._chunk_block_size
         chunk_token_size = chunk_block_size * self.page_seq_stride
 
         task_inputs = []
-        for i in range(0, exec_request.block_count, chunk_block_size):
+        for i in range(chunk_block_start, exec_request.block_count, chunk_block_size):
             start_position = i * self.page_seq_stride
 
             page_ids = exec_request.page_ids[: i + chunk_block_size]
@@ -363,7 +364,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
     ) -> List[LlmTaskInput]:
         if (
             self._chunk_block_size is not None
-            and len(exec_request.input_token_ids)
+            and len(exec_request.input_token_ids[exec_request.start_position :])
             > self._chunk_block_size * self.page_seq_stride
         ):
             return self._make_chunked_task_inputs(exec_request)
