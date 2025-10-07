@@ -214,7 +214,7 @@ class TestLLMAccuracy:
             "sampling_params": asdict(sampling_params),
         }
 
-        logger.info(f"Sending request with payload: {json.dumps(payload, indent=2)}")
+        logger.info(f"Sending request with {len(prompts_batch)} prompts...")
         response = requests.post(endpoint, json=payload)
         response.raise_for_status()
         return json.loads(response.text)
@@ -241,14 +241,8 @@ class TestLLMAccuracy:
                 batch = future_to_batch[future]
                 try:
                     result_dict = future.result()
-                    logger.info(f"Batch {i} - Prompts:")
-                    for prompt in batch.keys():
-                        logger.info(prompt)
-
-                    logger.info(f"Batch {i} - Responses:")
-                    logger.info(json.dumps(result_dict, indent=2))
+                    logger.info(f"Responses received for batch {i}")
                     batch_responses.append(result_dict)
-                    print("-" * 80)
                 except Exception as e:
                     logger.error(f"Batch {i} generated an exception: {e}")
                     print("-" * 80)
@@ -309,13 +303,23 @@ class TestLLMAccuracy:
                 f"Accuracy below 100%: {str(accuracy_results)}%"
             )
 
+    def _get_subtest_id(
+        self,
+        test_id: str,
+        server_settings: Dict[str, str | int],
+    ):
+        server_settings_str = "-".join(
+            f"{key}_{val}" for key, val in server_settings.items()
+        )
+        return f"{test_id}-{server_settings_str}"
+
     @pytest.mark.parametrize(
         "dataset_request,batch_size,num_workers",
         [
             (ALL, 8, 4),
         ],
         ids=[
-            "ALL-bs4-n2",
+            "ALL-bs8-n4",
         ],
     )
     @pytest.mark.parametrize(
@@ -343,22 +347,15 @@ class TestLLMAccuracy:
         request,
     ):
         test_id = request.node.name
-        case_id = (
-            f"{test_id}-"
-            f"{dataset_request.dataset.name}-"
-            f"bs{batch_size}-"
-            f"nw{num_workers}-"
-        )
         for model_artifacts in accuracy_models:
             model_config = model_artifacts.model_config
             server_settings = artifacts_to_server_settings[model_config.name]
+
             for server_settings_ in server_settings:
-                server_settings_str = "-".join(
-                    f"{key}_{val}" for key, val in server_settings_.items()
-                )
+                subtest_id = self._get_subtest_id(test_id, server_settings_)
                 with subtests.test(
-                    id=f"{case_id}-{server_settings_str}",
-                    msg=f"Running accuracy test for model: {model_config.name}, case: {case_id}",
+                    id=subtest_id,
+                    msg=f"Running accuracy test for model: {model_config.name}, case: {subtest_id}",
                 ):
                     self._run_accuracy_test(
                         model_artifacts,

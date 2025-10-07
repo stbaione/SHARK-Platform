@@ -651,8 +651,12 @@ class ModelBatcherConfig:
 
 
 class ModelBatcher:
-    def _prepare_model_config(
-        self, model_config, irpa_path, tokenizer_path, test_device, cache_dir
+    def _validate_model_config(
+        self,
+        model_config: ModelConfig,
+        test_device: str,
+        irpa_path: Optional[Path] = None,
+        tokenizer_path: Optional[Path] = None,
     ):
         if test_device == "cpu" and model_config.tensor_parallelism_size is not None:
             pytest.skip("Skipping CPU tests with tensor parallelism")
@@ -670,6 +674,15 @@ class ModelBatcher:
 
             model_config.irpa_path = Path(irpa_path)
             model_config.tokenizer_path = Path(tokenizer_path)
+
+        return model_config
+
+    def _prepare_model(
+        self, model_config, irpa_path, tokenizer_path, test_device, cache_dir
+    ) -> ModelArtifacts | ModelConfig:
+        model_config = self._validate_model_config(
+            model_config, test_device, irpa_path, tokenizer_path
+        )
 
         settings_key = test_device
         if (
@@ -691,20 +704,18 @@ class ModelBatcher:
                 model_config=model_config,
             )
 
-        return model_config, cache_dir
+        return model_config
 
-    def _process_model_config(
+    def _process_model(
         self, model_config: ModelConfig, cache_dir: Path
-    ) -> "ModelArtifacts":
+    ) -> ModelArtifacts:
         """
         Worker function executed in a separate process.
         Creates artifacts for a single model_config in cache_dir (if not already cached).
         """
-        # Recompute cache key/dir in the worker to avoid passing large paths back/forth.
         cache_key = hashlib.md5(str(model_config).encode()).hexdigest()
         model_dir = cache_dir / cache_key
 
-        # Return cached artifacts if available
         if model_dir.exists():
             return ModelArtifacts(
                 weights_path=model_dir / model_config.model_file,
@@ -715,11 +726,10 @@ class ModelBatcher:
                 model_config=model_config,
             )
 
-        # Otherwise build them
         processor = ModelProcessor(cache_dir)
         return processor.process_model(model_config)
 
-    def generate(self, config: ModelBatcherConfig) -> List["ModelArtifacts"]:
+    def generate(self, config: ModelBatcherConfig) -> List[ModelArtifacts]:
         """
         Prepares a *batch* of model artifacts in a cached directory, in parallel processes.
 
@@ -734,50 +744,53 @@ class ModelBatcher:
         model_configs: List[ModelConfig] = config.model_configs
         test_device = config.test_device
 
-        prepared_configs: List[Tuple[ModelConfig, Path]] = []
-        artifacts: List[ModelArtifacts | None] = [None] * len(model_configs)
+        prepared_configs: List[ModelConfig] = []
+        processed_artifacts: List[ModelArtifacts | None] = [None] * len(model_configs)
 
         for idx, model_config in enumerate(model_configs):
-            prep = self._prepare_model_config(
+            model = self._prepare_model(
                 model_config,
                 config.irpa_path,
                 config.tokenizer_path,
                 test_device,
                 config.cache_dir,
             )
-            if isinstance(prep, ModelArtifacts):
-                # Already cached, place directly in result slots
-                artifacts[idx] = prep
+
+            if isinstance(model, ModelArtifacts):
+                processed_artifacts[idx] = model
             else:
-                # Needs processing
-                prepared_configs.append(prep)
+                prepared_configs.append(model)
 
         if not prepared_configs:
-            return artifacts
+            assert all(artifact is not None for artifact in processed_artifacts)
+            return processed_artifacts
 
         max_workers = len(prepared_configs)
         idx_by_cache_key = {}
         for i, model_config in enumerate(model_configs):
-            ck = hashlib.md5(str(model_config).encode()).hexdigest()
-            idx_by_cache_key[ck] = i
+            cache_key = hashlib.md5(str(model_config).encode()).hexdigest()
+            idx_by_cache_key[cache_key] = i
 
-        with ProcessPoolExecutor(max_workers=max_workers) as ex:
-            future_to_ck = {}
-            for model_config, _ in prepared_configs:
-                ck = hashlib.md5(str(model_config).encode()).hexdigest()
-                fut = ex.submit(
-                    self._process_model_config, model_config, config.cache_dir
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            future_to_cache_key = {}
+            for model_config in prepared_configs:
+                cache_key = hashlib.md5(str(model_config).encode()).hexdigest()
+                fut = executor.submit(
+                    self._process_model, model_config, config.cache_dir
                 )
-                future_to_ck[fut] = ck
+                future_to_cache_key[fut] = cache_key
 
-            for fut in as_completed(future_to_ck):
-                ck = future_to_ck[fut]
-                idx = idx_by_cache_key[ck]
+            for fut in as_completed(future_to_cache_key):
+                cache_key = future_to_cache_key[fut]
+                idx = idx_by_cache_key[cache_key]
                 try:
                     model_artifacts = fut.result()
                 except Exception as e:
-                    pytest.fail(f"Failed to build artifacts for config {ck}: {e!r}")
+                    pytest.fail(
+                        f"Failed to build artifacts for config {cache_key}: {e!r}"
+                    )
 
-                artifacts[idx] = model_artifacts
+                processed_artifacts[idx] = model_artifacts
 
-        return artifacts
+        assert all(artifact is not None for artifact in processed_artifacts)
+        return processed_artifacts

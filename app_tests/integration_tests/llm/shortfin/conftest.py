@@ -115,7 +115,7 @@ def server(model_artifacts, request):
         chunk_block_size=request.param.get("chunk_block_size", None),
     )
 
-    process, port, config = start_server(model_artifacts, server_config)
+    process, port, config = start_server(server_config)
     yield process, port, config
 
     # Teardown, if process is still running
