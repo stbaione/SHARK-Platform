@@ -15,8 +15,13 @@ from sentence_transformers import SentenceTransformer, util
 from typing import Dict, List, Optional
 
 from ...datasets import Dataset, DatasetRequest, DatasetTypes, AvailableDatasets
-from ...model_management import AccuracyValidationException, ModelConfig
-from ...server_management import ServerConfig
+from ...model_management import (
+    AccuracyValidationException,
+    ModelConfig,
+    ModelBatcher,
+    ModelBatcherConfig,
+)
+from ...server_management import ServerConfig, start_server
 
 
 logger = logging.getLogger(__name__)
@@ -91,6 +96,28 @@ ALL = DatasetRequest(
 
 
 ACCURACY_THRESHOLD = 0.99
+
+
+MODELS = [
+    "local_meta_llama3.1_8b_instruct",
+    "local_meta_llama3.1_8b_instruct_chunked",
+]
+
+
+@pytest.fixture(scope="session")
+def accuracy_models(tmp_path_factory, irpa_path, tokenizer_path, test_device):
+    models_to_generate = [ModelConfig.get(name=model_name) for model_name in MODELS]
+    cache_dir = tmp_path_factory.mktemp("model_cache")
+    batcher_config = ModelBatcherConfig(
+        model_configs=models_to_generate,
+        cache_dir=cache_dir,
+        irpa_path=irpa_path,
+        tokenizer_path=tokenizer_path,
+        test_device=test_device,
+    )
+    batcher = ModelBatcher()
+    model_artifacts = batcher.generate(batcher_config)
+    yield model_artifacts
 
 
 def load_comparison_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
@@ -228,41 +255,26 @@ class TestLLMAccuracy:
 
             return batch_responses
 
-    @pytest.mark.parametrize(
-        "dataset_request,batch_size,num_workers",
-        [
-            (ALL, 8, 4),
-        ],
-        ids=[
-            "ALL-bs4-n2",
-        ],
-    )
-    @pytest.mark.parametrize(
-        "model_artifacts,server",
-        [
-            (
-                ModelConfig.get(name="local_meta_llama3.1_8b_instruct"),
-                {"prefix_sharing_algorithm": "none"},
-            ),  # noqa: E501
-            (
-                ModelConfig.get(name="local_meta_llama3.1_8b_instruct"),
-                {"prefix_sharing_algorithm": "trie"},
-            ),  # noqa: E501
-        ],
-        ids=[
-            "meta_llama3.1_8b_instruct-no_prefix_sharing",
-            "meta_llama3.1_8b_instruct-trie_prefix_sharing",
-        ],
-        indirect=True,
-    )
-    def test_accuracy(
+    def _run_accuracy_test(
         self,
+        model_artifacts,
+        server_settings,
         dataset_request: DatasetRequest,
         batch_size: int,
         num_workers: int,
-        server,
     ):
-        process, port, config = server
+        model_config = model_artifacts.model_config
+        process, port, _ = start_server(
+            ServerConfig(
+                artifacts=model_artifacts,
+                device_settings=model_config.device_settings,
+                prefix_sharing_algorithm=server_settings.get(
+                    "prefix_sharing_algorithm", None
+                ),
+                num_beams=server_settings.get("num_beams", 1),
+                chunk_block_size=server_settings.get("chunk_block_size", None),
+            )
+        )
         assert process.poll() is None, "Server process terminated unexpectedly."
 
         base_url = f"http://localhost:{port}"
@@ -296,3 +308,62 @@ class TestLLMAccuracy:
             raise AccuracyValidationException(
                 f"Accuracy below 100%: {str(accuracy_results)}%"
             )
+
+    @pytest.mark.parametrize(
+        "dataset_request,batch_size,num_workers",
+        [
+            (ALL, 8, 4),
+        ],
+        ids=[
+            "ALL-bs4-n2",
+        ],
+    )
+    @pytest.mark.parametrize(
+        "artifacts_to_server_settings",
+        [
+            {
+                "local_meta_llama3.1_8b_instruct": [
+                    {"prefix_sharing_algorithm": "none"},
+                    {"prefix_sharing_algorithm": "trie"},
+                ],
+                "local_meta_llama3.1_8b_instruct_chunked": [
+                    {"prefix_sharing_algorithm": "none", "chunk_block_size": 3},
+                ],
+            },
+        ],
+    )
+    def test_accuracy(
+        self,
+        dataset_request: DatasetRequest,
+        batch_size: int,
+        num_workers: int,
+        accuracy_models,
+        artifacts_to_server_settings: Dict[str, List[Dict]],
+        subtests,
+        request,
+    ):
+        test_id = request.node.name
+        case_id = (
+            f"{test_id}-"
+            f"{dataset_request.dataset.name}-"
+            f"bs{batch_size}-"
+            f"nw{num_workers}-"
+        )
+        for model_artifacts in accuracy_models:
+            model_config = model_artifacts.model_config
+            server_settings = artifacts_to_server_settings[model_config.name]
+            for server_settings_ in server_settings:
+                server_settings_str = "-".join(
+                    f"{key}_{val}" for key, val in server_settings_.items()
+                )
+                with subtests.test(
+                    id=f"{case_id}-{server_settings_str}",
+                    msg=f"Running accuracy test for model: {model_config.name}, case: {case_id}",
+                ):
+                    self._run_accuracy_test(
+                        model_artifacts,
+                        server_settings_,
+                        dataset_request,
+                        batch_size,
+                        num_workers,
+                    )
