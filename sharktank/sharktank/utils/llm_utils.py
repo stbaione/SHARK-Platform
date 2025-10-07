@@ -337,11 +337,13 @@ class LlmRunner:
             batch_size=self._prefill_bs,
             block_seq_stride=self._block_stride,
             llm_task_class=PrefillTask,
+            invocation_fn=self._instance.prefill,
         )
         self._decode_scheduler = Scheduler(
             batch_size=self._decode_bs,
             block_seq_stride=self._block_stride,
             llm_task_class=DecodeTask,
+            invocation_fn=self._instance.decode,
         )
 
         self._cache = [
@@ -394,7 +396,6 @@ class LlmRunner:
         ],
     ):
         return self._prefill_scheduler.run(
-            invocation_fn=self._instance.prefill,
             selection_fn=selection_fn,
             cache=self._cache,
         )
@@ -406,7 +407,6 @@ class LlmRunner:
         ],
     ):
         return self._decode_scheduler.run(
-            invocation_fn=self._instance.decode,
             selection_fn=selection_fn,
             cache=self._cache,
         )

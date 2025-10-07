@@ -17,11 +17,16 @@ class Scheduler:
         batch_size: int,
         block_seq_stride: int,
         llm_task_class: type[LlmTask],
+        invocation_fn: Callable[
+            [List[numpy.ndarray | iree.runtime.DeviceArray | torch.Tensor]],
+            Tuple[numpy.ndarray, Optional[numpy.ndarray]],
+        ],
     ) -> None:
         self._batch_size = batch_size
         self._pending_tasks = []
         self._block_stride = block_seq_stride
         self._llm_task_class = llm_task_class
+        self._invocation_fn = invocation_fn
 
     def schedule_task(self, task: LlmTaskInput) -> None:
         self._pending_tasks.append(task)
@@ -36,10 +41,6 @@ class Scheduler:
 
     def run(
         self,
-        invocation_fn: Callable[
-            [List[numpy.ndarray | iree.runtime.DeviceArray | torch.Tensor]],
-            Tuple[numpy.ndarray, Optional[numpy.ndarray]],
-        ],
         selection_fn: Callable[
             [numpy.ndarray, Optional[numpy.ndarray], List[int]], List[int]
         ],
@@ -51,7 +52,7 @@ class Scheduler:
 
             llm_task_class = self._llm_task_class
             llm_task = llm_task_class(
-                invocation_fn=invocation_fn,
+                invocation_fn=self._invocation_fn,
                 llm_task_inputs=task_inputs,
                 batch_size=self._batch_size,
                 block_stride=self._block_stride,
