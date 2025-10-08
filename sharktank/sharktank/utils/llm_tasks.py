@@ -1,4 +1,3 @@
-import math
 import iree.runtime
 import numpy
 import torch
@@ -72,7 +71,9 @@ class LlmTask(ABC):
         seq_stride = self._block_stride
         for task_input in task_inputs:
             token_len = len(task_input.tokens)
-            max_bsl = max(max_bsl, int(math.ceil(token_len / seq_stride) * seq_stride))
+            max_bsl = max(
+                max_bsl, int(int(numpy.ceil(token_len / seq_stride)) * seq_stride)
+            )
 
         return max_bsl
 
