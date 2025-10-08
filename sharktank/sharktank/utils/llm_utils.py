@@ -313,6 +313,38 @@ class LlmAllocator:
         self._pages.extend(pages)
 
 
+def make_chunks(
+    request: LlmRequest,
+    chunk_block_size: int,
+    block_stride: int,
+) -> List[LlmTaskInput]:
+    chunk_token_size = chunk_block_size * block_stride
+    block_count = int(numpy.ceil(len(request.tokens) / block_stride))
+
+    task_inputs = []
+    for i in range(0, block_count, chunk_block_size):
+        start_position = i * block_stride
+
+        chunk_page_ids = request.pages[: i + chunk_block_size]
+        chunk_tokens = request.tokens[
+            start_position : start_position + chunk_token_size
+        ]
+        seq_len = start_position + len(chunk_tokens)
+
+        task_inputs.append(
+            LlmTaskInput(
+                request_id=request.request_id,
+                chunk_id=i // chunk_block_size,
+                tokens=chunk_tokens,
+                seq_len=seq_len,
+                pages=chunk_page_ids,
+                start_position=start_position,
+            )
+        )
+
+    return task_inputs
+
+
 class LlmRunner:
     def __init__(
         self,
@@ -406,32 +438,11 @@ class LlmRunner:
             ]
 
         # Chunking logic
-        chunk_block_size = self._chunk_block_size
-        chunk_token_size = chunk_block_size * self._block_stride
-        block_count = int(numpy.ceil(len(request.tokens) / self._block_stride))
-
-        task_inputs = []
-        for i in range(0, block_count, chunk_block_size):
-            start_position = i * self._block_stride
-
-            chunk_page_ids = request.pages[: i + chunk_block_size]
-            chunk_tokens = request.tokens[
-                start_position : start_position + chunk_token_size
-            ]
-            seq_len = start_position + len(chunk_tokens)
-
-            task_inputs.append(
-                LlmTaskInput(
-                    request_id=request.request_id,
-                    chunk_id=i // chunk_block_size,
-                    tokens=chunk_tokens,
-                    seq_len=seq_len,
-                    pages=chunk_page_ids,
-                    start_position=start_position,
-                )
-            )
-
-        return task_inputs
+        return make_chunks(
+            request=request,
+            chunk_block_size=self._chunk_block_size,
+            block_stride=self._block_stride,
+        )
 
     def submit_prefill(
         self,
