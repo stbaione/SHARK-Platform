@@ -14,23 +14,22 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 
 from _shortfin import lib as _sfl
 
-from ..batching.facade import BatchingFacade
-from ..decode_config import (
+from shortfin_apps.llm.components.batching.facade import BatchingFacade
+from shortfin_apps.llm.components.decode_config import (
     DecodeConfig,
     LogitsNormalization,
 )
-from ..kvcache.attention_cache_abstract import CacheInfo
-from ..kvcache.base_attention_cache import (
+from shortfin_apps.llm.components.kvcache.attention_cache_abstract import CacheInfo
+from shortfin_apps.llm.components.kvcache.base_attention_cache import (
     CacheAllocationFailure,
     BasePagedAttentionCache,
 )
-from ..kvcache.page_pool import PagePool
-from ..kvcache.trie_attention_cache import TrieCacheInfo
-from ..messages import (
+from shortfin_apps.llm.components.kvcache.page_pool import PagePool
+from shortfin_apps.llm.components.messages import (
     LlmInferenceExecRequest,
     InferencePhase,
 )
-from ..prefill_config import PrefillConfig
+from shortfin_apps.llm.components.prefill_config import PrefillConfig
 
 logger = logging.getLogger(__name__)
 
