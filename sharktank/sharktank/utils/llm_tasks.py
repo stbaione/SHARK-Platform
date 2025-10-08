@@ -18,14 +18,15 @@ def fill_page_table(bs: int, count: int, page_ids: list[list[int]]) -> numpy.nda
 
 @dataclass
 class LlmRequest:
-    rid: str
+    request_id: str
     tokens: List[int]
     pages: List[int]
 
 
 @dataclass
 class LlmTaskInput:
-    task_id: str
+    request_id: str
+    chunk_id: int
     tokens: List[int]
     seq_len: int
     pages: List[int]
@@ -109,7 +110,7 @@ class PrefillTask(LlmTask):
     def logit_positions(self) -> List[int]:
         return [len(task_input.tokens) - 1 for task_input in self._task_inputs]
 
-    def _get_block_count(
+    def _get_sequence_block_count(
         self, batch_seq_len: int, task_inputs: List[LlmTaskInput]
     ) -> int:
         if self._chunk_block_size is None:
@@ -140,17 +141,19 @@ class PrefillTask(LlmTask):
         tokens = [task_input.tokens for task_input in task_inputs]
         page_ids = [task_input.pages for task_input in task_inputs]
 
-        blocked_len = self._get_blocked_token_len(task_inputs)
-        blocks = self._get_block_count(blocked_len, task_inputs)
+        blocked_token_len = self._get_blocked_token_len(task_inputs)
+        sequence_block_count = self._get_sequence_block_count(
+            blocked_token_len, task_inputs
+        )
 
-        tokens_ = numpy.zeros((bs, blocked_len), dtype=numpy.int64)
+        tokens_ = numpy.zeros((bs, blocked_token_len), dtype=numpy.int64)
         lens_ = numpy.ones((bs,), dtype=numpy.int64)
 
         for i, input_tokens in enumerate(tokens):
             tokens_[i, : len(input_tokens)] = input_tokens
             lens_[i] = task_inputs[i].seq_len
 
-        pages_ = fill_page_table(bs, blocks, page_ids)
+        pages_ = fill_page_table(bs, sequence_block_count, page_ids)
 
         args = [tokens_]
         if self._has_prefill_position:

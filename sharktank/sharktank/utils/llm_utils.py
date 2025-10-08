@@ -35,7 +35,7 @@ from sharktank.models.llm.config import ServiceConfig
 from sharktank.models.llm import PagedLlmModelV1
 from sharktank.types import Dataset, Theta
 from sharktank.utils.attention import *
-from sharktank.utils.llm_scheduler import ChunkScheduler, Scheduler, SchedulerInterface
+from sharktank.utils.llm_scheduler import ChunkScheduler, BasicScheduler, Scheduler
 from sharktank.utils.llm_tasks import DecodeTask, LlmTaskInput, LlmRequest, PrefillTask
 from sharktank.utils.math import ceildiv
 from typing import Callable, List, Optional
@@ -336,7 +336,7 @@ class LlmRunner:
         self._allocator = LlmAllocator(page_count=page_count, block_stride=block_stride)
 
         if chunk_block_size is not None:
-            self._prefill_scheduler: SchedulerInterface = ChunkScheduler(
+            self._prefill_scheduler: Scheduler = ChunkScheduler(
                 batch_size=self._prefill_bs,
                 block_seq_stride=self._block_stride,
                 llm_task_class=PrefillTask,
@@ -345,14 +345,14 @@ class LlmRunner:
                 has_prefill_position=True,
             )
         else:
-            self._prefill_scheduler: SchedulerInterface = Scheduler(
+            self._prefill_scheduler: Scheduler = BasicScheduler(
                 batch_size=self._prefill_bs,
                 block_seq_stride=self._block_stride,
                 llm_task_class=PrefillTask,
                 invocation_fn=self._instance.prefill,
             )
 
-        self._decode_scheduler: SchedulerInterface = Scheduler(
+        self._decode_scheduler: Scheduler = BasicScheduler(
             batch_size=self._decode_bs,
             block_seq_stride=self._block_stride,
             llm_task_class=DecodeTask,
@@ -384,7 +384,9 @@ class LlmRunner:
 
         llm_requests = []
         for i, (req, pages) in enumerate(zip(requests, page_ids)):
-            llm_requests.append(LlmRequest(rid=f"req-{i}", tokens=req, pages=pages))
+            llm_requests.append(
+                LlmRequest(request_id=f"req-{i}", tokens=req, pages=pages)
+            )
 
         return llm_requests
 
@@ -395,7 +397,8 @@ class LlmRunner:
         if self._chunk_block_size is None:
             return [
                 LlmTaskInput(
-                    task_id=request.rid,
+                    request_id=request.request_id,
+                    chunk_id=0,
                     tokens=request.tokens,
                     seq_len=len(request.tokens),
                     pages=request.pages,
@@ -419,7 +422,8 @@ class LlmRunner:
 
             task_inputs.append(
                 LlmTaskInput(
-                    task_id=request.rid,
+                    request_id=request.request_id,
+                    chunk_id=i // chunk_block_size,
                     tokens=chunk_tokens,
                     seq_len=seq_len,
                     pages=chunk_page_ids,
@@ -445,7 +449,8 @@ class LlmRunner:
         for request in requests:
             task_inputs.append(
                 LlmTaskInput(
-                    task_id=request.rid,
+                    request_id=request.request_id,
+                    chunk_id=0,
                     tokens=[request.tokens[-1]],
                     seq_len=len(request.tokens),
                     start_position=len(request.tokens) - 1,
@@ -485,7 +490,8 @@ class LlmRunner:
         for i, request in enumerate(requests):
             task_inputs.append(
                 LlmTaskInput(
-                    task_id=f"req-{i}",
+                    request_id=f"req-{i}",
+                    chunk_id=0,
                     tokens=request,
                     seq_len=len(request),
                     pages=page_ids[i],
@@ -511,7 +517,8 @@ class LlmRunner:
         for i, token in enumerate(tokens):
             task_inputs.append(
                 LlmTaskInput(
-                    task_id=f"req-{i}",
+                    request_id=f"req-{i}",
+                    chunk_id=0,
                     tokens=[token],
                     seq_len=positions[i] + 1,
                     start_position=positions[i],
@@ -558,8 +565,8 @@ class LlmDecoder:
 
         llm_requests = self._runner.make_requests(requests, page_ids)
         for req in llm_requests:
-            requests_map[req.rid] = req
-            done[req.rid] = False
+            requests_map[req.request_id] = req
+            done[req.request_id] = False
 
         self._runner.submit_prefill(llm_requests)
 
@@ -575,7 +582,9 @@ class LlmDecoder:
         for _ in range(steps - 1):
             if all(list(done.values())):
                 break
-            to_submit = [request for request in llm_requests if not done[request.rid]]
+            to_submit = [
+                request for request in llm_requests if not done[request.request_id]
+            ]
             self._runner.submit_decode(to_submit)
             selections = self._runner.run_decode(self._greedy_select)
             for rid, token in selections.items():

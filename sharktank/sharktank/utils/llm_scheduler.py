@@ -1,3 +1,4 @@
+import bisect
 import iree.runtime
 import numpy
 import torch
@@ -12,7 +13,7 @@ from sharktank.utils.llm_tasks import (
 )
 
 
-class SchedulerInterface(ABC):
+class Scheduler(ABC):
     def __init__(
         self,
         batch_size: int,
@@ -51,7 +52,7 @@ class SchedulerInterface(ABC):
         pass
 
 
-class Scheduler(SchedulerInterface):
+class BasicScheduler(Scheduler):
     def __init__(
         self,
         batch_size: int,
@@ -108,12 +109,12 @@ class Scheduler(SchedulerInterface):
             )
 
             for i, task in enumerate(task_inputs):
-                selections[task.task_id] = last[i]
+                selections[task.request_id] = last[i]
 
         return selections
 
 
-class ChunkScheduler(SchedulerInterface):
+class ChunkScheduler(Scheduler):
     def __init__(
         self,
         batch_size: int,
@@ -142,22 +143,26 @@ class ChunkScheduler(SchedulerInterface):
         )
 
     def schedule_task(self, task: LlmTaskInput):
-        if task.task_id not in self._pending_tasks:
-            self._pending_tasks[task.task_id] = []
+        if task.request_id not in self._pending_tasks:
+            self._pending_tasks[task.request_id] = []
             self._ready_tasks.append(task)
             return
 
-        self._pending_tasks[task.task_id].append(task)
+        bisect.insort(
+            self._pending_tasks[task.request_id],
+            task,
+            key=lambda x: x.chunk_id,
+        )
 
     def _get_next_batch(self):
         batch = self._ready_tasks[: self._batch_size]
         self._ready_tasks = self._ready_tasks[self._batch_size :]
         for task in batch:
-            if len(self._pending_tasks[task.task_id]) == 0:
-                del self._pending_tasks[task.task_id]
+            if len(self._pending_tasks[task.request_id]) == 0:
+                del self._pending_tasks[task.request_id]
                 continue
 
-            next_task = self._pending_tasks[task.task_id].pop(0)
+            next_task = self._pending_tasks[task.request_id].pop(0)
             self._ready_tasks.append(next_task)
 
         return batch
@@ -193,9 +198,9 @@ class ChunkScheduler(SchedulerInterface):
             )
 
             for i, task in enumerate(task_inputs):
-                if len(self._pending_tasks.get(task.task_id, [])) == 0 and (
+                if len(self._pending_tasks.get(task.request_id, [])) == 0 and (
                     task not in self._ready_tasks
                 ):
-                    selections[task.task_id] = last[i]
+                    selections[task.request_id] = last[i]
 
         return selections
