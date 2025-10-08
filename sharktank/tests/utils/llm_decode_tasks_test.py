@@ -71,7 +71,7 @@ class TestDecodeTask(TestCase):
 
         def _invocation_fn(*args):
             invoked_args.extend(args)
-            return [i for i in range(self._batch_size)]
+            return numpy.array([i for i in range(self._batch_size)])
 
         decode_task = DecodeTask(
             invocation_fn=_invocation_fn,
@@ -113,7 +113,10 @@ class TestDecodeTask(TestCase):
             logits,
             numpy.array([i for i in range(self._batch_size)], dtype=numpy.int64),
         )
-        assert indices is None
+        assert numpy.array_equal(
+            indices,
+            numpy.array([i for i in range(self._batch_size)], dtype=numpy.int64),
+        )
 
     def test_run_w_indices(self):
         requests = self._requests
@@ -158,10 +161,7 @@ class TestDecodeTask(TestCase):
 
         def _invocation_fn(*args):
             invoked_args.extend(args)
-            return (
-                [i for i in range(self._batch_size)],
-                [i + 1 for i in range(self._batch_size)],
-            )
+            return [i for i in range(self._batch_size)][::-1]
 
         decode_task = DecodeTask(
             invocation_fn=_invocation_fn,
@@ -177,20 +177,14 @@ class TestDecodeTask(TestCase):
         assert numpy.array_equal(
             logits,
             numpy.array(
-                [
-                    [3, 2],
-                    [4, 3],
-                ],
+                [3, 2],
                 dtype=numpy.int64,
             ),
         )
         assert numpy.array_equal(
             indices,
             numpy.array(
-                [
-                    [3, 2],
-                    [3, 2],
-                ],
+                [0, 1],
                 dtype=numpy.int64,
             ),
         )
