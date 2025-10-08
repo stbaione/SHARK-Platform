@@ -120,9 +120,12 @@ class PrefillTask(LlmTask):
             task_input.start_position for task_input in task_inputs
         )
 
+        # Number of blocks we're writing to
         write_block_span = batch_seq_len // block_stride
-        max_chunk_start = max_start_position // self._chunk_block_size
+        # Calculate block offset based on the max start position
+        max_chunk_start = max_start_position // block_stride
 
+        # Prevent overflow in write page ids
         block_count = max_chunk_start + write_block_span
         return block_count
 
