@@ -127,7 +127,6 @@ class ChunkScheduler(Scheduler):
         has_prefill_position: bool,
         chunk_block_size: int,
     ) -> None:
-        assert llm_task_class == PrefillTask, "ChunkScheduler only supports PrefillTask"
         assert has_prefill_position, "ChunkScheduler requires has_prefill_position=True"
         assert chunk_block_size is not None, "ChunkScheduler requires chunk_block_size"
 
@@ -181,7 +180,7 @@ class ChunkScheduler(Scheduler):
         while self._has_pending_tasks():
             task_inputs = self._get_next_batch()
 
-            llm_task = PrefillTask(
+            llm_task = self._llm_task_class(
                 invocation_fn=self._invocation_fn,
                 llm_task_inputs=task_inputs,
                 batch_size=self._batch_size,
