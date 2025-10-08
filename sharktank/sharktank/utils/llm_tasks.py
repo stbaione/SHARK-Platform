@@ -233,18 +233,18 @@ class DecodeTask(LlmTask):
     def _process_results(
         self, results
     ) -> Tuple[numpy.ndarray, Optional[numpy.ndarray]]:
-        if isinstance(results, tuple):
-            logits, indices = results
+        if self._decode_topk_logits is not None:
+            logits = torch.asarray(numpy.asarray(results))
+            logits, indices = torch.topk(logits, self._decode_topk_logits)
         else:
-            if self._decode_topk_logits is None:
-                logits = results
-                indices = torch.broadcast_to(
-                    torch.arange(results.shape[-1]), logits.shape
-                )
+            if isinstance(results, tuple):
+                logits, indices = results
             else:
                 logits = torch.asarray(numpy.asarray(results))
-                logits, indices = torch.topk(logits, self._decode_topk_logits)
+                indices = None
 
         logits = numpy.asarray(logits)
-        indices = numpy.asarray(indices)
+        if indices is not None:
+            indices = numpy.asarray(indices)
+
         return logits, indices
