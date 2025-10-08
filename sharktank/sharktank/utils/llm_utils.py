@@ -813,7 +813,7 @@ class LlmInstance:
         self._chunk_block_size = chunk_block_size
 
     @staticmethod
-    def load(instance, config: ServiceConfig, chunk_block_size: int | None):
+    def load(instance, config: ServiceConfig, chunk_block_size: Optional[int] = None):
         page_kv_cache = config.paged_kv_cache
         _block_seq_stride = page_kv_cache.block_seq_stride
         _block_count = page_kv_cache.device_block_count
