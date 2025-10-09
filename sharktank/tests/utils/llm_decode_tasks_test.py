@@ -12,6 +12,7 @@ from sharktank.utils.llm_tasks import (
 )
 
 from sharktank.utils.llm_utils import (
+    dtype_string_to_type,
     IreeInstance,
     LlmRunner,
 )
@@ -27,6 +28,12 @@ class TestDecodeTask(TestCase):
         self._page_sizes = [256]
         self._block_stride = 2
         self._kv_cache_dtype = "float16"
+        self._cache_state = numpy.zeros(
+            (self._page_count, self._page_sizes[0]),
+            dtype=dtype_string_to_type[self._kv_cache_dtype],
+        )
+
+        self._int_dtype = dtype_string_to_type["int64"]
 
         self._llm_runner = LlmRunner(
             instance=self._mock_iree_instance,
@@ -65,7 +72,7 @@ class TestDecodeTask(TestCase):
     def test_run(self):
         requests = self._requests
         page_ids = self._page_ids
-        llm_tasks = self._get_tasks(requests, page_ids)
+        llm_task_inputs = self._get_tasks(requests, page_ids)
 
         invoked_args = []
 
@@ -75,24 +82,22 @@ class TestDecodeTask(TestCase):
 
         decode_task = DecodeTask(
             invocation_fn=_invocation_fn,
-            llm_task_inputs=llm_tasks,
+            llm_task_inputs=llm_task_inputs,
             batch_size=self._batch_size,
             block_stride=self._block_stride,
             decode_topk_logits=None,
         )
-
-        cache_state = [numpy.zeros((16, 256), dtype=numpy.float16)]
-        logits, indices = decode_task.run(*cache_state)
+        logits, indices = decode_task.run(self._cache_state)
 
         expected_tokens = numpy.array(
-            [[request[-1]] for request in requests], dtype=numpy.int64
+            [[request[-1]] for request in requests], dtype=self._int_dtype
         )
         expected_seq_len = numpy.array(
-            [llm_task.seq_len for llm_task in llm_tasks], dtype=numpy.int64
+            [llm_task.seq_len for llm_task in llm_task_inputs], dtype=self._int_dtype
         )
         expected_start_positions = numpy.array(
-            [llm_task.start_position for llm_task in llm_tasks],
-            dtype=numpy.int64,
+            [llm_task.start_position for llm_task in llm_task_inputs],
+            dtype=self._int_dtype,
         )
         expected_seq_block_ids = numpy.array(
             [
@@ -101,21 +106,21 @@ class TestDecodeTask(TestCase):
                 page_ids[2] + [0, 0],
                 page_ids[3],
             ],
-            dtype=numpy.int64,
+            dtype=self._int_dtype,
         )
         assert numpy.array_equal(invoked_args[0], expected_tokens)
         assert numpy.array_equal(invoked_args[1], expected_seq_len)
         assert numpy.array_equal(invoked_args[2], expected_start_positions)
         assert numpy.array_equal(invoked_args[3], expected_seq_block_ids)
-        assert numpy.array_equal(invoked_args[4], cache_state[0])
+        assert numpy.array_equal(invoked_args[4], self._cache_state)
 
         assert numpy.array_equal(
             logits,
-            numpy.array([i for i in range(self._batch_size)], dtype=numpy.int64),
+            numpy.array([i for i in range(self._batch_size)], dtype=self._int_dtype),
         )
         assert numpy.array_equal(
             indices,
-            numpy.array([i for i in range(self._batch_size)], dtype=numpy.int64),
+            numpy.array([i for i in range(self._batch_size)], dtype=self._int_dtype),
         )
 
     def test_run_w_indices(self):
@@ -140,16 +145,17 @@ class TestDecodeTask(TestCase):
             decode_topk_logits=None,
         )
 
-        cache_state = [numpy.zeros((16, 256), dtype=numpy.float16)]
-        logits, indices = decode_task.run(*cache_state)
+        logits, indices = decode_task.run(self._cache_state)
 
         assert numpy.array_equal(
             logits,
-            numpy.array([i for i in range(self._batch_size)], dtype=numpy.int64),
+            numpy.array([i for i in range(self._batch_size)], dtype=self._int_dtype),
         )
         assert numpy.array_equal(
             indices,
-            numpy.array([i + 1 for i in range(self._batch_size)], dtype=numpy.int64),
+            numpy.array(
+                [i + 1 for i in range(self._batch_size)], dtype=self._int_dtype
+            ),
         )
 
     def test_run_w_topk(self):
@@ -171,20 +177,19 @@ class TestDecodeTask(TestCase):
             decode_topk_logits=2,
         )
 
-        cache_state = [numpy.zeros((16, 256), dtype=numpy.float16)]
-        logits, indices = decode_task.run(*cache_state)
+        logits, indices = decode_task.run(self._cache_state)
 
         assert numpy.array_equal(
             logits,
             numpy.array(
                 [3, 2],
-                dtype=numpy.int64,
+                dtype=self._int_dtype,
             ),
         )
         assert numpy.array_equal(
             indices,
             numpy.array(
                 [0, 1],
-                dtype=numpy.int64,
+                dtype=self._int_dtype,
             ),
         )
