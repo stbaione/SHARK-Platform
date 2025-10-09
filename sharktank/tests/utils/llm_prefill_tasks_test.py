@@ -265,13 +265,13 @@ class TestChunkedPrefillTask(TestCase):
         llm_tasks = self._get_tasks(requests, page_ids)
 
         llm_tasks = [
-            # First chunk of request 0
+            # request 0 / chunk 0
             llm_tasks[0],
-            # Second chunk of request 1
+            # request 1 / chunk 1
             llm_tasks[3],
-            # Request 2 (single chunk)
+            # request 2 (single chunk)
             llm_tasks[4],
-            # Second chunk of request 3
+            # request 3 / chunk 1
             llm_tasks[6],
         ]
 
