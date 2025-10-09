@@ -9,7 +9,7 @@ from torch._tensor import Tensor
 
 from sharktank.utils.llm_tasks import LlmTaskInput, LlmTask, PrefillTask
 from sharktank.utils.llm_scheduler import BasicScheduler, ChunkScheduler
-from sharktank.utils.llm_utils import LlmRunner, IreeInstance
+from sharktank.utils.llm_utils import LlmRunner, IreeInstance, dtype_string_to_type
 
 
 class RecordingDummyLlmTask(LlmTask):
@@ -30,7 +30,12 @@ class RecordingDummyLlmTask(LlmTask):
     def _prepare_args(
         self, task_inputs: List[LlmTaskInput], *cache
     ) -> List[numpy.ndarray[tuple[Any, ...], numpy.dtype[Any]] | DeviceArray | Tensor]:
-        return [numpy.array([len(t.tokens) for t in task_inputs], dtype=numpy.int32)]
+        return [
+            numpy.array(
+                [len(t.tokens) for t in task_inputs],
+                dtype=dtype_string_to_type["int64"],
+            )
+        ]
 
     def _process_results(
         self,
@@ -61,7 +66,12 @@ class TestChunkScheduler(TestCase):
         self._page_sizes = [256]
         self._block_stride = 2
         self._kv_cache_dtype = "float16"
-        self._cache = [numpy.zeros((16, 256), dtype=numpy.float16)]
+        self._cache = [
+            numpy.zeros(
+                (self._page_count, self._page_sizes[0]),
+                dtype=dtype_string_to_type[self._kv_cache_dtype],
+            )
+        ]
         self._chunk_block_size = 2
 
         self._llm_runner = LlmRunner(

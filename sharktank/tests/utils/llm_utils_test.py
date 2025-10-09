@@ -78,7 +78,7 @@ class TestMakeChunks(TestCase):
         )
         self.assertEqual(expected, actual)
 
-    def test_multiple_chunks_last_partial(self):
+    def test_chunk_block_size_times_block_stride_does_not_divide_token_length(self):
         # Last chunk is partial
         llm_request = LlmRequest(
             request_id="req-0",
@@ -195,13 +195,13 @@ class TestLlmRunner(TestCase):
             [10, 11, 12, 13],
         ]
 
-        submitted_tasks = []
+        submitted_task_inputs = []
         llm_runner = self._llm_runner
         llm_requests = llm_runner.make_requests(requests=requests, page_ids=page_ids)
         with patch.object(
             BasicScheduler,
             "schedule_task",
-            side_effect=lambda task: submitted_tasks.append(task),
+            side_effect=lambda task: submitted_task_inputs.append(task),
         ):
             llm_runner.submit_prefill(llm_requests)
 
@@ -240,7 +240,7 @@ class TestLlmRunner(TestCase):
             ),
         ]
 
-        self.assertEqual(expected_task_inputs, submitted_tasks)
+        self.assertEqual(expected_task_inputs, submitted_task_inputs)
 
     def test_submit_decode(self):
         requests = [
@@ -256,13 +256,13 @@ class TestLlmRunner(TestCase):
             [10, 11, 12, 13],
         ]
 
-        submitted_tasks = []
+        submitted_task_inputs = []
         llm_runner = self._llm_runner
         llm_requests = llm_runner.make_requests(requests=requests, page_ids=page_ids)
         with patch.object(
             BasicScheduler,
             "schedule_task",
-            side_effect=lambda task: submitted_tasks.append(task),
+            side_effect=lambda task: submitted_task_inputs.append(task),
         ):
             llm_runner.submit_decode(llm_requests)
 
@@ -301,7 +301,7 @@ class TestLlmRunner(TestCase):
             ),
         ]
 
-        self.assertEqual(expected_task_inputs, submitted_tasks)
+        self.assertEqual(expected_task_inputs, submitted_task_inputs)
 
 
 class TestLlmRunnerWithChunking(TestCase):
@@ -340,13 +340,13 @@ class TestLlmRunnerWithChunking(TestCase):
             [10, 11, 12, 13],
         ]
 
-        submitted_tasks = []
+        submitted_task_inputs = []
         llm_runner = self._llm_runner
         llm_requests = llm_runner.make_requests(requests=requests, page_ids=page_ids)
         with patch.object(
             ChunkScheduler,
             "schedule_task",
-            side_effect=lambda task: submitted_tasks.append(task),
+            side_effect=lambda task: submitted_task_inputs.append(task),
         ):
             llm_runner.submit_prefill(llm_requests)
 
@@ -409,4 +409,4 @@ class TestLlmRunnerWithChunking(TestCase):
             ),
         ]
 
-        self.assertEqual(expected_task_inputs, submitted_tasks)
+        self.assertEqual(expected_task_inputs, submitted_task_inputs)

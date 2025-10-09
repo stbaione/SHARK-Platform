@@ -28,7 +28,12 @@ class RecordingDummyLlmTask(LlmTask):
     def _prepare_args(
         self, task_inputs: List[LlmTaskInput], *cache
     ) -> List[numpy.ndarray[tuple[Any, ...], numpy.dtype[Any]] | DeviceArray | Tensor]:
-        return [numpy.array([len(t.tokens) for t in task_inputs], dtype=numpy.int32)]
+        return [
+            numpy.array(
+                [len(t.tokens) for t in task_inputs],
+                dtype=dtype_string_to_type["int64"],
+            )
+        ]
 
     def _process_results(
         self,
@@ -185,9 +190,9 @@ class TestBasicScheduler(TestCase):
             ),
         ]
 
+        self.assertEqual(len(constructed_batches), 2)
         self.assertEqual(constructed_batches[0], expected_batch_0)
         self.assertEqual(constructed_batches[1], expected_batch_1)
-        self.assertEqual(len(constructed_batches), 2)
 
         expected_selections = {
             llm_request.request_id: len(llm_request.tokens) - 1

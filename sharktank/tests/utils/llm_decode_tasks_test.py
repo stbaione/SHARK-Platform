@@ -56,23 +56,23 @@ class TestDecodeTask(TestCase):
             [10, 11, 12, 13],
         ]
 
-    def _get_tasks(self, requests, page_ids) -> List[LlmTaskInput]:
+    def _get_llm_task_inputs(self, requests, page_ids) -> List[LlmTaskInput]:
         llm_runner = self._llm_runner
         llm_requests = llm_runner.make_requests(requests=requests, page_ids=page_ids)
-        llm_tasks = []
+        llm_task_inputs = []
         with patch.object(
             BasicScheduler,
             "schedule_task",
-            side_effect=lambda task: llm_tasks.append(task),
+            side_effect=lambda task: llm_task_inputs.append(task),
         ):
             llm_runner.submit_decode(llm_requests)
 
-        return llm_tasks
+        return llm_task_inputs
 
     def test_run(self):
         requests = self._requests
         page_ids = self._page_ids
-        llm_task_inputs = self._get_tasks(requests, page_ids)
+        llm_task_inputs = self._get_llm_task_inputs(requests, page_ids)
 
         invoked_args = []
 
@@ -126,7 +126,7 @@ class TestDecodeTask(TestCase):
     def test_run_w_indices(self):
         requests = self._requests
         page_ids = self._page_ids
-        llm_tasks = self._get_tasks(requests, page_ids)
+        llm_task_inputs = self._get_llm_task_inputs(requests, page_ids)
 
         invoked_args = []
 
@@ -139,7 +139,7 @@ class TestDecodeTask(TestCase):
 
         decode_task = DecodeTask(
             invocation_fn=_invocation_fn,
-            llm_task_inputs=llm_tasks,
+            llm_task_inputs=llm_task_inputs,
             batch_size=self._batch_size,
             block_stride=self._block_stride,
             decode_topk_logits=None,
@@ -161,7 +161,7 @@ class TestDecodeTask(TestCase):
     def test_run_w_topk(self):
         requests = self._requests
         page_ids = self._page_ids
-        llm_tasks = self._get_tasks(requests, page_ids)
+        llm_task_inputs = self._get_llm_task_inputs(requests, page_ids)
 
         invoked_args = []
 
@@ -171,7 +171,7 @@ class TestDecodeTask(TestCase):
 
         decode_task = DecodeTask(
             invocation_fn=_invocation_fn,
-            llm_task_inputs=llm_tasks,
+            llm_task_inputs=llm_task_inputs,
             batch_size=self._batch_size,
             block_stride=self._block_stride,
             decode_topk_logits=2,
