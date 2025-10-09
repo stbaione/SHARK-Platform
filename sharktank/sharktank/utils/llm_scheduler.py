@@ -132,6 +132,11 @@ class ChunkScheduler(Scheduler):
 
         self._has_prefill_position = has_prefill_position
         self._chunk_block_size = chunk_block_size
+
+        # `pending_tasks` contains chunks that cannot yet be safely invoke on
+        # while `ready_tasks` contains chunks that can safely be included in a batch.
+        # When the `n - 1` chunk is scheduled for invocation, the `nth` chunk
+        # with the same `request_id` will be moved from `pending_tasks` to `ready_tasks`.
         self._pending_tasks: Dict[str, List[LlmTaskInput]] = {}
         self._ready_tasks: List[LlmTaskInput] = []
         super().__init__(
