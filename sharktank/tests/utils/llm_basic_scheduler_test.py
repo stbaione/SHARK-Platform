@@ -3,13 +3,13 @@ from iree.runtime.array_interop import DeviceArray
 import numpy
 
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from torch._tensor import Tensor
 
-from sharktank.utils.llm_tasks import LlmTaskInput, LlmTask, PrefillTask
-from sharktank.utils.llm_scheduler import BasicScheduler, ChunkScheduler
-from sharktank.utils.llm_utils import LlmRunner, IreeInstance
+from sharktank.utils.llm_tasks import LlmTaskInput, LlmTask
+from sharktank.utils.llm_scheduler import BasicScheduler
+from sharktank.utils.llm_utils import dtype_string_to_type, LlmRunner, IreeInstance
 
 
 class RecordingDummyLlmTask(LlmTask):
@@ -21,8 +21,6 @@ class RecordingDummyLlmTask(LlmTask):
         llm_task_inputs: List[LlmTaskInput],
         batch_size: int,
         block_stride: int,
-        has_prefill_position: bool = False,
-        chunk_block_size: int = None,
     ):
         super().__init__(invocation_fn, llm_task_inputs, batch_size, block_stride)
         self.__class__.constructed_batches.append(llm_task_inputs)
@@ -61,7 +59,12 @@ class TestBasicScheduler(TestCase):
         self._page_sizes = [256]
         self._block_stride = 2
         self._kv_cache_dtype = "float16"
-        self._cache = [numpy.zeros((16, 256), dtype=numpy.float16)]
+        self._cache = [
+            numpy.zeros(
+                (self._page_count, self._page_sizes[0]),
+                dtype=dtype_string_to_type[self._kv_cache_dtype],
+            )
+        ]
 
         self._llm_runner = LlmRunner(
             instance=self._mock_iree_instance,
