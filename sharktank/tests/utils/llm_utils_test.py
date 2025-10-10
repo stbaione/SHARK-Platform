@@ -78,8 +78,10 @@ class TestMakeChunks(TestCase):
         )
         self.assertEqual(expected, actual)
 
-    def test_chunk_block_size_times_block_stride_does_not_divide_token_length(self):
-        # Last chunk is partial
+    def test_multiple_chunks_last_partial(self):
+        # Test to validate we handle the case where
+        # len(input_tokens) is not divisible by chunk_size * block_stride.
+        # This makes the last chunk a `partial` chunk.
         llm_request = LlmRequest(
             request_id="req-0",
             tokens=[1, 2, 3, 4, 5],
