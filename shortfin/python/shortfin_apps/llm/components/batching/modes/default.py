@@ -19,6 +19,7 @@ from ..config import BatchConfig
 
 from ...config_struct import ModelParams
 from ...device_array_cache import DeviceArrayCache
+from ...fiber_pool import FiberPool
 from ...invocation import (
     DecodeTask,
     PrefillTask,
@@ -168,6 +169,7 @@ class LlmBatcherProcess(BatcherProcess):
         program_isolation: str,
         scheduler: AbstractScheduler,
         llm_task_responder: LlmTaskResponder,
+        invocation_fiber_pool: FiberPool | None = None,  # type: ignore
     ):
         super().__init__(fiber=fiber)
         self.name = name
@@ -185,6 +187,8 @@ class LlmBatcherProcess(BatcherProcess):
 
         self.scheduler = scheduler
         self._llm_task_responder = llm_task_responder
+
+        self._invocation_fiber_pool = invocation_fiber_pool
 
     def handle_inference_request(self, request: LlmInferenceExecRequest):
         """Handle an inference request."""
@@ -222,7 +226,15 @@ class LlmBatcherProcess(BatcherProcess):
         scheduled = []
         for job in to_schedule:
             scheduled = scheduled + job
-            self.board(page_cache, self.fiber, job)
+            invocation_idx, invocation_fiber = (
+                await self._invocation_fiber_pool.get()
+                if self._invocation_fiber_pool is not None
+                else (None, self.fiber)
+            )
+            logger.info(
+                f"Boarding request with fiber: {invocation_fiber}, idx: {invocation_idx}"
+            )
+            self.board(page_cache, invocation_fiber, job, invocation_idx)
             logger.debug("Post boarding cache state: %r", page_cache)
 
     def make_task_inputs(
@@ -242,6 +254,7 @@ class LlmBatcherProcess(BatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         task_inputs: list[LlmTaskInput],
+        invocation_idx: Optional[int] = None,  # type: ignore
     ) -> "LlmInvocationProcess":
         """Create instance of `LlmInvoker`.
 
@@ -260,6 +273,7 @@ class LlmBatcherProcess(BatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         to_schedule: List[LlmTaskInput],
+        invocation_idx: Optional[int] = None,
     ):
         """Create and launch an LlmExecutorProcess for the given request batch.
 
@@ -278,7 +292,7 @@ class LlmBatcherProcess(BatcherProcess):
             if request is not None:
                 task_inputs.append(request)
 
-        exec_process = self.make_invoker(page_cache, fiber, task_inputs)
+        exec_process = self.make_invoker(page_cache, fiber, task_inputs, invocation_idx)
 
         # We've filled our flight. Remove from the boarding area.
         if task_inputs:
@@ -303,6 +317,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         prefill_functions: dict[int, sf.ProgramFunction],
         program_isolation: str,
         chunk_block_size: Optional[int],
+        invocation_fiber_pool: FiberPool | None = None,  # type: ignore
     ):
         ideal_batch_size = max(model_params.prefill_batch_sizes)
         if chunk_block_size is not None:
@@ -321,6 +336,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             program_isolation=program_isolation,
             scheduler=scheduler,
             llm_task_responder=llm_task_responder,
+            invocation_fiber_pool=invocation_fiber_pool,
         )
 
         self._chunk_block_size = chunk_block_size
@@ -402,6 +418,7 @@ class PrefillBatcherProcess(LlmBatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         task_inputs: list[LlmTaskInput],
+        invocation_idx: Optional[int] = None,  # type: ignore
     ) -> "LlmInvocationProcess":
         """Create instance of `LlmInvoker`.
 
@@ -420,6 +437,8 @@ class PrefillBatcherProcess(LlmBatcherProcess):
             functions=self.functions,
             program_isolation=self.program_isolation,
             responder=self._llm_task_responder,
+            invocation_idx=invocation_idx,
+            invocation_fiber_pool=self._invocation_fiber_pool,
         )
 
 
@@ -439,6 +458,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         model_params: ModelParams,
         decode_functions: dict[int, sf.ProgramFunction],
         program_isolation: str,
+        invocation_fiber_pool: FiberPool | None = None,  # type: ignore
     ):
         ideal_batch_size = max(model_params.decode_batch_sizes)
         scheduler = Scheduler(ideal_batch_size=ideal_batch_size)
@@ -452,6 +472,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             program_isolation=program_isolation,
             scheduler=scheduler,
             llm_task_responder=DecodeTaskResponder(scheduler=scheduler),
+            invocation_fiber_pool=invocation_fiber_pool,
         )
 
     def make_task_inputs(
@@ -486,6 +507,7 @@ class DecodeBatcherProcess(LlmBatcherProcess):
         page_cache: BasePagedAttentionCache,
         fiber: Fiber,
         task_inputs: list[LlmTaskInput],
+        invocation_idx: Optional[int] = None,  # type: ignore
     ) -> "LlmInvocationProcess":
         """Create instance of `LlmInvoker`.
 
@@ -507,6 +529,8 @@ class DecodeBatcherProcess(LlmBatcherProcess):
             functions=self.functions,
             program_isolation=self.program_isolation,
             responder=self._llm_task_responder,
+            invocation_idx=invocation_idx,
+            invocation_fiber_pool=self._invocation_fiber_pool,
         )
 
 
@@ -544,7 +568,12 @@ class DefaultBatchingEngine(BatchingTrait):
 
     @staticmethod
     def create(
-        batch_cfg: BatchConfig, page_cache: BasePagedAttentionCache, prefill_fiber: sf.Fiber, decode_fiber: sf.Fiber | None = None  # type: ignore
+        batch_cfg: BatchConfig,
+        page_cache: BasePagedAttentionCache,
+        prefill_fiber: sf.Fiber,
+        decode_fiber: sf.Fiber | None = None,
+        prefill_invocation_fiber_pool: FiberPool | None = None,
+        decode_invocation_fiber_pool: FiberPool | None = None,  # type: ignore
     ):
         assert (
             decode_fiber is not None
@@ -556,6 +585,7 @@ class DefaultBatchingEngine(BatchingTrait):
             prefill_functions=batch_cfg.prefill_functions,
             program_isolation=batch_cfg.prog_isolation,
             chunk_block_size=batch_cfg.chunk_block_size,
+            invocation_fiber_pool=prefill_invocation_fiber_pool,
         )
         decode_batcher = DecodeBatcherProcess(
             fiber=decode_fiber,
@@ -563,6 +593,7 @@ class DefaultBatchingEngine(BatchingTrait):
             model_params=batch_cfg.model_params,
             decode_functions=batch_cfg.decode_functions,
             program_isolation=batch_cfg.prog_isolation,
+            invocation_fiber_pool=decode_invocation_fiber_pool,
         )
 
         return DefaultBatchingEngine(

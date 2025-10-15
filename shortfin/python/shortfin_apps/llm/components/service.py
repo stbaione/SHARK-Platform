@@ -60,6 +60,13 @@ class LlmGenerateService(GenerateService):
             self.sysman, self.queue_manager.get_max_queue_size(), resizable=True
         )
 
+        self._invocation_fiber_pool = FiberPool(
+            self.sysman,
+            16,
+            resizable=False,
+            name="prefill-invocation-fiber-pool",
+        )
+
     def _initialize_worker_and_fiber(self):
         self.main_worker = self.sysman.ls.create_worker(f"{self.name}-inference-main-0")
         self.main_fiber = self.sysman.ls.create_fiber(self.main_worker)
@@ -127,7 +134,12 @@ class LlmGenerateService(GenerateService):
             self.server_params.chunk_block_size,
         )
         self.unified_batcher = BatchingFacade.build_batcher(
-            batch_cfg, self.page_cache, self.prefill_fiber, self.decode_fiber
+            batch_cfg,
+            self.page_cache,
+            self.prefill_fiber,
+            self.decode_fiber,
+            self._invocation_fiber_pool,
+            self._invocation_fiber_pool,
         )
         self.unified_batcher.launch()
 

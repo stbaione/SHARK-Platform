@@ -12,6 +12,7 @@ import shortfin as sf
 
 from typing import Callable
 
+from ..fiber_pool import FiberPool
 from ..kvcache.base_attention_cache import BasePagedAttentionCache
 from ..messages import LlmInferenceExecRequest
 from .factory import _BatchingEngineImpl, _create_impl
@@ -46,6 +47,8 @@ class BatchingFacade:
         page_cache: BasePagedAttentionCache,
         prefill_fiber: sf.Fiber,  # type: ignore
         decode_fiber: sf.Fiber | None = None,  # type: ignore
+        prefill_invocation_fiber_pool: FiberPool | None = None,  # type: ignore
+        decode_invocation_fiber_pool: FiberPool | None = None,  # type: ignore
     ) -> "BatchingFacade":
         return BatchingFacade(
             impl=_create_impl(
@@ -53,5 +56,7 @@ class BatchingFacade:
                 page_cache=page_cache,
                 prefill_fiber=prefill_fiber,
                 decode_fiber=decode_fiber,
+                prefill_invocation_fiber_pool=prefill_invocation_fiber_pool,
+                decode_invocation_fiber_pool=decode_invocation_fiber_pool,
             )
         )

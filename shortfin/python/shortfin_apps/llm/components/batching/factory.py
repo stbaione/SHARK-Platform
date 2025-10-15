@@ -16,6 +16,7 @@ from .config import BatchConfig, BatchMode
 from ..kvcache.base_attention_cache import BasePagedAttentionCache
 from .batching_trait import BatchingTrait
 from .modes.default import DefaultBatchingEngine
+from ..fiber_pool import FiberPool
 from ..messages import LlmInferenceExecRequest
 
 
@@ -50,7 +51,14 @@ class _BatchingEngineImpl:
         return self.batching_engine.get_model_params()
 
 
-def _create_impl(batch_cfg: BatchConfig, page_cache: BasePagedAttentionCache, prefill_fiber: sf.Fiber, decode_fiber: sf.Fiber | None = None):  # type: ignore
+def _create_impl(
+    batch_cfg: BatchConfig,
+    page_cache: BasePagedAttentionCache,
+    prefill_fiber: sf.Fiber,
+    decode_fiber: sf.Fiber | None = None,
+    prefill_invocation_fiber_pool: FiberPool | None = None,
+    decode_invocation_fiber_pool: FiberPool | None = None,
+):  # type: ignore
     if batch_cfg.mode == BatchMode.DEFAULT:
         return _BatchingEngineImpl(
             DefaultBatchingEngine.create(
@@ -58,6 +66,8 @@ def _create_impl(batch_cfg: BatchConfig, page_cache: BasePagedAttentionCache, pr
                 page_cache=page_cache,
                 prefill_fiber=prefill_fiber,
                 decode_fiber=decode_fiber,
+                prefill_invocation_fiber_pool=prefill_invocation_fiber_pool,
+                decode_invocation_fiber_pool=decode_invocation_fiber_pool,
             ),
             page_cache=page_cache,
         )

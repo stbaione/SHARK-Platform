@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple, Union
 
 from .buffers import copy_buffers_to_host, create_argument_buffers
 from .device_array_cache import Allocation, DeviceArrayCache, WrappedAllocation
+from .fiber_pool import FiberPool
 from .messages import LlmInferenceExecRequest
 
 
@@ -372,6 +373,8 @@ class LlmInvocationProcess(sf.Process):
         functions: dict[int, sf.ProgramFunction],
         program_isolation: sf.ProgramIsolation,
         responder: LlmTaskResponder,
+        invocation_idx: Optional[int] = None,
+        invocation_fiber_pool: Optional[FiberPool] = None,
     ):
         super().__init__(fiber=fiber)
         self._name = name
@@ -381,6 +384,9 @@ class LlmInvocationProcess(sf.Process):
         self._device0 = fiber.device(0)
         self._llm_task = llm_task
         self._responder = responder
+
+        self._invocation_idx = invocation_idx
+        self._invocation_fiber_pool = invocation_fiber_pool
 
     async def run(self):
         """Invoke `prefill` or `decode` function, with IREE, on a batch of requests.
@@ -416,6 +422,13 @@ class LlmInvocationProcess(sf.Process):
                 indices,
                 self._device0,
             )
+
+            if self._invocation_fiber_pool is not None:
+                assert self._invocation_idx is not None
+                logger.info(
+                    f"Returning invocation fiber {self._invocation_idx} to pool"
+                )
+                self._invocation_fiber_pool.return_fiber(self._invocation_idx)
 
             self._responder.set_success(self._llm_task, logits, indices)
 
